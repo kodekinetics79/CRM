@@ -289,20 +289,45 @@ export function installMigrationRoutes(app, { list, get, create, validate, audit
       if (!result.valid) throw failure(400, 'Migration has validation errors; preview and resolve every row before commit');
       if (result.previewDigest !== previewDigest) throw failure(409, 'Preview changed or expired; preview the current source, mapping and dependencies again');
       if (result.replayed) return publicPlan(result);
-      const batchId = randomUUID(), resolved = new Map();
+      const batchId = randomUUID(), resolved = new Map(), retained = new Map();
+      const retain = mapping => retained.set(keyOf(mapping.collection, mapping.record_id), mapping);
+      for (const node of result.nodes) if (node.existingId) retain(db.prepare('SELECT * FROM migration_mapping WHERE source=? AND collection=? AND external_id=?').get(input.source, node.collection, node.data.sourceId));
       const resolve = (collection, externalId) => {
         const key = keyOf(collection, externalId);
         if (resolved.has(key)) return resolved.get(key);
-        const mapping = db.prepare('SELECT record_id FROM migration_mapping WHERE source=? AND collection=? AND external_id=?').get(input.source, collection, externalId);
+        const mapping = db.prepare('SELECT * FROM migration_mapping WHERE source=? AND collection=? AND external_id=?').get(input.source, collection, externalId);
         if (!mapping) throw failure(400, 'Unmapped source dependency during commit');
+        retain(mapping);
         return mapping.record_id;
       };
-      const recordIds = [];
+      const recordIds = [], created = [];
       for (const node of result.nodes) {
         if (node.existingId) { resolved.set(node.key, node.existingId); continue; }
-        const record = create(node.collection, result.payload(node, resolve), req.user);
+        const inputPayload = result.payload(node, resolve);
+        // Establish the native normalization before writing, not from a potentially
+        // altered persisted record. Existing defaults and accepted strings remain valid.
+        const expected = { ...validate(node.collection, inputPayload) };
+        if (node.collection === 'gifts') Object.assign(expected, { status: 'Posted', schoolYear: schoolYear(expected.date) });
+        const record = create(node.collection, inputPayload, req.user);
         resolved.set(node.key, record.id); recordIds.push({ collection: node.collection, sourceId: node.data.sourceId, recordId: record.id });
-        db.prepare('INSERT INTO migration_mapping VALUES(?,?,?,?,?,?,?)').run(input.source, node.collection, node.data.sourceId, record.id, node.sourceHash, hash(record), batchId);
+        created.push({ node, recordId: record.id, expected });
+      }
+      const persisted = (collection, id) => {
+        try { const record = get(collection, id); if (record.id !== id) throw new Error('Persisted identity changed'); return record; }
+        catch { throw failure(409, 'Migration persisted record is missing or changed identity; entire batch rolled back'); }
+      };
+      // A later create can alter an earlier row or retained dependency. Verify all
+      // rows only after every create, before recording their source mapping hashes.
+      for (const mapping of retained.values()) if (hash(persisted(mapping.collection, mapping.record_id)) !== mapping.record_hash) throw failure(409, 'Migration retained record or dependency changed during commit; entire batch rolled back');
+      const generated = new Set(['id', 'version', 'createdAt', 'updatedAt']);
+      for (const item of created) {
+        item.record = persisted(item.node.collection, item.recordId);
+        if (!z.object({ id: z.uuid(), version: z.literal(1), createdAt: z.string().datetime(), updatedAt: z.string().datetime() }).safeParse(item.record).success) throw failure(409, 'Migration persisted creation metadata is invalid; entire batch rolled back');
+        const values = Object.fromEntries(Object.entries(item.record).filter(([key]) => !generated.has(key)));
+        if (hash(values) !== hash(item.expected)) throw failure(409, 'Migration persisted field reconciliation failed: fields or dependencies differ from normalized source; entire batch rolled back');
+      }
+      for (const { node, recordId, record } of created) {
+        db.prepare('INSERT INTO migration_mapping VALUES(?,?,?,?,?,?,?)').run(input.source, node.collection, node.data.sourceId, recordId, node.sourceHash, hash(record), batchId);
       }
       const sourceRecords = result.nodes.map(node => ({ collection: node.collection, sourceId: node.data.sourceId, recordId: resolved.get(node.key), reused: Boolean(node.existingId) }));
       const actualNewControlTotals = controlTotals(recordIds.filter(r => r.collection === 'gifts').map(r => {

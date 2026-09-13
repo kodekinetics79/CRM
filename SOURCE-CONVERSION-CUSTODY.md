@@ -53,3 +53,5 @@ The current pass shares declarative mapping fields/required fields/limits betwee
 ## Connected-history checkpoint
 
 The latest bounded extension passes 504 tests and synthetic five-file browser commit/replay. See CONNECTED-HISTORY-CONVERSION.md for exact fields, exclusions and financial cutoff verification. This supersedes earlier review notes listing campaigns, contact arrays and all interactions as unsupported; those notes remain historical analysis. The complete ten-year conversion criterion remains partial.
+
+The follow-on persisted-history checkpoint passes508 tests and compares actual saved normalized fields/links as well as counts and financial controls. See PERSISTED-HISTORY-INTEGRITY.md. Original export bytes, source classification approval and complete unsupported historical mapping remain outside this invariant.
