@@ -754,11 +754,11 @@
     "capability": "Mailchimp",
     "points": 40,
     "sourcePages": "17 / 26",
-    "basicLocalDisposition": "Missing",
+    "basicLocalDisposition": "Partial",
     "evidenceModules": "C",
-    "currentBehaviorAndGap": "No Mailchimp integration or conversion of roughly 6500 contacts/10 years exists.",
-    "acceptanceToClose": "Approved trial audience/history conversion reconciles counts, segments/consent and unsubscribe/delete behavior.",
-    "reviewedAgainst": "Final RFP; supplied addenda; source baseline 94c8498 plus bounded September 13 Staff/dashboard/schedule corrections",
+    "currentBehaviorAndGap": "Administrator-only TEST_ONLY READ_ONLY Mailchimp adapter, explicit current primary-email/audience/member binding, distinct canonical API and returned callback identities, retained status/suppressions and campaign statistics are locally verified. No provider send/write or actual account/audience/callback registration was executed. Capacity1000bindings does not establish6500contact/ten-year conversion acceptance.",
+    "acceptanceToClose": "Operate approved actual Mailchimp identity/consent/history reconciliation and signed callback setup against authorized source exports; accept pagination/scale/custody and offered synchronization/delivery scope. No assumed opt-in, autoSubscribe or provider deletion of native financial history.",
+    "reviewedAgainst": "Final RFPp17/AttachmentG and supplied addenda; September13 frozen read-only marketing-response source,755integrated tests and mocked-provider built journey; actual account/buyer/history acceptance remains open",
     "acceptedByBuyer": false,
     "workstreams": [
       "Marketing, delivery and response tracking"
@@ -769,11 +769,11 @@
     "capability": "Response tracking",
     "points": 40,
     "sourcePages": "17 / 26",
-    "basicLocalDisposition": "Missing",
+    "basicLocalDisposition": "Partial",
     "evidenceModules": "C",
-    "currentBehaviorAndGap": "No provider-derived bounce/unsubscribe/delete/statistics exist.",
-    "acceptanceToClose": "Signed/provider events update campaign statistics once; unsubscribe blocks subsequent sends and deletion propagates.",
-    "reviewedAgainst": "Final RFP; supplied addenda; source baseline 94c8498 plus bounded September 13 Staff/dashboard/schedule corrections",
+    "currentBehaviorAndGap": "Signed simulated unsubscribe/cleaned/removal/address-change response evidence retains marketing-only denial through stale subscribed reads and retire/rebind. Versioned read-only campaign sent/bounce/unsubscribe/open/click snapshots replace current totals with immutable prior evidence and optimistic stale-read checks. Observations do not prove human replies, readership or actual CRM delivery.",
+    "acceptanceToClose": "Execute approved provider bounce/unsubscribe/removal/statistics and response-attribution acceptance; adopt consent/resubscription/erasure/retention policy and full source history/volume. Complete actual governed email marketing delivery separately; preserve donor financial and printed-acknowledgment history.",
+    "reviewedAgainst": "Final RFPp17/AttachmentG and supplied addenda; September13 frozen read-only marketing-response source,755integrated tests and mocked-provider built journey; actual account/buyer/history acceptance remains open",
     "acceptedByBuyer": false,
     "workstreams": [
       "Marketing, delivery and response tracking"

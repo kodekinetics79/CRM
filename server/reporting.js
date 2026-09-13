@@ -3,9 +3,9 @@ import {buildReportCatalog,validateReportDefinition,runCustomReport,ReportError,
 
 // Definitions live beside each workspace's records; the extra scope key also
 // prevents accidental sharing when a host uses one connection for several tenants.
-export function installReportingRoutes(app,{list,audit,csrf,write,transaction,db,collections,documentMigrationTenantId=null,communicationWorkflows=null,peerFundraising=null,hostedGiving=null}){
+export function installReportingRoutes(app,{list,audit,csrf,write,transaction,db,collections,documentMigrationTenantId=null,communicationWorkflows=null,peerFundraising=null,hostedGiving=null,marketingResponses=null}){
  db.exec(`CREATE TABLE IF NOT EXISTS custom_reports(id TEXT NOT NULL, scope TEXT NOT NULL, version INTEGER NOT NULL, definition TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(scope,id))`);
- const adminEntities=new Set(['hostedGivingIntents','hostedGivingEvents','hostedGivingHistory','peerFundraisers','peerFundraiserVersions','peerGiftAttributions','peerGiftAttributionHistory','communicationWorkflows','communicationWorkflowMemberships','communicationWorkflowEntries','communicationWorkflowExecutions','communicationWorkflowOutcomes','documentMigrationMappings','documentMigrationReconciliations','taskReminderSchedules','taskReminderOutcomes','taskReminderInbox','eventHelperAssignments','eventHelperAccessHistory','identityAliases','migrationBatches','migrationMappings','receiptProfiles','receiptProfileRevisions','workspaceUsers','workspaceSettings','auditHistory','tributes','tributeVersions','tributeNotifications','tributeNotificationFinalizations','tributeNotificationWithdrawals']);
+ const adminEntities=new Set(['marketingBindings','marketingResponseEvents','marketingCampaignObservations','hostedGivingIntents','hostedGivingEvents','hostedGivingHistory','peerFundraisers','peerFundraiserVersions','peerGiftAttributions','peerGiftAttributionHistory','communicationWorkflows','communicationWorkflowMemberships','communicationWorkflowEntries','communicationWorkflowExecutions','communicationWorkflowOutcomes','documentMigrationMappings','documentMigrationReconciliations','taskReminderSchedules','taskReminderOutcomes','taskReminderInbox','eventHelperAssignments','eventHelperAccessHistory','identityAliases','migrationBatches','migrationMappings','receiptProfiles','receiptProfileRevisions','workspaceUsers','workspaceSettings','auditHistory','tributes','tributeVersions','tributeNotifications','tributeNotificationFinalizations','tributeNotificationWithdrawals']);
  const enforceSourceRole=(entity,user)=>{if(adminEntities.has(entity)&&user.role!=='admin')throw new ReportError('This report source requires administrator access.',403);};
  const requiredRole=(entity,user)=>adminEntities.has(entity)||['documents','documentRevisions','reportDeliveries','customReportDefinitions','grantMilestones','grantMilestoneVersions','grantMilestoneEvidence'].includes(entity)&&user.role==='admin'?'admin':'authenticated';
  const scope=req=>String(req?.tenantId??req?.tenant?.id??'workspace');
@@ -21,6 +21,7 @@ export function installReportingRoutes(app,{list,audit,csrf,write,transaction,db
   authorized(req.user);const result={},admin=req.user.role==='admin',people=new Map(list('constituents',req).map(c=>[c.id,c]));
   if(admin&&peerFundraising)Object.assign(result,peerFundraising.reportSources(req.user));
   if(admin&&hostedGiving)Object.assign(result,hostedGiving.reportSources(req.user));
+  if(admin&&marketingResponses)Object.assign(result,marketingResponses.reportSources(req.user));
   const add=(entity,table,sql,project)=>{if(hasTable(table))result[entity]=rows(sql).map(project);};
   if(hasTable('documents')&&hasTable('document_revisions')){
    const where=admin?'':" WHERE d.visibility<>'Administrators'";
