@@ -85,8 +85,8 @@ export function createApp({dbPath=':memory:',seed=true,tenantId=null,tenantInfo=
  const list=c=>db.prepare('SELECT data FROM records WHERE collection=? ORDER BY rowid').all(c).map(r=>JSON.parse(r.data));
  const get=(c,i)=>{const r=db.prepare('SELECT data FROM records WHERE collection=? AND id=?').get(c,i);if(!r)fail(404,'Record not found');return JSON.parse(r.data);};
  const exists=(c,i)=>{if(i==null)return true;const row=db.prepare('SELECT data FROM records WHERE collection=? AND id=?').get(c,i);return Boolean(row&&!JSON.parse(row.data).mergedInto);};
- let fundraisingGuard=null,eventGuard=null,tributeGuard=null,grantGuard=null;
- const put=(c,r)=>{const previous=db.prepare('SELECT data FROM records WHERE collection=? AND id=?').get(c,r.id);if(previous){const old=JSON.parse(previous.data);fundraisingGuard?.validateMutation(c,old,r);eventGuard?.validateMutation(c,old,r);tributeGuard?.validateMutation(c,old,r);}return db.prepare('INSERT INTO records VALUES(?,?,?) ON CONFLICT(collection,id) DO UPDATE SET data=excluded.data').run(c,r.id,JSON.stringify(r));};
+ let fundraisingGuard=null,eventGuard=null,tributeGuard=null,grantGuard=null,receiptGuard=null;
+ const put=(c,r)=>{const previous=db.prepare('SELECT data FROM records WHERE collection=? AND id=?').get(c,r.id);if(previous){const old=JSON.parse(previous.data);fundraisingGuard?.validateMutation(c,old,r);eventGuard?.validateMutation(c,old,r);tributeGuard?.validateMutation(c,old,r);receiptGuard?.validateMutation(c,old,r);}return db.prepare('INSERT INTO records VALUES(?,?,?) ON CONFLICT(collection,id) DO UPDATE SET data=excluded.data').run(c,r.id,JSON.stringify(r));};
  const transaction=fn=>{db.exec('BEGIN IMMEDIATE');try{const result=fn();db.exec('COMMIT');return result;}catch(e){db.exec('ROLLBACK');throw e;}};
  const audit=(u,action,c,r,details={})=>db.prepare('INSERT INTO audit(actor,action,collection,record_id,at,details) VALUES(?,?,?,?,?,?)').run(u?.id||'system',action,c||null,r||null,now(),JSON.stringify(details));
  const schoolYear=d=>{const y=+d.slice(0,4),m=+d.slice(5,7),month=getSettings().fiscalStartMonth;if(month===1)return String(y);const start=m>=month?y:y-1;return `${start}–${start+1}`;};
@@ -224,7 +224,7 @@ export function createApp({dbPath=':memory:',seed=true,tenantId=null,tenantInfo=
  fundraisingGuard=installFundraisingRoutes(app,{db,list,get,getSettings,audit,csrf,write,admin,transaction});
  const eventOperations=eventGuard=installEventOperationsRoutes(app,{db,list,get,put,audit,csrf,write,admin,transaction});
  for(const route of ['/api/identity/merge/preview','/api/identity/merge'])app.post(route,csrf,admin,(req,res,next)=>{if(typeof req.body?.sourceId==='string'&&eventOperations.hasConstituentReferences(req.body.sourceId))return res.status(409).json({error:'This source identity has retained event, ticket, sponsorship or auction history. Historical consolidation requires a reviewed alias workflow.'});next();});
- installReceiptRoutes(app,{db,list,get,getSettings,audit,csrf,write,admin,transaction});
+ receiptGuard=installReceiptRoutes(app,{db,list,get,getSettings,audit,csrf,write,admin,transaction});
  installIdentityRoutes(app,{db,list,get,put,validate,audit,csrf,admin,transaction,collections});
  installCommunicationsRoutes(app,{db,list,get,getSettings,audit,csrf,write,transaction});
  installDocumentRoutes(app,{db,list,get,audit,csrf,write,admin,transaction,collections});

@@ -50,6 +50,14 @@ The review reproduced each issue before changing its guard, then added actual AP
 
 These fixes establish the reviewed local controls, not a certification or proof that every possible threat has been eliminated.
 
+## Subsequent multidisciplinary review checkpoint
+
+A dedicated finance/controller review, independent nonprofit operations review and independent security/data/storage review are now complete; see [SME-REVIEW-AND-SIGNOFF.md](SME-REVIEW-AND-SIGNOFF.md). These are AI-assisted domain reviews, not outside licensed professional approval. They found open correction-history, receipt-benefit, cutoff and connected-workflow issues; the register and discipline reports retain their acceptance tests.
+
+The new issued-receipt gift-void bypass was reproduced and repaired with explicit route operation and core mutation guards. The complete mounted application then passed **326/326 tests**, zero failures/skips, in **16.2 seconds**. This subsequent check includes the new regression. No frontend source changed in this repair; the previous production build remains the UI evidence. Both local servers were restarted with the repair.
+
+Direct Ollama cloud authentication and an actual authenticated Wimblo workflow-help request returned HTTP 200 with generated review-required text. Only a static workflow question was sent, with zero donor source records. The key resides in an ignored owner-only local backend configuration, not the source or UI. This check establishes connectivity, not model accuracy or real-data approval. No cloud deployment or production tenant configuration occurred.
+
 ## What still closes the RFP
 
 **Product capabilities:** public peer-to-peer and approved online/card/ACH/recurring payment flows; executing marketing/workflow delivery, optional SMS, Mailchimp synchronization/response tracking and offered Stripe compatibility; preferred SSO/connectors; helper/module access policy and remaining business-model depth. Provider sandboxes, credentials and buyer payment-account restrictions must be respected. A method label or draft is not payment or delivery.

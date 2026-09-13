@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {once} from 'node:events';
 import {createApp} from '../server/app.js';
+import {installReceiptRoutes} from '../server/receipts.js';
 
 const profile=(changes={})=>({version:0,organizationName:'Receipt test organization',address:'123 Test Street, Test City',taxIdentifier:'TEST-ONLY-ID',signatureLabel:'Authorized receipt signer',customFooter:'Client approval pending; fictional test organization.',approved:true,...changes});
 async function fixture(t,{configure=true}={}){
@@ -46,6 +47,21 @@ test('active issued receipts reject financial changes and gift voids, permit not
  assert.equal((await f.request(`/api/gifts/${g.id}/void`,{method:'POST',session:f.staff,body:{version:1,reason:'Correction'}})).status,409);const note=await f.request(`/api/records/gifts/${g.id}`,{method:'PATCH',session:f.staff,body:{version:1,notes:'Nonfinancial note'}});assert.equal(note.status,200);assert.equal((await f.read(r.id)).json.receipt.monetaryCents,12345);
  const receiptVoid=await f.voidReceipt(issued);assert.equal(receiptVoid.status,200);assert.equal(receiptVoid.json.receipt.status,'Voided');assert.equal(receiptVoid.json.receipt.version,3);assert.equal((await f.voidReceipt(issued)).status,409);
  const edit=await f.request(`/api/records/gifts/${g.id}`,{method:'PATCH',session:f.staff,body:{version:2,amount:12346,allocations:[{designationId:f.fund.id,amount:12346}]}});assert.equal(edit.status,200);assert.equal((await f.read(r.id)).json.receipt.monetaryCents,12345);assert.equal((await f.read(r.id)).json.receipt.number,'R-00000001');
+});
+
+test('issued receipt protection survives trailing slashes and encoded IDs without changing financial or audit history',async t=>{
+ const f=await fixture(t),g=await f.gift(),r=await f.prepare({giftId:g.id}),issued=(await f.issue(r)).json.receipt;
+ const encoded='%'+g.id.charCodeAt(0).toString(16)+g.id.slice(1),before=f.db.prepare('SELECT data FROM records WHERE collection=? AND id=?').get('gifts',g.id).data,auditBefore=f.db.prepare('SELECT count(*) n FROM audit').get().n;
+ for(const id of [g.id,encoded])for(const suffix of ['/void','/void/']){const denied=await f.request(`/api/gifts/${id}${suffix}`,{method:'POST',session:f.staff,body:{version:1,reason:'Correct financial source'}});assert.equal(denied.status,409);assert.equal(denied.json.receiptId,r.id);assert.equal(f.db.prepare('SELECT data FROM records WHERE collection=? AND id=?').get('gifts',g.id).data,before);assert.equal(f.db.prepare('SELECT count(*) n FROM audit').get().n,auditBefore);assert.equal((await f.read(r.id)).json.receipt.status,'Issued');}
+ // Exercise the shared writer contract with a complete next record, independent
+ // of any Express route spelling or request-body field checks.
+ const noop=()=>{},routes={use:noop,patch:noop,post:noop,get:noop,put:noop};const guard=installReceiptRoutes(routes,{db:f.db});const current=JSON.parse(before);
+ for(const changes of [{status:'Voided'},{amount:12346},{constituentId:f.other.id}])assert.throws(()=>guard.validateMutation('gifts',current,{...current,...changes}),e=>e.status===409&&/Void the receipt/.test(e.message));
+ assert.doesNotThrow(()=>guard.validateMutation('gifts',current,{...current,notes:'Permitted metadata',schoolYearOverride:'2024–2025'}));
+ const fiscal=await f.request(`/api/gifts/${encoded}/school-year/`,{method:'POST',session:f.staff,body:{version:1,schoolYear:'2024–2025',reason:'Authorized fiscal assignment'}});assert.equal(fiscal.status,200);assert.equal(fiscal.json.record.amount,g.amount);assert.equal(fiscal.json.record.status,'Posted');
+ const note=await f.request(`/api/records/gifts/${encoded}/`,{method:'PATCH',session:f.staff,body:{version:2,notes:'Permitted note'}});assert.equal(note.status,200);
+ assert.equal((await f.voidReceipt(issued)).status,200);assert.doesNotThrow(()=>guard.validateMutation('gifts',current,{...current,status:'Voided'}));
+ const released=await f.request(`/api/gifts/${encoded}/void/`,{method:'POST',session:f.staff,body:{version:3,reason:'Source correction after receipt void'}});assert.equal(released.status,200);assert.equal(released.json.record.status,'Voided');assert.equal((await f.read(r.id)).json.receipt.status,'Voided');assert.equal((await f.read(r.id)).json.receipt.monetaryCents,g.amount);
 });
 
 test('fees and voids cannot issue, noncash requires description without assigned value, and sponsors explicitly disclose benefits',async t=>{
