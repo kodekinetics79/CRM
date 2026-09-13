@@ -7,6 +7,7 @@ import {installTributeRoutes} from './tributes.js';
 import {installEventOperationsRoutes} from './eventOperations.js';
 import {installEventHelperAccessRoutes} from './eventHelperAccess.js';
 import {installReceiptRoutes} from './receipts.js';
+import {installAudienceRoutes} from './audiences.js';
 import {installCommunicationsRoutes} from './communications.js';
 import {createMfaService,assertMfaEncryptionKey,mfaAccountBinding} from './mfa.js';
 import {installIdentityRoutes} from './identity.js';
@@ -247,7 +248,8 @@ export function createApp({dbPath=':memory:',seed=true,tenantId=null,tenantInfo=
  const financialCorrections=installFinancialCorrections(app,{db,get,audit});
  taskOwnership=installTaskOwnership(app,{db,get,audit,fail});
  installIdentityRoutes(app,{db,list,get,put,validate,audit,csrf,admin,transaction,collections});
- const correspondenceService=installCommunicationsRoutes(app,{db,list,get,getSettings,audit,csrf,write,transaction});
+ const audienceService=installAudienceRoutes(app,{db,list,audit,csrf,write,transaction,isTenantActive,recheckAccess:req=>{const session=db.prepare('SELECT * FROM sessions WHERE token_hash=?').get(req.session.token_hash);const user=db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);const time=Date.now();if(!session||session.user_id!==req.user.id||session.expires<time||session.last_seen<time-30*60*1000||!user?.active||!['admin','staff','viewer'].includes(user.role)||session.account_binding!==mfaAccountBinding(user))return false;const factor=mfa.status(user);return factor.enabled?factor.available&&session.mfa_verified===1:session.mfa_verified!==1&&!(production&&user.role==='admin');}});
+ const correspondenceService=installCommunicationsRoutes(app,{db,list,get,getSettings,audit,csrf,write,transaction,audiences:audienceService});
  const documentService=installDocumentRoutes(app,{db,list,get,audit,csrf,write,admin,transaction,collections,objectStorage:documentStorage,tenantId:documentTenantId,isTenantActive,scanDocument:documentScanner});app.locals.documentService=documentService;
  grantGuard=installGrantOperationsRoutes(app,{db,list,get,audit,csrf,write,admin,transaction,documentService});
  const reporting=installReportingRoutes(app,{db,list,get,audit,csrf,write,transaction,collections:collections.filter(c=>c!=='evaluations'||acceptanceEnabled)});
