@@ -57,6 +57,17 @@ test('selected opt-outs block entire preparation and email draft uses only prima
  await f.editPerson(f.bob,{preference:'Do not contact'});assert.equal((await f.finalize(c)).status,403);assert.equal(f.db.prepare('SELECT count(*) n FROM correspondence_finalizations').get().n,0);
 });
 
+test('prepared and finalized messaging retain source identities while opt-out and unrelated deletion remain available',async t=>{
+ const f=await fixture(t),template=await f.template('Messaging'),prepared=await f.prepare(template,{constituentIds:[f.alice.id]}),reviewed=await f.prepare(template,{constituentIds:[f.bob.id]});assert.equal((await f.finalize(reviewed)).status,200);
+ const originals=[f.alice,f.bob].map(p=>f.db.prepare("SELECT data FROM records WHERE collection='constituents' AND id=?").get(p.id).data),auditBefore=f.db.prepare('SELECT count(*) n FROM audit').get().n;
+ for(const p of [f.alice,f.bob]){const removal=await f.request(`/api/records/constituents/${p.id}`,{method:'DELETE',session:f.staff,body:{version:p.version}});assert.equal(removal.status,409,JSON.stringify(removal.json));assert.match(removal.json.error,/retained correspondence/i);}
+ assert.deepEqual([f.alice,f.bob].map(p=>f.db.prepare("SELECT data FROM records WHERE collection='constituents' AND id=?").get(p.id).data),originals);assert.equal(f.db.prepare('SELECT count(*) n FROM audit').get().n,auditBefore);
+ assert.equal((await f.request(`/api/records/constituents/${f.alice.id}`,{method:'DELETE',session:f.viewer,body:{version:f.alice.version}})).status,403);assert.equal((await f.request(`/api/records/constituents/${f.alice.id}`,{method:'DELETE',session:f.staff,csrf:false,body:{version:f.alice.version}})).status,403);
+ const optedOut=await f.editPerson(f.alice,{preference:'Do not contact'});assert.equal((await f.finalize(prepared)).status,403);assert.equal((await f.request(`/api/records/constituents/${optedOut.id}`,{method:'DELETE',session:f.staff,body:{version:f.alice.version}})).status,409);
+ const unrelated=await f.person('Unrelated removable contact');assert.equal((await f.request(`/api/records/constituents/${unrelated.id}`,{method:'DELETE',session:f.staff,body:{version:unrelated.version}})).status,200);
+ await f.restart();assert.equal((await f.request(`/api/records/constituents/${optedOut.id}`,{method:'DELETE',session:f.staff,body:{version:optedOut.version}})).status,409);const history=await f.request(`/api/correspondence/${prepared.id}`,{session:f.viewer});assert.equal(history.status,200);assert.equal(history.json.correspondence.items[0].recipient.id,f.alice.id);assert.equal((await f.request(`/api/correspondence/${reviewed.id}`,{session:f.viewer})).json.correspondence.status,'Finalized');
+});
+
 test('acknowledgment semantics separate noncash from monetary value; fee and void cannot become donation snapshots',async t=>{
  const f=await fixture(t),r=await f.template(),noncash=await f.gift(22222,{type:'In-kind',method:'In-kind'}),c=await f.prepare(r,{giftIds:[noncash.id]});assert.equal(c.items[0].semantics.monetaryCents,0);assert.equal(c.items[0].semantics.noncashCents,22222);assert.match(c.items[0].body,/Monetary: Not monetary support/);assert.match(c.items[0].body,/not an assessed deductible amount/);
  const fee=await f.gift(50,{type:'Fee payment'}),voided=await f.gift(100);const voidResult=await f.request(`/api/gifts/${voided.id}/void`,{method:'POST',session:f.staff,body:{version:1,reason:'Fixture reversal'}});assert.equal(voidResult.status,200);

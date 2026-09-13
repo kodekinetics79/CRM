@@ -22,6 +22,13 @@ export function installFinancialCorrections(app,{db,get,audit}){
  CREATE TRIGGER IF NOT EXISTS gift_corrections_no_delete BEFORE DELETE ON gift_financial_corrections BEGIN SELECT RAISE(ABORT,'Financial correction history is immutable'); END;`);
  const present=row=>({id:row.id,giftId:row.gift_id,fromVersion:row.from_version,toVersion:row.to_version,before:JSON.parse(row.before_json),after:JSON.parse(row.after_json),changedFields:JSON.parse(row.changed_fields),sourceVersions:{before:JSON.parse(row.before_references),after:JSON.parse(row.after_references)},reason:row.reason,actor:JSON.parse(row.actor_json),at:row.at});
  app.get('/api/gifts/:id/corrections',(req,res)=>{get('gifts',req.params.id);res.json({corrections:db.prepare('SELECT * FROM gift_financial_corrections WHERE gift_id=? ORDER BY from_version,id').all(req.params.id).map(present)});});
+ const retainedSourceCollections=new Set(['constituents','campaigns','pledges','grants','designations']);
+ function validateDeletion(collection,record){
+  if(!retainedSourceCollections.has(collection)||!record?.id)return;
+  const referenced=db.prepare(`SELECT 1 FROM gift_financial_corrections h,json_each(h.before_references) r WHERE json_extract(r.value,'$.collection')=? AND json_extract(r.value,'$.id')=?
+   UNION ALL SELECT 1 FROM gift_financial_corrections h,json_each(h.after_references) r WHERE json_extract(r.value,'$.collection')=? AND json_extract(r.value,'$.id')=? LIMIT 1`).get(collection,record.id,collection,record.id);
+  if(referenced){const error=new Error('Financial correction history retains this source record; deletion would orphan original source provenance.');error.status=409;throw error;}
+ }
  function reasonFor(before,after,reason){
   const changedFields=changedGiftFinancialFields(before,after);
   if(!changedFields.length)return {changedFields,reason:null};
@@ -40,5 +47,5 @@ export function installFinancialCorrections(app,{db,get,audit}){
   audit(actor,'correct_gift_financial_facts','gifts',before.id,{correctionId:row.id,fromVersion:before.version,toVersion:after.version,changedFields:change.changedFields,reason:change.reason});
   return present(row);
  }
- return {reasonFor,retain};
+ return {reasonFor,retain,validateDeletion};
 }

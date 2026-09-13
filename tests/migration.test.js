@@ -32,7 +32,7 @@ async function fixture(t, options = {}) {
   const create = (collection, fields, user) => {
     validate(collection, fields); creates++;
     const record = { ...fields, id: randomUUID(), version: 1, createdAt: '2026-09-13T12:00:00Z', updatedAt: '2026-09-13T12:00:00Z', ...(collection === 'gifts' ? { status: 'Posted', schoolYear: '2026–2027' } : {}) };
-    put(collection, record); audit(user, 'create', collection, record.id);
+    put(collection, options.corruptPersisted && collection === 'gifts' ? options.corruptPersisted(record, list) : record); audit(user, 'create', collection, record.id);
     if (options.failCreate === creates) throw new Error('Synthetic persistence failure');
     return record;
   };
@@ -219,4 +219,182 @@ test('actual mapped source records cannot be deleted through plain or encoded ID
   for(const id of [record.recordId,'%'+record.recordId.charCodeAt(0).toString(16)+record.recordId.slice(1)]){const denied=await call('/api/records/'+collection+'/'+id,'DELETE',{version:1});assert.equal(denied.status,409);assert.match(denied.json.error,/source mappings/);}
   const replay=await call('/api/migration/preview','POST',input);assert.equal(replay.status,200);assert.equal(replay.json.replayed,true);assert.ok(app.locals.db.prepare('SELECT 1 FROM records WHERE collection=? AND id=?').get(collection,record.recordId));assert.deepEqual(replay.json.recordIds,saved.json.recordIds);
  }
+});
+
+
+test('migration financial controls split exact cents by revenue, method and designation for new and reused gifts', async t => {
+  const f = await fixture(t);
+  const fund2 = { sourceId: 'fund-2', name: 'Second program', accountCode: 'SECOND-202' };
+  const split = { ...gifts().rows[0], amount: '0.30', allocations: JSON.stringify([{ designationSourceId: 'fund-1', amount: '0.10' }, { designationSourceId: 'fund-2', amount: '0.20' }]) };
+  delete split.designationSourceId;
+  const noncash = { ...split, sourceId: 'noncash', externalRef: 'NONCASH', amount: '1.10', type: 'In-kind', method: 'In-kind', allocations: JSON.stringify([{ designationSourceId: 'fund-2', amount: '1.10' }]) };
+  const input = batch({ files: [donors(), file('designations', [funds().rows[0], fund2]), file('gifts', [split, noncash])] });
+  const preview = await f.request('preview', input);
+  const controls = preview.json.summary.controlTotals;
+  assert.deepEqual(controls.all.byType, [{ key: 'Cash', giftCount: 1, totalCents: '30' }, { key: 'In-kind', giftCount: 1, totalCents: '110' }]);
+  assert.deepEqual(controls.all.byMethod, [{ key: 'Check', giftCount: 1, totalCents: '30' }, { key: 'In-kind', giftCount: 1, totalCents: '110' }]);
+  assert.deepEqual(controls.all.byDesignation, [{ sourceId: 'fund-1', accountCode: 'SCHOOL-101', allocationCount: 1, totalCents: '10' }, { sourceId: 'fund-2', accountCode: 'SECOND-202', allocationCount: 2, totalCents: '130' }]);
+  assert.deepEqual(controls.new, controls.all); assert.deepEqual(controls.reused.byType, []);
+  const committed = await f.request('commit', { ...input, previewDigest: preview.json.previewDigest }); assert.equal(committed.status, 201, JSON.stringify(committed.json));
+  assert.deepEqual(committed.json.reconciliation.actualNewControlTotals, controls.all);
+  const repeat = await previewAndCommit(f, { ...input, fileKey: 'same-rows-new-batch' });
+  assert.equal(repeat.status, 201); assert.deepEqual(repeat.json.summary.controlTotals.reused, controls.all); assert.deepEqual(repeat.json.summary.controlTotals.new.byType, []);
+  assert.deepEqual(repeat.json.reconciliation.actualNewControlTotals.byDesignation, []); assert.equal(f.list('gifts').length, 2);
+  const replay = await f.request('commit', { ...input, previewDigest: preview.json.previewDigest });
+  assert.equal(replay.status, 200); assert.deepEqual(replay.json.summary.controlTotals, controls);
+});
+
+test('same-grand-total posting to the wrong revenue class or payment method rolls back conversion', async t => {
+  for (const change of [{ type: 'Grant' }, { method: 'Cash' }]) {
+    const f = await fixture(t, { corruptPersisted: record => ({ ...record, ...change }) });
+    const input = batch(); const preview = await f.request('preview', input);
+    const before = f.counts();
+    const committed = await f.request('commit', { ...input, previewDigest: preview.json.previewDigest });
+    assert.equal(committed.status, 409); assert.match(committed.json.error, /reconciliation failed/); assert.deepEqual(f.counts(), before);
+  }
+});
+
+test('same-grand-total allocation misposting rolls back source records and lineage atomically', async t => {
+  const f = await fixture(t, { corruptPersisted: record => ({ ...record, allocations: record.allocations.map(a => ({ ...a, amount: a.amount === 10000 ? 2345 : 10000 })) }) });
+  const row = { ...gifts().rows[0], allocations: JSON.stringify([{ designationSourceId: 'fund-1', amount: '100.00' }, { designationSourceId: 'fund-2', amount: '23.45' }]) }; delete row.designationSourceId;
+  const input = batch({ files: [donors(), file('designations', [funds().rows[0], { sourceId: 'fund-2', name: 'Other fund', accountCode: 'SECOND-202' }]), file('gifts', [row])] });
+  const preview = await f.request('preview', input); assert.equal(preview.json.valid, true);
+  const committed = await f.request('commit', { ...input, previewDigest: preview.json.previewDigest });
+  assert.equal(committed.status, 409); assert.match(committed.json.error, /reconciliation failed/);
+  assert.deepEqual(f.counts(), { records: 0, mappings: 0, batches: 0, audit: 0 });
+});
+
+test('batch detail preserves immutable financial reconciliation and reports current source lineage separately', async t => {
+  const f = await fixture(t); const input = batch(); const committed = await previewAndCommit(f, input);
+  const initial = await f.request('batches/' + committed.json.batchId);
+  assert.equal(initial.status, 200); assert.deepEqual(initial.json.batch, committed.json);
+  assert.deepEqual(initial.json.integrity, { unchanged: 3, changed: 0, missing: 0 });
+  assert.equal(initial.json.lineageCoverage, 'All batch source rows'); assert.match(initial.json.sourceFingerprint, /^[a-f0-9]{64}$/);
+  assert.deepEqual(initial.json.batch.sourceFiles[0], { file: 1, collection: 'constituents', rowCount: 1, mapping: donors().mapping });
+  assert.ok(!JSON.stringify(initial.json).includes('Actual source note'));
+  const gift = f.list('gifts')[0]; f.put('gifts', { ...gift, version: 2, notes: 'Authorized later correction' });
+  const detail = await f.request('batches/' + committed.json.batchId);
+  assert.deepEqual(detail.json.batch, committed.json); assert.deepEqual(detail.json.integrity, { unchanged: 2, changed: 1, missing: 0 });
+  assert.equal(detail.json.lineage.find(r => r.collection === 'gifts').status, 'Changed');
+  assert.equal(detail.json.lineage.find(r => r.collection === 'gifts').originalBatchId, committed.json.batchId);
+  const replay = await f.request('preview', input); assert.equal(replay.json.replayed, true); assert.deepEqual(replay.json.reconciliation, committed.json.reconciliation);
+  const donor = f.list('constituents')[0]; f.db.prepare('DELETE FROM records WHERE collection=? AND id=?').run('constituents', donor.id);
+  assert.deepEqual((await f.request('batches/' + committed.json.batchId)).json.integrity, { unchanged: 1, changed: 1, missing: 1 });
+});
+
+test('reused batch lineage points to its original source batch and legacy history discloses limited coverage', async t => {
+  const f = await fixture(t); const first = await previewAndCommit(f, batch());
+  const second = await previewAndCommit(f, batch({ fileKey: 'reused-source-batch' }));
+  const detail = await f.request('batches/' + second.json.batchId);
+  assert.equal(detail.json.lineage.length, 3); assert.ok(detail.json.lineage.every(r => r.reused && r.originalBatchId === first.json.batchId));
+  const legacy = { ...first.json }; delete legacy.sourceRecords; delete legacy.sourceFiles;
+  f.db.prepare('UPDATE import_batches SET result=? WHERE id=?').run(JSON.stringify(legacy), first.json.batchId);
+  const old = await f.request('batches/' + first.json.batchId);
+  assert.equal(old.json.lineageCoverage, 'Newly created rows only'); assert.equal(old.json.lineage.length, 3);
+});
+
+test('batch detail rejects invalid and unknown identifiers and never exposes conversion history to staff', async t => {
+  const f = await fixture(t); const committed = await previewAndCommit(f, batch());
+  assert.equal((await f.request('batches/not-an-id')).status, 400);
+  assert.equal((await f.request('batches/' + randomUUID())).status, 404);
+  for (const role of ['staff', 'viewer']) assert.equal((await f.request('batches/' + committed.json.batchId, undefined, { role })).status, 403);
+  assert.equal((await f.request('batches/' + committed.json.batchId, undefined, { role: null })).status, 401);
+});
+
+
+test('mounted first import invalidates preview when a February fiscal start changes to March in an empty workspace', async t => {
+  const credentials = { name: 'Migration operator', email: 'migration.operator@example.test', password: 'MigrationFixture!2026' };
+  const app = createApp({ seed: false, initialAdmin: credentials });
+  const server = app.listen(0, '127.0.0.1'); await once(server, 'listening');
+  t.after(async () => { await new Promise(resolve => server.close(resolve)); app.locals.close(); });
+  const base = 'http://127.0.0.1:' + server.address().port;
+  const signed = await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: credentials.email, password: credentials.password }) });
+  assert.equal(signed.status, 200); const session = await signed.json(), cookie = signed.headers.get('set-cookie').split(';')[0];
+  const call = async (path, method, body) => {
+    const response = await fetch(base + path, { method, headers: { 'Content-Type': 'application/json', Cookie: cookie, 'X-CSRF-Token': session.csrfToken }, body: JSON.stringify(body) });
+    return { status: response.status, json: await response.json() };
+  };
+  assert.equal(app.locals.db.prepare('SELECT count(*) n FROM records').get().n, 0);
+  assert.equal((await call('/api/settings', 'PATCH', { organizationName: 'Wimblo', fiscalStartMonth: 2 })).status, 200);
+  const input = batch({ files: [donors(), funds(), gifts({ date: '2026-02-15' })] });
+  const first = await call('/api/migration/preview', 'POST', input); assert.equal(first.status, 200); assert.equal(first.json.valid, true);
+  assert.equal((await call('/api/settings', 'PATCH', { organizationName: 'Wimblo', fiscalStartMonth: 3 })).status, 200);
+  const auditBefore = app.locals.db.prepare('SELECT count(*) n FROM audit').get().n;
+  const stale = await call('/api/migration/commit', 'POST', { ...input, previewDigest: first.json.previewDigest });
+  assert.equal(stale.status, 409); assert.match(stale.json.error, /Preview changed or expired/);
+  assert.equal(app.locals.db.prepare('SELECT count(*) n FROM records').get().n, 0);
+  assert.equal(app.locals.db.prepare('SELECT count(*) n FROM migration_mapping').get().n, 0);
+  assert.equal(app.locals.db.prepare('SELECT count(*) n FROM import_batches').get().n, 0);
+  assert.equal(app.locals.db.prepare('SELECT count(*) n FROM audit').get().n, auditBefore);
+  const fresh = await call('/api/migration/preview', 'POST', input);
+  assert.equal(fresh.status, 200); assert.notEqual(fresh.json.previewDigest, first.json.previewDigest);
+  const committed = await call('/api/migration/commit', 'POST', { ...input, previewDigest: fresh.json.previewDigest });
+  assert.equal(committed.status, 201, JSON.stringify(committed.json));
+  const record = JSON.parse(app.locals.db.prepare("SELECT data FROM records WHERE collection='gifts'").get().data);
+  assert.equal(record.date, '2026-02-15'); assert.equal(record.schoolYear, '2025–2026');
+});
+
+
+function insertHistory(f, id, time, index, extra = {}) {
+  const result = { batchId: id, source: 'History fixture', fileKey: 'history-' + index, committedAt: time, valid: true, replayed: false,
+    summary: { rowCount: 500, giftTotalCents: '10', newGiftTotalCents: '10' }, reconciliation: { expectedNewGiftCents: '10', actualNewGiftCents: '10' }, ...extra };
+  f.db.prepare('INSERT INTO import_batches VALUES(?,?,?,?,?,?,?,?)').run(id, result.source, result.fileKey, 'a'.repeat(64), 'b'.repeat(64), time, 'test-admin', JSON.stringify(result));
+  return result;
+}
+
+test('migration history keyset pages every older batch once with stable timestamp ties and a bounded compact list', async t => {
+  const f = await fixture(t); const expected = [];
+  for (let i = 0; i < 113; i++) {
+    const id = randomUUID(), time = i < 60 ? '2026-09-13T12:00:00.000Z' : '2026-09-12T12:00:00.000Z';
+    insertHistory(f, id, time, i, { summary: { rowCount: 500, giftTotalCents: '10', newGiftTotalCents: '10', controlTotals: { all: { byDesignation: [{ description: 'x'.repeat(8000) }] } } }, reconciliation: { expectedNewGiftCents: '10', actualNewGiftCents: '10', expectedNewControlTotals: { byDesignation: [{ description: 'x'.repeat(8000) }] }, actualNewControlTotals: { byDesignation: [{ description: 'x'.repeat(8000) }] } }, rows: [{ notes: 'x'.repeat(8000) }], sourceRecords: [{ collection: 'constituents', sourceId: 'Not in compact list', recordId: randomUUID(), reused: false }], sourceFiles: [{ mapping: { notes: 'Private source column' } }], recordIds: [{ recordId: randomUUID() }] });
+    expected.push({ id, time });
+  }
+  expected.sort((a, b) => b.time.localeCompare(a.time) || b.id.localeCompare(a.id));
+  const seen = []; let cursor = null, pages = 0;
+  do {
+    const page = await f.request('batches' + (cursor ? '?cursor=' + encodeURIComponent(cursor) : ''));
+    assert.equal(page.status, 200); assert.ok(page.json.batches.length <= 25);
+    assert.ok(JSON.stringify(page.json).length < 20000);
+    for (const row of page.json.batches) {
+      assert.equal(row.summary.giftTotalCents, '10'); assert.equal(row.reconciliation.actualNewGiftCents, '10');
+      assert.ok(!Object.hasOwn(row.summary, 'controlTotals')); assert.ok(!Object.hasOwn(row.reconciliation, 'expectedNewControlTotals')); assert.ok(!Object.hasOwn(row.reconciliation, 'actualNewControlTotals'));
+      for (const field of ['rows', 'recordIds', 'sourceFiles', 'sourceRecords', 'previewDigest']) assert.ok(!Object.hasOwn(row, field));
+      seen.push(row.batchId);
+    }
+    cursor = page.json.nextCursor; pages++;
+  } while (cursor);
+  assert.equal(pages, 5); assert.deepEqual(seen, expected.map(r => r.id)); assert.equal(new Set(seen).size, 113);
+  const detail = await f.request('batches/' + seen.at(-1)); assert.equal(detail.status, 200); assert.equal(detail.json.batch.rows[0].notes.length, 8000); assert.equal(detail.json.batch.summary.controlTotals.all.byDesignation[0].description.length, 8000);
+  const max = await f.request('batches?limit=100'); assert.equal(max.status, 200); assert.equal(max.json.batches.length, 100); assert.ok(max.json.nextCursor);
+  const plan = f.db.prepare('EXPLAIN QUERY PLAN SELECT id FROM import_batches WHERE (committed_at,id)<(?,?) ORDER BY committed_at DESC,id DESC LIMIT ?').all('2026-09-13T12:00:00.000Z', seen[0], 26);
+  assert.ok(plan.some(r => /SEARCH .*import_batches_history/.test(r.detail)), JSON.stringify(plan));
+});
+
+test('history cursor does not repeat rows when a newer batch arrives between pages or the cursor row is removed', async t => {
+  const f = await fixture(t);
+  for (let i = 0; i < 8; i++) insertHistory(f, randomUUID(), '2026-09-13T12:00:00.000Z', i);
+  const first = await f.request('batches?limit=4'); assert.equal(first.json.batches.length, 4);
+  const newest = randomUUID(); insertHistory(f, newest, '2026-09-14T12:00:00.000Z', 8);
+  f.db.prepare('DELETE FROM import_batches WHERE id=?').run(first.json.batches.at(-1).batchId);
+  const second = await f.request('batches?limit=4&cursor=' + first.json.nextCursor);
+  assert.equal(second.status, 200); assert.equal(second.json.batches.length, 4); assert.equal(second.json.nextCursor, null);
+  assert.ok(!second.json.batches.some(row => first.json.batches.some(old => old.batchId === row.batchId)));
+  assert.ok(!second.json.batches.some(row => row.batchId === newest));
+  assert.equal((await f.request('batches?limit=1')).json.batches[0].batchId, newest);
+});
+
+test('migration history rejects malformed and oversized pagination before exposing batches', async t => {
+  const f = await fixture(t); await previewAndCommit(f, batch());
+  const encoded = value => Buffer.from(JSON.stringify(value)).toString('base64url');
+  const invalid = ['?limit=0', '?limit=101', '?limit=1.5', '?limit=NaN', '?limit=1&limit=2', '?unknown=1', '?cursor=', '?cursor=' + 'x'.repeat(401), '?cursor=!!!!',
+    '?cursor=' + encoded({ committedAt: 'not-a-date', id: randomUUID() }), '?cursor=' + encoded({ committedAt: '2026-09-13T12:00:00.000Z', id: 'not-a-uuid' }),
+    '?cursor=' + encoded({ committedAt: '2026-09-13T12:00:00.000Z', id: randomUUID(), limit: 999 }), '?cursor=' + Buffer.from('not-json').toString('base64url')];
+  for (const query of invalid) assert.equal((await f.request('batches' + query)).status, 400, query);
+  for (const role of ['staff', 'viewer']) assert.equal((await f.request('batches?limit=2', undefined, { role })).status, 403);
+  assert.equal((await f.request('batches?limit=2', undefined, { role: null })).status, 401);
+});
+
+test('empty migration history returns a terminal page without a cursor or count query', async t => {
+  const f = await fixture(t); const page = await f.request('batches');
+  assert.equal(page.status, 200); assert.deepEqual(page.json.batches, []); assert.equal(page.json.nextCursor, null);
 });

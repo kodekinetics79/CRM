@@ -1,3 +1,5 @@
+> Latest reliability-depth pass: **468/468 tests pass**, build passes (1.34 seconds), and the restarted built application completed synthetic invalid→corrected→reconciled import and source-record navigation on desktop/mobile. See COMPETITIVE-READINESS-DEPTH.md for current evidence and remaining limits. Earlier counts below describe their recorded release snapshots.
+
 # Wimblo 0.5.0 — verified local release
 
 Current production-hardening checkpoint: see [PRODUCTION-HANDOVER.md](PRODUCTION-HANDOVER.md). Administrator MFA, succession, private storage and full-platform recovery have advanced; the numbered prior test/build results below are historical. The latest integrated production-hardening source passed 446/446 tests (zero failures/skips, 19.38s), with a successful 1.14s build. Live operations and buyer acceptance are still unproved.

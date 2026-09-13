@@ -91,6 +91,31 @@ function normalize(file, row) {
   return parsed;
 }
 
+// Financial controls use integer cents throughout. A matching grand total alone
+// cannot detect a gift posted to the wrong revenue class or allocation account.
+function controlTotals(gifts) {
+  const type = new Map(), method = new Map(), designation = new Map();
+  const addGift = (map, key, amount) => {
+    const group = map.get(key) || { key, giftCount: 0, cents: 0n };
+    group.giftCount++; group.cents += BigInt(amount); map.set(key, group);
+  };
+  for (const gift of gifts) {
+    addGift(type, gift.type, gift.amount);
+    addGift(method, gift.method, gift.amount);
+    for (const allocation of gift.allocations) {
+      const key = JSON.stringify([allocation.sourceId, allocation.accountCode]);
+      const group = designation.get(key) || { sourceId: allocation.sourceId, accountCode: allocation.accountCode, allocationCount: 0, cents: 0n };
+      group.allocationCount++; group.cents += BigInt(allocation.amount); designation.set(key, group);
+    }
+  }
+  const output = map => [...map.values()].map(({ cents, ...group }) => ({ ...group, totalCents: cents.toString() }));
+  return {
+    byType: output(type).sort((a, b) => a.key.localeCompare(b.key)),
+    byMethod: output(method).sort((a, b) => a.key.localeCompare(b.key)),
+    byDesignation: output(designation).sort((a, b) => a.sourceId.localeCompare(b.sourceId) || a.accountCode.localeCompare(b.accountCode)),
+  };
+}
+
 export function installMigrationRoutes(app, { list, get, create, validate, audit, csrf, admin, transaction, db, collections, schoolYear }) {
   if (!supported.every(c => collections.includes(c))) throw new Error('Migration requires constituents, designations and gifts');
   db.exec(`CREATE TABLE IF NOT EXISTS migration_mapping (
@@ -100,7 +125,8 @@ export function installMigrationRoutes(app, { list, get, create, validate, audit
     CREATE TABLE IF NOT EXISTS import_batches (
     id TEXT PRIMARY KEY, source TEXT NOT NULL, file_key TEXT NOT NULL,
     content_hash TEXT NOT NULL, preview_digest TEXT NOT NULL, committed_at TEXT NOT NULL,
-    actor TEXT NOT NULL, result TEXT NOT NULL, UNIQUE(source,file_key));`);
+    actor TEXT NOT NULL, result TEXT NOT NULL, UNIQUE(source,file_key));
+    CREATE INDEX IF NOT EXISTS import_batches_history ON import_batches(committed_at DESC,id DESC);`);
   app.delete('/api/records/:collection/:id', csrf, (req,res,next)=>{
     if(db.prepare('SELECT 1 FROM migration_mapping WHERE collection=? AND record_id=?').get(req.params.collection,req.params.id))return res.status(409).json({error:'Migrated source mappings and record history are retained; reconcile through a supported correction instead of deleting this record'});
     next();
@@ -113,7 +139,9 @@ export function installMigrationRoutes(app, { list, get, create, validate, audit
     // Including current data as well as versions detects source-reference/duplicate changes.
     records: supported.map(c => [c, list(c).sort((a, b) => a.id.localeCompare(b.id))]),
     mappings: db.prepare('SELECT * FROM migration_mapping ORDER BY source,collection,external_id').all(),
-    calendar: [schoolYear('2000-01-01'), schoolYear('2000-07-01')],
+    // Every fiscal start month must produce a distinct policy fingerprint,
+    // including an empty workspace where no gift versions can invalidate it.
+    calendar: Array.from({ length: 12 }, (_, i) => schoolYear('2000-' + String(i + 1).padStart(2, '0') + '-01')),
   });
   const digest = (contentHash, dependencies) => createHmac('sha256', signingKey).update(contentHash + ':' + dependencies).digest('hex');
   function plan(input) {
@@ -202,6 +230,14 @@ export function installMigrationRoutes(app, { list, get, create, validate, audit
       const accountCode = staged?.data.accountCode || (mapped && get('designations', mapped.record_id).accountCode);
       if (accountCode) accountCodes.add(accountCode);
     }
+    const sourceGiftControls = values => controlTotals(values.filter(n => n.collection === 'gifts').map(n => ({
+      type: n.data.type, method: n.data.method, amount: n.data.amountCents,
+      allocations: n.data.sourceAllocations.map(a => {
+        const staged = index.get(keyOf('designations', a.designationSourceId));
+        const mapped = mappings.get(keyOf('designations', a.designationSourceId));
+        return { sourceId: a.designationSourceId, amount: a.amount, accountCode: staged?.data.accountCode || (mapped && get('designations', mapped.record_id).accountCode) || '' };
+      }),
+    })));
     const summary = { rowCount: rows.length, validRows: rows.filter(r => r.status !== 'Error').length, errorRows: rows.filter(r => r.status === 'Error').length,
       constituents: count(validNodes, 'constituents'), designations: count(validNodes, 'designations'), gifts: count(validNodes, 'gifts'),
       createCounts: Object.fromEntries(supported.map(c => [c, count(created, c)])), reusedRows: validNodes.length - created.length,
@@ -211,7 +247,8 @@ export function installMigrationRoutes(app, { list, get, create, validate, audit
       monetaryContributionCents: giftSum(validGifts.filter(n => !['In-kind', 'Fee payment'].includes(n.data.type))),
       noncashValueCents: giftSum(validGifts.filter(n => n.data.type === 'In-kind')),
       feePaymentCents: giftSum(validGifts.filter(n => n.data.type === 'Fee payment')),
-      accountCodeCount: accountCodes.size };
+      accountCodeCount: accountCodes.size,
+      controlTotals: { all: sourceGiftControls(validNodes), new: sourceGiftControls(created), reused: sourceGiftControls(validNodes.filter(n => n.existingId)) } };
     const valid = summary.errorRows === 0;
     return { valid, replayed: false, source: input.source, fileKey: input.fileKey, scope, rows, summary, contentHash, previewDigest: valid ? digest(contentHash, dependencyHash()) : null, nodes: ordered, payload };
   }
@@ -240,15 +277,75 @@ export function installMigrationRoutes(app, { list, get, create, validate, audit
         resolved.set(node.key, record.id); recordIds.push({ collection: node.collection, sourceId: node.data.sourceId, recordId: record.id });
         db.prepare('INSERT INTO migration_mapping VALUES(?,?,?,?,?,?,?)').run(input.source, node.collection, node.data.sourceId, record.id, node.sourceHash, hash(record), batchId);
       }
-      const completed = { ...publicPlan(result), batchId, committedAt: new Date().toISOString(), recordIds,
+      const sourceRecords = result.nodes.map(node => ({ collection: node.collection, sourceId: node.data.sourceId, recordId: resolved.get(node.key), reused: Boolean(node.existingId) }));
+      const actualNewControlTotals = controlTotals(recordIds.filter(r => r.collection === 'gifts').map(r => {
+        const gift = get('gifts', r.recordId);
+        return { type: gift.type, method: gift.method, amount: gift.amount, allocations: gift.allocations.map(a => {
+          const mapping = db.prepare("SELECT external_id FROM migration_mapping WHERE source=? AND collection='designations' AND record_id=?").get(input.source, a.designationId);
+          if (!mapping) throw failure(409, 'Migration allocation lost its source lineage; entire batch rolled back');
+          return { sourceId: mapping.external_id, accountCode: get('designations', a.designationId).accountCode, amount: a.amount };
+        }) };
+      }));
+      const completed = { ...publicPlan(result), batchId, committedAt: new Date().toISOString(), recordIds, sourceRecords,
+        sourceFiles: input.files.map((file, index) => ({ file: index + 1, collection: file.collection, rowCount: file.rows.length, mapping: file.mapping })),
         reconciliation: { expectedCreateCounts: result.summary.createCounts, actualCreateCounts: Object.fromEntries(supported.map(c => [c, recordIds.filter(r => r.collection === c).length])), expectedNewGiftCents: result.summary.newGiftTotalCents,
-          actualNewGiftCents: recordIds.filter(r => r.collection === 'gifts').reduce((sum, r) => sum + BigInt(get('gifts', r.recordId).amount), 0n).toString() } };
-      if (completed.reconciliation.expectedNewGiftCents !== completed.reconciliation.actualNewGiftCents) throw failure(409, 'Migration gift reconciliation failed; entire batch rolled back');
+          actualNewGiftCents: recordIds.filter(r => r.collection === 'gifts').reduce((sum, r) => sum + BigInt(get('gifts', r.recordId).amount), 0n).toString(),
+          expectedNewControlTotals: result.summary.controlTotals.new, actualNewControlTotals } };
+      if (completed.reconciliation.expectedNewGiftCents !== completed.reconciliation.actualNewGiftCents ||
+          hash(completed.reconciliation.expectedCreateCounts) !== hash(completed.reconciliation.actualCreateCounts) ||
+          hash(completed.reconciliation.expectedNewControlTotals) !== hash(actualNewControlTotals)) throw failure(409, 'Migration gift reconciliation failed; entire batch rolled back');
       db.prepare('INSERT INTO import_batches VALUES(?,?,?,?,?,?,?,?)').run(batchId, input.source, input.fileKey, result.contentHash, previewDigest, completed.committedAt, req.user.id, JSON.stringify(completed));
       audit(req.user, 'migration_commit', null, batchId, { source: input.source, fileKey: input.fileKey, contentHash: result.contentHash, counts: completed.reconciliation.actualCreateCounts, giftTotalCents: completed.reconciliation.actualNewGiftCents });
       return completed;
     });
     res.status(outcome.replayed ? 200 : 201).json(outcome);
   }));
-  app.get('/api/migration/batches', admin, route((req, res) => res.json({ scope, batches: db.prepare('SELECT result FROM import_batches ORDER BY committed_at DESC,id DESC LIMIT 100').all().map(r => JSON.parse(r.result)) })));
+  app.get('/api/migration/batches/:id', admin, route((req, res) => {
+    if (!z.uuid().safeParse(req.params.id).success) throw failure(400, 'Invalid migration batch identifier');
+    const row = db.prepare('SELECT source,content_hash,result FROM import_batches WHERE id=?').get(req.params.id);
+    if (!row) throw failure(404, 'Migration batch not found');
+    const batch = JSON.parse(row.result);
+    // Committed reconciliation stays immutable even after authorized corrections.
+    // Current integrity is separate, and historical batches without sourceRecords
+    // explicitly cover only the rows newly created by that original batch.
+    const lineage = (batch.sourceRecords || batch.recordIds || []).map(record => {
+      const mapping = db.prepare('SELECT * FROM migration_mapping WHERE source=? AND collection=? AND external_id=?').get(row.source, record.collection, record.sourceId);
+      let status = 'Missing';
+      if (mapping && mapping.record_id === record.recordId) {
+        try { status = hash(get(record.collection, record.recordId)) === mapping.record_hash ? 'Unchanged' : 'Changed'; } catch { status = 'Missing'; }
+      }
+      return { ...record, originalBatchId: mapping?.batch_id || null, status };
+    });
+    res.json({ batch, sourceFingerprint: row.content_hash, lineageCoverage: batch.sourceRecords ? 'All batch source rows' : 'Newly created rows only',
+      lineage, integrity: { unchanged: lineage.filter(r => r.status === 'Unchanged').length, changed: lineage.filter(r => r.status === 'Changed').length, missing: lineage.filter(r => r.status === 'Missing').length } });
+  }));
+  app.get('/api/migration/batches', admin, route((req, res) => {
+    const query = z.object({ limit: z.coerce.number().int().min(1).max(100).default(25), cursor: z.string().min(1).max(400).regex(/^[A-Za-z0-9_-]+$/).optional() }).strict().safeParse(req.query);
+    if (!query.success) throw failure(400, 'Invalid migration history pagination');
+    let cursor = null;
+    if (query.data.cursor) {
+      try {
+        const bytes = Buffer.from(query.data.cursor, 'base64url');
+        if (bytes.toString('base64url') !== query.data.cursor) throw new Error('Noncanonical cursor');
+        cursor = z.object({ committedAt: z.string().datetime({ offset: true }).max(40), id: z.uuid() }).strict().parse(JSON.parse(bytes.toString('utf8')));
+      } catch { throw failure(400, 'Invalid migration history cursor'); }
+    }
+    // Project JSON in SQLite so source rows and mapping/lineage arrays are never
+    // loaded or serialized for a list page. The indexed tuple is stable for ties
+    // and does not need a full-table count or an increasingly costly offset.
+    const projection = `SELECT id,source,file_key,committed_at,
+      json_remove(json_extract(result,'$.summary'),'$.controlTotals') AS summary,
+      json_remove(json_extract(result,'$.reconciliation'),'$.expectedNewControlTotals','$.actualNewControlTotals') AS reconciliation,
+      json_extract(result,'$.valid') AS valid,json_extract(result,'$.replayed') AS replayed
+      FROM import_batches`;
+    const sql = projection + (cursor ? ' WHERE (committed_at,id)<(?,?)' : '') + ' ORDER BY committed_at DESC,id DESC LIMIT ?';
+    const records = db.prepare(sql).all(...(cursor ? [cursor.committedAt, cursor.id] : []), query.data.limit + 1);
+    const page = records.slice(0, query.data.limit);
+    const batches = page.map(row => ({ batchId: row.id, source: row.source, fileKey: row.file_key, committedAt: row.committed_at,
+      summary: row.summary ? JSON.parse(row.summary) : null, reconciliation: row.reconciliation ? JSON.parse(row.reconciliation) : null,
+      valid: Boolean(row.valid), replayed: Boolean(row.replayed) }));
+    const last = page.at(-1);
+    const nextCursor = records.length > query.data.limit && last ? Buffer.from(JSON.stringify({ committedAt: last.committed_at, id: last.id })).toString('base64url') : null;
+    res.json({ scope, batches, nextCursor });
+  }));
 }

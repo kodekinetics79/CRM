@@ -1,3 +1,5 @@
+> Historical snapshot: this report predates the production-hardening and reliability-depth passes. Current administrator MFA/recovery evidence is in PRODUCTION-HANDOVER.md; latest migration/financial/correspondence changes are in COMPETITIVE-READINESS-DEPTH.md. Historical test counts and gap descriptions below are retained as history.
+
 # Requirements-first closure
 
 September 13, 2026. Independent chief solution/requirements review of Wimblo 0.5.0 working source for Kode Kinetics LLC. See [CURRENT-RFP-REQUIREMENTS-MATRIX.md](CURRENT-RFP-REQUIREMENTS-MATRIX.md) for all 84 criteria, evidence anchors, exact points and acceptance conditions. This is a delivery decision aid, not a compliant proposal, awarded score or certified product.

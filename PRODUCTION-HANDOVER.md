@@ -1,3 +1,5 @@
+> Subsequent local reliability-depth pass: import grouped controls, fiscal preview invalidation, bounded batch history/lineage and retained financial/correspondence source guards are implemented; **468 tests pass**. See COMPETITIVE-READINESS-DEPTH.md. Zack deferred Render setup to later; the live production gates below remain open.
+
 # Wimblo production handover — current engineering checkpoint
 
 September 13, 2026. Kode Kinetics LLC. This register supersedes earlier statements about optional administrator MFA or missing platform recovery. It does not replace the RFP requirements inventory or buyer acceptance. **Do not admit real buyer data yet.**

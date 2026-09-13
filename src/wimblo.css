@@ -217,6 +217,32 @@ section[aria-labelledby="intelligence-assistance"]>section {border-top:1px solid
 .reconciliation-summary dt {color:var(--muted)}.reconciliation-summary dd {margin:0;text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
 .check-field {display:inline-flex;align-items:center;gap:8px;font-size:13px}.migration-confirm {display:flex;margin:20px 0}
 .migration-templates {margin-top:24px;border-top:1px solid var(--line);padding-top:16px}.migration-templates summary {cursor:pointer;font-weight:600}.migration-templates p {margin:16px 0;max-width:65ch}
+.migration-review,.migration-lineage {margin-top:24px;min-width:0}
+.migration-control-totals {margin:20px 0;border-block:1px solid var(--line);padding:16px 0}
+.migration-control-totals>summary,.migration-lineage summary {cursor:pointer;font-weight:600}
+.migration-control-totals>.field {max-width:320px;margin-top:16px}
+.migration-control-totals>.table-wrap {margin-top:16px}
+.migration-review .toolbar {align-items:flex-end;justify-content:space-between}
+.migration-review .toolbar>.field {margin:0;min-width:180px}
+.migration-pagination {display:flex;gap:12px;align-items:center;justify-content:flex-end;margin-top:12px;flex-wrap:wrap}
+.migration-pagination>p {margin-inline-end:auto;font-variant-numeric:tabular-nums}
+.migration-identifier {max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.migration-lineage>details {margin-top:20px}
+.migration-batch-detail h2 {overflow-wrap:anywhere}
+.mapping-sample {overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.migration-record-link {max-width:100%;overflow:hidden;text-overflow:ellipsis;display:inline-block;vertical-align:middle}
+.migration-lineage-mobile {display:none}
+@media(max-width:700px) {
+ .migration-lineage-desktop {display:none}
+ .migration-lineage-mobile {display:block;margin-top:16px}
+ .migration-lineage-mobile article {border-top:1px solid var(--line);padding:16px 0}
+ .migration-lineage-mobile h4 {margin:0 0 12px;overflow-wrap:anywhere}
+ .migration-lineage-mobile dl {margin:0}
+ .migration-lineage-mobile dl>div {display:flex;gap:12px;align-items:baseline;margin:8px 0}
+ .migration-lineage-mobile dt {width:96px;flex-shrink:0;color:var(--muted)}
+ .migration-lineage-mobile dd {margin:0;min-width:0;overflow-wrap:anywhere}
+ .migration-batch-detail table[aria-label="Committed migration reconciliation"] {min-width:0}
+}
 @media(max-width:700px) {.mapping-grid,.reconciliation-summary {grid-template-columns:minmax(0,1fr)}.workflow-steps {gap:12px}.workflow-steps>svg {display:none}.workflow-steps span {width:100%}}
 
 @media print{.receipt-register>:not(.receipt-print-sheet){display:none!important}.receipt-print-sheet{border:0!important;break-inside:avoid}.receipt-print-sheet .header-actions,.receipt-controls,.receipt-print-sheet>.table-note{display:none!important}.receipt-print-sheet .letter-preview{padding:16px 0!important}}

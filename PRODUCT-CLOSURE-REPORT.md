@@ -1,3 +1,5 @@
+> Historical snapshot: this report predates the production-hardening and reliability-depth passes. Current administrator MFA/recovery evidence is in PRODUCTION-HANDOVER.md; latest migration/financial/correspondence changes are in COMPETITIVE-READINESS-DEPTH.md. Historical test counts and gap descriptions below are retained as history.
+
 # Wimblo: commercial model, access control and release closure
 
 September 13, 2026. Scope: local Wimblo **0.5.0** working source, supplied RFP/attachments, current requirements review and recorded local verification. This is an owner assessment, not buyer acceptance, certification, a submitted proposal or a forecast of awarded points.
