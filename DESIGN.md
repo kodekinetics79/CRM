@@ -204,3 +204,10 @@ Hover color feedback takes 80ms; navigation edge lighting and the selected rowâ€
 - Keep synthetic/evaluator scope and provider identity honest.
 - Do not use gradients on primary action buttons, rainbow metric tiles, color-only statuses, or decorative shadows on working panels. Navigation material depth is the deliberate branding exception.
 - Do not turn this brand change into a rewrite of financial, permission, reservation, or contact-preference behavior.
+
+
+## SVG clarity refinement â€” September 13, 2026
+
+User authorized intelligent use of [SVGL](https://svgl.app/) as inspiration. Preserve Gather's approved generated sculptural mark and indigo/apricot materials. No third-party product logos are incorporated. The existing Lucide family now uses a shared 16px/1.75-stroke control treatment; navigation disclosure arrows are drawn Lucide chevrons rather than text glyphs. Icons retain their original semantic labels and business actions.
+
+Icon-only controls have consistent 36px geometry, six-pixel corners and hairline hover/open-state boundaries with 80ms color feedback. Mobile topbar actions use 44px targets; the menu symbol retains 20px visibility. Help triggers retain hover/focus/click guidance and visible open-state treatment through the existing DOM state. Header action spacing uses the four-pixel grid. Reduced-motion and forced-colors overrides remain authoritative. This refinement adds no integration, qualification or finance-completion claims.

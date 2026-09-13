@@ -162,6 +162,17 @@ tbody tr:hover,tbody tr:hover td {background:var(--surface-hover)}
   .about-footer {flex-direction:column;gap:8px;margin-top:28px}
 }
 @supports not(backdrop-filter:blur(1px)) {.topbar {background:var(--white)}}
+
+/* SVGL reference: consistent silhouettes and optical weight, using Wimblo's own icons. */
+:root {--icon-size:16px;--icon-control-size:36px}
+:where(.btn,.text-btn,.icon-btn,.sidebar nav button,.sidebar-bottom>button,.navigation-group>summary) > .lucide {width:var(--icon-size);height:var(--icon-size);flex:none;stroke-width:1.75;vertical-align:middle}
+.icon-btn {width:var(--icon-control-size);height:var(--icon-control-size);flex-shrink:0;border-radius:6px;transition:background-color 80ms ease-out,border-color 80ms ease-out,color 80ms ease-out}
+.icon-btn:enabled:hover,.icon-btn[aria-expanded=true] {background:var(--surface-hover);border-color:var(--control-border);color:var(--ink)}
+.help-hint:has([role=tooltip]) .help-trigger {background:var(--surface-hover);border-color:var(--control-border);color:var(--ink)}
+.header-actions {gap:8px}
+.topbar .mobile-menu > .lucide {width:20px;height:20px}
+@media (max-width:700px) {.topbar .icon-btn {width:44px;height:44px}.help-trigger {min-width:36px;min-height:36px}}
+
 @media(prefers-reduced-transparency:reduce) {.topbar {background:var(--white);backdrop-filter:none;-webkit-backdrop-filter:none}}
 @media(prefers-reduced-motion:reduce) {*,*::before,*::after {animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 @media(forced-colors:active) {.sidebar,.sidebar .brand-mark,.sidebar nav button,.sidebar-bottom>button {background-image:none!important;box-shadow:none!important;animation:none!important}* {scrollbar-color:auto}.brand-mark {border:0}.brand-mark img,.login-gather {filter:none!important}.brand-name {text-shadow:none!important}.sidebar nav button.active,.sidebar-bottom>button.active {outline:1px solid Highlight}.metric:first-child {border:1px solid CanvasText}}
@@ -210,7 +221,7 @@ section[aria-labelledby="intelligence-assistance"]>section {border-top:1px solid
 
 @media print{.receipt-register>:not(.receipt-print-sheet){display:none!important}.receipt-print-sheet{border:0!important;break-inside:avoid}.receipt-print-sheet .header-actions,.receipt-controls,.receipt-print-sheet>.table-note{display:none!important}.receipt-print-sheet .letter-preview{padding:16px 0!important}}
 
-.navigation-group{border:0;margin:4px 0 8px}.navigation-group>summary{color:var(--rail-text);font-size:12px;font-weight:600;min-height:32px;padding:8px 12px;cursor:pointer;border-radius:4px;list-style:none;display:flex;align-items:center;justify-content:space-between}.navigation-group>summary::-webkit-details-marker{display:none}.navigation-group>summary::after{content:'›';font-size:16px;line-height:16px;transition:transform 120ms ease-out}.navigation-group[open]>summary::after{transform:rotate(90deg)}.navigation-group>summary:hover{background:var(--rail-hover)}.navigation-group>summary:focus-visible{outline:2px solid var(--rail-text);outline-offset:-2px}.navigation-group>button{margin-left:0}
+.navigation-group{border:0;margin:4px 0 8px}.navigation-group>summary{color:var(--rail-text);font-size:12px;font-weight:600;min-height:32px;padding:8px 12px;cursor:pointer;border-radius:6px;gap:12px;list-style:none;display:flex;align-items:center;justify-content:space-between}.navigation-group>summary::-webkit-details-marker{display:none}.navigation-group>summary>.lucide{transition:transform 120ms ease-out}.navigation-group[open]>summary>.lucide{transform:rotate(90deg)}.navigation-group>summary:hover{background:var(--rail-hover)}.navigation-group>summary:focus-visible{outline:2px solid var(--apricot);outline-offset:-2px}.navigation-group>button{margin-left:0}
 
 @media(max-width:640px){.section-title:not(h2){flex-direction:column;align-items:flex-start;gap:12px}.section-title>div{width:100%;min-width:0}.section-title>.btn{align-self:flex-start}.section-title .header-actions{justify-content:flex-start;flex-wrap:wrap}.receipt-register .form-actions{justify-content:flex-start}.receipt-register .letter-preview{overflow-wrap:anywhere}}
 
