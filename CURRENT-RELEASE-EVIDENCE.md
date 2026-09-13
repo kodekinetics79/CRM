@@ -1,3 +1,5 @@
+> Latest contract-conversion pass: **612/612 tests pass** (28.30s), build passes (1.26s). Signed exact original revision import/replay, immutable custody/lineage, administrator-only reports and encrypted recovery are verified. Synthetic browser save/replay and mobile journeys passed. See [CONTRACT-REVISION-CONVERSION.md](CONTRACT-REVISION-CONVERSION.md). C2 is Partial; actual exports and buyer acceptance remain open. Current inventory:46 local basic /25 partial /10 missing /3 external evidence. Earlier checkpoints below are historical.
+
 > Latest private-reminder pass: **584/584 tests pass** (26.61s), build passes (2.34s). Owned UTC schedules, unique current-source inbox delivery, reasoned retained cancellation, safe suspension/retry ordering and native recovery are verified. Synthetic source completion and mobile journeys passed. See [TASK-REMINDERS-RELEASE.md](TASK-REMINDERS-RELEASE.md). A8.5 remains Partial; no external delivery or buyer acceptance is claimed. Earlier checkpoints below are historical.
 
 > Latest saved-audience pass: **554/554 tests pass** (20.79s), build passes (1.22s). Exact saved segmentation, explicit digest-bound correspondence selection, fresh authority/consent checks and safe role-aware reports are verified. See [SAVED-AUDIENCES-RELEASE.md](SAVED-AUDIENCES-RELEASE.md). Provider synchronization/sending and buyer acceptance remain separate. Earlier checkpoints below are historical.
@@ -24,8 +26,8 @@ September 13, 2026. Kode Kinetics LLC. This is a local implementation and review
 | Classification | Supplied baseline | Current reviewed source |
 |---|---:|---:|
 | Implemented locally | 25 | 46 |
-| Partial | 39 | 24 |
-| Missing | 17 | 11 |
+| Partial | 39 | 25 |
+| Missing | 17 | 10 |
 | External evidence required | 3 | 3 |
 | Total | 84 | 84 |
 

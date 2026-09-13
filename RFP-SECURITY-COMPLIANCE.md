@@ -103,3 +103,9 @@ Restricted helper evidence: EVENT-HELPER-ACCESS-RELEASE.md. Helper grants/histor
 Owner-private task schedules/current-source inbox endpoints deny viewer/helpers and administrator bypass of another owner. Native writes recheck current session/MFA/account/tenant/source revisions. Administrator-only report projections omit security bindings and task titles/bodies. Immutable schedule/outcome/inbox evidence is included in independently verified encrypted native recovery; institutional retention/exit custody remains unaccepted.
 
 Platform suspension failure ordering is tested: commit registry suspension before workspace suppression/revocation; partial failure keeps access blocked, retry completes effects and resume rejects missing storage or failed suppression. This is a safe local lifecycle sequence across two databases, not distributed atomicity, live incident monitoring or security certification. See TASK-REMINDERS-RELEASE.md.
+
+## Contract conversion custody checkpoint
+
+Normalized Agreement conversion reuses the same validated native document writer, signed content/dependencies and fresh administrator/account/session/MFA/tenant checks. Private source/retained chains cannot be relaxed by this conversion route. Immutable source lineage binds exact bytes, native metadata/import actor/time and the original exact storage custody tuple; mismatched/foreign lineage and same-byte custody replacement fail before preview signs. Native commit/staged failure/concurrency guards and encrypted new-path recovery are independently tested.
+
+Administrator-only curated reconciliation reports validate the selected workspace identity and omit contents/titles/filenames/proofs/provider references/security bindings. This is local custody tooling, not actual buyer contracts inventory, hosted residency assurance, complete timestamps, approved retention/disposal policy or accepted C2 conversion. See CONTRACT-REVISION-CONVERSION.md.

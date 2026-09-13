@@ -17,6 +17,7 @@ import {installMigrationRoutes} from './migration.js';
 import {installReportScheduleRoutes} from './reportSchedule.js';
 import { installAiRoutes } from './ai.js';
 import { installDocumentRoutes } from './documents.js';
+import {installDocumentMigrationRoutes} from './documentMigration.js';
 import express from 'express';
 import helmet from 'helmet';
 import { DatabaseSync } from 'node:sqlite';
@@ -253,8 +254,12 @@ export function createApp({dbPath=':memory:',seed=true,tenantId=null,tenantInfo=
  const audienceService=installAudienceRoutes(app,{db,list,audit,csrf,write,transaction,isTenantActive,recheckAccess:req=>{const session=db.prepare('SELECT * FROM sessions WHERE token_hash=?').get(req.session.token_hash);const user=db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);const time=Date.now();if(!session||session.user_id!==req.user.id||session.expires<time||session.last_seen<time-30*60*1000||!user?.active||!['admin','staff','viewer'].includes(user.role)||session.account_binding!==mfaAccountBinding(user))return false;const factor=mfa.status(user);return factor.enabled?factor.available&&session.mfa_verified===1:session.mfa_verified!==1&&!(production&&user.role==='admin');}});
  const correspondenceService=installCommunicationsRoutes(app,{db,list,get,getSettings,audit,csrf,write,transaction,audiences:audienceService});
  const documentService=installDocumentRoutes(app,{db,list,get,audit,csrf,write,admin,transaction,collections,objectStorage:documentStorage,tenantId:documentTenantId,isTenantActive,scanDocument:documentScanner});app.locals.documentService=documentService;
+ // A dedicated legacy SQLite instance retains the registered legacy workspace identity.
+ // External object storage always requires its explicit tenant identity.
+ const documentMigrationTenantId=documentTenantId||(!documentStorage?'00000000-0000-4000-8000-000000000001':null);
+ installDocumentMigrationRoutes(app,{db,documentService,audit,csrf,admin,transaction,tenantId:documentMigrationTenantId,isTenantActive,recheckAccess:req=>{const session=db.prepare('SELECT * FROM sessions WHERE token_hash=?').get(req.session?.token_hash);const user=db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);const time=Date.now();if(!session||session.user_id!==req.user.id||session.expires<time||session.last_seen<time-30*60*1000||!user?.active||user.role!=='admin'||session.account_binding!==mfaAccountBinding(user))return false;const factor=mfa.status(user);return factor.enabled?factor.available&&session.mfa_verified===1:session.mfa_verified!==1&&!(production&&user.role==='admin');}});
  grantGuard=installGrantOperationsRoutes(app,{db,list,get,audit,csrf,write,admin,transaction,documentService});
- const reporting=installReportingRoutes(app,{db,list,get,audit,csrf,write,transaction,collections:collections.filter(c=>c!=='evaluations'||acceptanceEnabled)});
+ const reporting=installReportingRoutes(app,{db,list,get,audit,csrf,write,transaction,documentMigrationTenantId,collections:collections.filter(c=>c!=='evaluations'||acceptanceEnabled)});
  installConstituentTimelineRoutes(app,{db,list:(collection,req)=>list(collection),get:(collection,id,req)=>get(collection,id),getGrantMilestones:user=>grantGuard.getQueueMilestones(user)});
  installMigrationRoutes(app,{db,list,get,create,put,validate,audit,csrf,admin,transaction,collections,schoolYear});
  const scheduling=installReportScheduleRoutes(app,{db,...reporting,csrf,write,audit,isTenantActive});app.locals.runDueReports=scheduling.runDueReports;const closeWorkspace=app.locals.close;app.locals.close=()=>{scheduling.close();reminders.close();closeWorkspace();};

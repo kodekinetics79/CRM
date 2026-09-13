@@ -942,9 +942,9 @@
     "sourcePages": "18 / 27",
     "basicLocalDisposition": "Local",
     "evidenceModules": "R",
-    "currentBehaviorAndGap": "Versioned builder reruns current data with curated role-aware fields, audience/revision and correspondence selection metadata. Helper access history and task reminder schedules/outcomes/inbox metadata are administrator-only; bindings and task bodies/titles are excluded. Complete accepted field coverage, volume and output limits remain open.",
+    "currentBehaviorAndGap": "Versioned builder reruns current data with curated role-aware fields. Audience/correspondence metadata plus administrator-only helper, reminder and contract source-lineage/reconciliation reports exist; original dates and imported dates/counts remain distinct. Private contents/bindings/proofs/provider references omitted. Complete accepted field coverage, volume and output limits remain open.",
     "acceptanceToClose": "Accept complete buyer field coverage/output limits and historical scale; Q&A86 proven builder is now locally evidenced but staffed delivery timeframe still requires agreement.",
-    "reviewedAgainst": "Final RFP; supplied addenda; source baseline 94c8498 plus bounded September 13 Staff/dashboard/schedule corrections",
+    "reviewedAgainst": "Final RFP; supplied addenda; verified September 13 normalized Agreement revision conversion and safe reporting source",
     "acceptedByBuyer": false,
     "workstreams": [
       "Core reporting and staff comfort"
@@ -1084,11 +1084,11 @@
     "capability": "Historical/current contracts conversion",
     "points": 40,
     "sourcePages": "19 / 28",
-    "basicLocalDisposition": "Missing",
+    "basicLocalDisposition": "Partial",
     "evidenceModules": "G, P, Q",
-    "currentBehaviorAndGap": "Protected Agreement/Proposal document repository and full-workspace offline backup exist, but no actual historical/current source contracts have been inventoried or converted.",
+    "currentBehaviorAndGap": "Signed normalized Agreement revision import reuses the validated document writer with explicit source identity/date/privacy, current links/versions, immutable exact byte/storage-custody source maps, replay, administrator-only reconciliation reports and encrypted recovery. Actual source contracts inventory/conversion, Office/archive/large/bulk handling, original timestamps/complete chronology and buyer custody/scale acceptance remain open.",
     "acceptanceToClose": "Inventory and migrate actual contract files/versions with correct links/access, byte/digest/count reconciliation and source provenance.",
-    "reviewedAgainst": "Final RFP; supplied addenda; source baseline 94c8498 plus bounded September 13 Staff/dashboard/schedule corrections",
+    "reviewedAgainst": "Final RFP; supplied addenda; verified September 13 normalized Agreement revision conversion and safe reporting source",
     "acceptedByBuyer": false,
     "workstreams": [
       "Conversion and source custody"
