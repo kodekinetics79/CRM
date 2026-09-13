@@ -1,5 +1,5 @@
 import {DatabaseSync} from 'node:sqlite';
-import {createHash,createCipheriv,createDecipheriv,randomBytes} from 'node:crypto';
+import {createHash,createCipheriv,createDecipheriv,randomBytes,randomUUID} from 'node:crypto';
 import {mkdtemp,chmod,readFile,open,link,rm,lstat} from 'node:fs/promises';
 import {dirname,resolve,join} from 'node:path';
 
@@ -113,20 +113,22 @@ export async function restoreWorkspace({archivePath,destinationPath,expectedTena
   if(!source.subarray(0,16).equals(Buffer.from('SQLite format 3\0')))fail('Encrypted source is not a SQLite database.');
   dir=await privateDir(dirname(destination));const staged=join(dir,'restored.sqlite');await writePrivate(staged,source);
   db=new DatabaseSync(staged);db.exec('PRAGMA trusted_schema=OFF; PRAGMA journal_mode=DELETE;');const before=inventory(db,_databaseKind);verifyInventory(before,manifest.inventory);
-  const names=new Set(before.tables.map(t=>t.name));db.exec('BEGIN IMMEDIATE');const cleared={};let materializedDocumentRevisions=0;try{
+  const names=new Set(before.tables.map(t=>t.name));const recordsRecoveryMarker=_databaseKind==='workspace'&&names.has('automation_recovery_markers');let recoveryMarker=null,priorRecoveryMarkers=[];if(recordsRecoveryMarker){const columns=db.prepare('PRAGMA table_info(automation_recovery_markers)').all();if(columns.map(c=>c.name).join(',')!=='id,at,archive_sha256,source_sha256'||columns.some(c=>c.type!=='TEXT'))fail('Automation recovery marker schema is invalid.');priorRecoveryMarkers=db.prepare('SELECT * FROM automation_recovery_markers ORDER BY id').all();recoveryMarker={id:randomUUID(),at:new Date().toISOString(),archive_sha256:hash(archive),source_sha256:manifest.sourceSha256};}db.exec('BEGIN IMMEDIATE');const cleared={};let materializedDocumentRevisions=0;try{
    materializedDocumentRevisions=materializeDocumentObjects(db,objects,tenant);verifyDocumentRevisions(db,new Set(storageRows(db).map(r=>r.document_id+':'+r.revision)));
    if(names.has('sessions'))cleared.sessions=db.prepare('DELETE FROM sessions').run().changes;
    if(names.has('platform_sessions'))cleared.platformSessions=db.prepare('DELETE FROM platform_sessions').run().changes;
    if(names.has('mfa_challenges'))cleared.mfaChallenges=db.prepare('DELETE FROM mfa_challenges').run().changes;
    if(names.has('mfa_settings'))cleared.pendingMfaEnrollments=db.prepare('UPDATE mfa_settings SET pending_secret=NULL,pending_expires=NULL,pending_attempts=0,pending_binding=NULL WHERE pending_secret IS NOT NULL OR pending_expires IS NOT NULL OR pending_binding IS NOT NULL OR pending_attempts<>0').run().changes;
+   if(recoveryMarker)db.prepare('INSERT INTO automation_recovery_markers(id,at,archive_sha256,source_sha256) VALUES(?,?,?,?)').run(recoveryMarker.id,recoveryMarker.at,recoveryMarker.archive_sha256,recoveryMarker.source_sha256);
    db.exec('COMMIT');
   }catch(e){db.exec('ROLLBACK');throw e;}
   const after=inventory(db,_databaseKind);if(after.schemaFingerprint!==before.schemaFingerprint)fail('Restored schema changed during authentication cleanup.');
-  for(const table of before.tables)if(!['sessions','platform_sessions','mfa_challenges','mfa_settings',...(materializedDocumentRevisions?['document_revisions']:[])].includes(table.name)&&canonical(table)!==canonical(after.tables.find(t=>t.name===table.name)))fail('Retained business or audit history changed during restore.');
+  for(const table of before.tables)if(!['sessions','platform_sessions','mfa_challenges','mfa_settings',...(materializedDocumentRevisions?['document_revisions']:[]),...(recoveryMarker?['automation_recovery_markers']:[])].includes(table.name)&&canonical(table)!==canonical(after.tables.find(t=>t.name===table.name)))fail('Retained business or audit history changed during restore.');
+  if(recoveryMarker){const actualMarkers=db.prepare('SELECT * FROM automation_recovery_markers ORDER BY id').all(),expectedMarkers=[...priorRecoveryMarkers,recoveryMarker].sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);if(canonical(actualMarkers)!==canonical(expectedMarkers)||after.tables.find(t=>t.name==='automation_recovery_markers').count!==before.tables.find(t=>t.name==='automation_recovery_markers').count+1)fail('Automation restore instrumentation changed prior history or failed exact marker verification.');}
   if(names.has('sessions')&&after.tables.find(t=>t.name==='sessions').count!==0||names.has('platform_sessions')&&after.tables.find(t=>t.name==='platform_sessions').count!==0||names.has('mfa_challenges')&&after.tables.find(t=>t.name==='mfa_challenges').count!==0)fail('Restored authentication cleanup failed.');
   if(materializedDocumentRevisions&&before.tables.find(t=>t.name==='document_revisions').count!==after.tables.find(t=>t.name==='document_revisions').count)fail('Recovered document revision count changed.');
   db.close();db=null;const finalFile=await open(staged,'r');try{await finalFile.sync();}finally{await finalFile.close();}await publish(staged,destination);
-  return {destinationPath:destination,tenantId:tenant,verified:true,restoredAt:new Date().toISOString(),archiveSha256:hash(archive),sourceSha256:manifest.sourceSha256,restoredSha256:hash(await readFile(staged)),verifiedSourceInventory:before,restoredInventory:after,cleared,materializedDocumentRevisions,mfaDependency:manifest.mfaDependency,notice:'Offline local restore verified. No automatic scheduling, cloud durability or funded recovery service is implied.'};
+  return {destinationPath:destination,tenantId:tenant,verified:true,restoredAt:new Date().toISOString(),archiveSha256:hash(archive),sourceSha256:manifest.sourceSha256,restoredSha256:hash(await readFile(staged)),verifiedSourceInventory:before,restoredInventory:after,cleared,materializedDocumentRevisions,...(recoveryMarker?{automationRecoveryMarker:{id:recoveryMarker.id,at:recoveryMarker.at,archiveSha256:recoveryMarker.archive_sha256,sourceSha256:recoveryMarker.source_sha256}}:{}),mfaDependency:manifest.mfaDependency,notice:'Offline local restore verified. No automatic scheduling, cloud durability or funded recovery service is implied.'};
  }finally{db?.close();key.fill(0);if(dir)await rm(dir,{recursive:true,force:true});}
 }
 

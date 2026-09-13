@@ -682,11 +682,11 @@
     "capability": "Automated workflows",
     "points": 40,
     "sourcePages": "17 / 25",
-    "basicLocalDisposition": "Missing",
+    "basicLocalDisposition": "Partial",
     "evidenceModules": "O, C",
-    "currentBehaviorAndGap": "Derived work queue is not an executing trigger/action engine.",
-    "acceptanceToClose": "Approved trigger executes once with retry/failure trail and does not send to opt-out contacts.",
-    "reviewedAgainst": "Final RFP; supplied addenda; source baseline 94c8498 plus bounded September 13 Staff/dashboard/schedule corrections",
+    "currentBehaviorAndGap": "Explicitly reviewed audience/ Messaging-template activations retain a prospective eligibility baseline with no historical backfill. Observed new eligible entries create one native unsent Draft per episode with transactional unique execution, current consent/owner/MFA checks, durable bounded retries, terminal retirement/suppression, administrator-only operational reports and restore-boundary suppression. No provider delivery, recurring campaign sequences or full 6500-contact workload acceptance exists.",
+    "acceptanceToClose": "Accept the bounded draft-only trigger/action policy or verify approved provider execution, consent withdrawal, failure/retry/duplicate events, required campaign sequences and buyer-scale performance. Human review remains required; Not sent must never become a delivery claim.",
+    "reviewedAgainst": "Final RFP and supplied addenda; d856d6c baseline plus verified September13 prospective communication-workflow source (644/644 tests).",
     "acceptedByBuyer": false,
     "workstreams": [
       "Marketing, delivery and response tracking"
