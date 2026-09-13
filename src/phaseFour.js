@@ -1,0 +1,13 @@
+import {today,money} from './lib.js';
+import {pledgeSchedule} from './phaseTwo.js';
+export function shiftCounts(shift,reservations=[]){const rows=reservations.filter(r=>r.shiftId===shift.id);const reserved=rows.filter(r=>r.status==='Reserved').length;return {reserved,waitlisted:rows.filter(r=>r.status==='Waitlisted').length,available:Math.max(0,shift.capacity-reserved),rows};}
+export function duplicateGroups(constituents=[]){const groups=new Map();for(const person of constituents){const email=(person.email||'').trim().toLowerCase();if(email){if(!groups.has(email))groups.set(email,[]);groups.get(email).push(person);}}return [...groups.entries()].filter(([,people])=>people.length>1).map(([email,people])=>({email,people}));}
+export function operationsQueue(data,asOf=today()){
+ const people=new Map((data.constituents||[]).map(p=>[p.id,p]));const items=[];
+ for(const t of data.tasks||[])if(t.status!=='Completed')items.push({id:'task-'+t.id,kind:'Task',title:t.title,reason:t.owner?'Assigned to '+t.owner:'Choose an owner',date:t.dueDate,collection:'tasks',recordId:t.id,action:'Review task'});
+ for(const g of data.grants||[]){if(['Preparing','Submitted','Prospect'].includes(g.stage))items.push({id:'application-'+g.id,kind:'Grant application',title:g.name,reason:'Review the recorded application deadline',date:g.deadline,collection:'grants',recordId:g.id,action:'Review grant'});if(['Awarded','Closed'].includes(g.stage)&&g.reportDue)items.push({id:'report-'+g.id,kind:'Grant reporting',title:g.name,reason:'Review reporting obligations; completion is not tracked',date:g.reportDue,collection:'grants',recordId:g.id,action:'Review grant'});}
+ for(const p of data.pledges||[])if(p.status==='Active'){const schedule=pledgeSchedule(p,data.gifts||[],asOf);if(schedule.overdue>0)items.push({id:'pledge-'+p.id,kind:'Pledge',title:p.name,reason:money(schedule.overdue)+' scheduled balance due through this date',date:schedule.rows.find(r=>r.balance>0&&r.date<=asOf)?.date||asOf,collection:'pledges',recordId:p.id,action:'Review pledge'});}
+ const eligible=(data.gifts||[]).filter(g=>g.status!=='Voided'&&g.type!=='Fee payment'&&!g.acknowledgment&&g.date<=asOf&&people.get(g.constituentId)&&people.get(g.constituentId).preference!=='Do not contact');
+ if(eligible.length)items.push({id:'stewardship',kind:'Acknowledgments',title:eligible.length+' gifts awaiting a recorded thank-you',reason:'Review preferences and record only completed staff actions',date:eligible.reduce((d,g)=>g.date<d?g.date:d,asOf),view:'stewardship',action:'Open stewardship'});
+ return items.filter(i=>i.date).map(i=>({...i,timing:i.date<asOf?'Past recorded date':i.date===asOf?'Today':'Upcoming'})).sort((a,b)=>a.date.localeCompare(b.date)||a.id.localeCompare(b.id));
+}

@@ -1,0 +1,8 @@
+import {useState} from 'react';
+import {ShieldCheck,RefreshCw} from 'lucide-react';
+import {Status} from './Fields';
+export default function WorkspaceChecks({api}){
+ const [result,setResult]=useState(null);const [busy,setBusy]=useState(false);const [error,setError]=useState('');
+ async function run(){if(busy)return;setBusy(true);setError('');try{setResult(await api('/readiness'));}catch(e){setError(e.message);}finally{setBusy(false);}}
+ return <section className="panel"><div className="section-title"><div><h2>Workspace checks</h2><p className="subtle">Check saved fields, linked records, financial constraints and reservation integrity.</p></div><button className="btn btn-secondary" disabled={busy} onClick={run}>{busy?<RefreshCw size={16}/>:<ShieldCheck size={16}/>} {busy?'Checking…':result?'Run checks again':'Run workspace checks'}</button></div>{error&&<p className="error-banner" role="alert">{error} Try running the checks again.</p>}{result?<div className="readiness-checks" aria-live="polite"><p className="subtle">{result.recordCount} records checked · {new Date(result.checkedAt).toLocaleString()}</p>{result.checks.map(c=><div className="readiness-check" key={c.key}><div><strong>{c.label}</strong><Status value={c.status}/></div>{c.issues.length>0&&<ul>{c.issues.map((i,index)=><li key={i.recordId+'-'+index}><strong>{i.label}</strong> · {i.collection} · {i.problem}</li>)}</ul>}</div>)}<p className="table-note">{result.scope}. A passed local check does not establish a tested recovery backup, provider connection, security certification or district approval.</p></div>:<p className="subtle">Run a current check before a test round or migration rehearsal. Results are derived from saved records and do not modify them.</p>}</section>;
+}

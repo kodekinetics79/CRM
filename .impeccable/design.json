@@ -1,0 +1,450 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-13T05:23:27.077459+00:00",
+  "title": "Design System: Jordan Everbright",
+  "extensions": {
+    "colorMeta": {
+      "accent": {
+        "role": "primary",
+        "displayName": "Action Indigo",
+        "canonical": "#4f46e5",
+        "tonalRamp": [
+          "oklch(15% 0.2 277)",
+          "oklch(27% 0.2 277)",
+          "oklch(38% 0.2 277)",
+          "oklch(49% 0.2 277)",
+          "oklch(61% 0.2 277)",
+          "oklch(73% 0.2 277)",
+          "oklch(85% 0.2 277)",
+          "oklch(95% 0.2 277)"
+        ]
+      },
+      "accent-hover": {
+        "role": "primary",
+        "displayName": "Action Indigo Hover",
+        "canonical": "#4338ca",
+        "tonalRamp": [
+          "oklch(15% 0.2 277)",
+          "oklch(27% 0.2 277)",
+          "oklch(38% 0.2 277)",
+          "oklch(49% 0.2 277)",
+          "oklch(61% 0.2 277)",
+          "oklch(73% 0.2 277)",
+          "oklch(85% 0.2 277)",
+          "oklch(95% 0.2 277)"
+        ]
+      },
+      "selected-context": {
+        "role": "primary",
+        "displayName": "Selected Context",
+        "canonical": "#e0e7ff",
+        "tonalRamp": [
+          "oklch(15% 0.055 277)",
+          "oklch(27% 0.055 277)",
+          "oklch(38% 0.055 277)",
+          "oklch(49% 0.055 277)",
+          "oklch(61% 0.055 277)",
+          "oklch(73% 0.055 277)",
+          "oklch(85% 0.055 277)",
+          "oklch(95% 0.055 277)"
+        ]
+      },
+      "canvas": {
+        "role": "neutral",
+        "displayName": "Canvas Gray",
+        "canonical": "#f3f4f6",
+        "tonalRamp": [
+          "oklch(15% 0.006 260)",
+          "oklch(27% 0.006 260)",
+          "oklch(38% 0.006 260)",
+          "oklch(49% 0.006 260)",
+          "oklch(61% 0.006 260)",
+          "oklch(73% 0.006 260)",
+          "oklch(85% 0.006 260)",
+          "oklch(95% 0.006 260)"
+        ]
+      },
+      "white": {
+        "role": "neutral",
+        "displayName": "Working White",
+        "canonical": "#fff",
+        "tonalRamp": [
+          "oklch(15% 0 260)",
+          "oklch(27% 0 260)",
+          "oklch(38% 0 260)",
+          "oklch(49% 0 260)",
+          "oklch(61% 0 260)",
+          "oklch(73% 0 260)",
+          "oklch(85% 0 260)",
+          "oklch(95% 0 260)"
+        ]
+      },
+      "table-header": {
+        "role": "neutral",
+        "displayName": "Header Gray",
+        "canonical": "#f9fafb",
+        "tonalRamp": [
+          "oklch(15% 0.006 260)",
+          "oklch(27% 0.006 260)",
+          "oklch(38% 0.006 260)",
+          "oklch(49% 0.006 260)",
+          "oklch(61% 0.006 260)",
+          "oklch(73% 0.006 260)",
+          "oklch(85% 0.006 260)",
+          "oklch(95% 0.006 260)"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ledger Ink",
+        "canonical": "#111827",
+        "tonalRamp": [
+          "oklch(15% 0.018 260)",
+          "oklch(27% 0.018 260)",
+          "oklch(38% 0.018 260)",
+          "oklch(49% 0.018 260)",
+          "oklch(61% 0.018 260)",
+          "oklch(73% 0.018 260)",
+          "oklch(85% 0.018 260)",
+          "oklch(95% 0.018 260)"
+        ]
+      },
+      "secondary-ink": {
+        "role": "neutral",
+        "displayName": "Secondary Ink",
+        "canonical": "#374151",
+        "tonalRamp": [
+          "oklch(15% 0.018 260)",
+          "oklch(27% 0.018 260)",
+          "oklch(38% 0.018 260)",
+          "oklch(49% 0.018 260)",
+          "oklch(61% 0.018 260)",
+          "oklch(73% 0.018 260)",
+          "oklch(85% 0.018 260)",
+          "oklch(95% 0.018 260)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Supporting Gray",
+        "canonical": "#4b5563",
+        "tonalRamp": [
+          "oklch(15% 0.006 260)",
+          "oklch(27% 0.006 260)",
+          "oklch(38% 0.006 260)",
+          "oklch(49% 0.006 260)",
+          "oklch(61% 0.006 260)",
+          "oklch(73% 0.006 260)",
+          "oklch(85% 0.006 260)",
+          "oklch(95% 0.006 260)"
+        ]
+      },
+      "annotation": {
+        "role": "neutral",
+        "displayName": "Annotation Gray",
+        "canonical": "#6b7280",
+        "tonalRamp": [
+          "oklch(15% 0.006 260)",
+          "oklch(27% 0.006 260)",
+          "oklch(38% 0.006 260)",
+          "oklch(49% 0.006 260)",
+          "oklch(61% 0.006 260)",
+          "oklch(73% 0.006 260)",
+          "oklch(85% 0.006 260)",
+          "oklch(95% 0.006 260)"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Quiet Divider",
+        "canonical": "#e5e7eb",
+        "tonalRamp": [
+          "oklch(15% 0.006 260)",
+          "oklch(27% 0.006 260)",
+          "oklch(38% 0.006 260)",
+          "oklch(49% 0.006 260)",
+          "oklch(61% 0.006 260)",
+          "oklch(73% 0.006 260)",
+          "oklch(85% 0.006 260)",
+          "oklch(95% 0.006 260)"
+        ]
+      },
+      "field-border": {
+        "role": "neutral",
+        "displayName": "Field Boundary",
+        "canonical": "#bdcbd6",
+        "tonalRamp": [
+          "oklch(15% 0.018 260)",
+          "oklch(27% 0.018 260)",
+          "oklch(38% 0.018 260)",
+          "oklch(49% 0.018 260)",
+          "oklch(61% 0.018 260)",
+          "oklch(73% 0.018 260)",
+          "oklch(85% 0.018 260)",
+          "oklch(95% 0.018 260)"
+        ]
+      },
+      "control-border": {
+        "role": "neutral",
+        "displayName": "Control Boundary",
+        "canonical": "#d1d5db",
+        "tonalRamp": [
+          "oklch(15% 0.006 260)",
+          "oklch(27% 0.006 260)",
+          "oklch(38% 0.006 260)",
+          "oklch(49% 0.006 260)",
+          "oklch(61% 0.006 260)",
+          "oklch(73% 0.006 260)",
+          "oklch(85% 0.006 260)",
+          "oklch(95% 0.006 260)"
+        ]
+      },
+      "rail-hover": {
+        "role": "neutral",
+        "displayName": "Rail Hover",
+        "canonical": "#1f2937",
+        "tonalRamp": [
+          "oklch(15% 0.018 260)",
+          "oklch(27% 0.018 260)",
+          "oklch(38% 0.018 260)",
+          "oklch(49% 0.018 260)",
+          "oklch(61% 0.018 260)",
+          "oklch(73% 0.018 260)",
+          "oklch(85% 0.018 260)",
+          "oklch(95% 0.018 260)"
+        ]
+      },
+      "chart-neutral": {
+        "role": "neutral",
+        "displayName": "Measured Gray",
+        "canonical": "#9ca3af",
+        "tonalRamp": [
+          "oklch(15% 0.006 260)",
+          "oklch(27% 0.006 260)",
+          "oklch(38% 0.006 260)",
+          "oklch(49% 0.006 260)",
+          "oklch(61% 0.006 260)",
+          "oklch(73% 0.006 260)",
+          "oklch(85% 0.006 260)",
+          "oklch(95% 0.006 260)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Page Headline",
+        "purpose": "Working-screen page headings."
+      },
+      "title": {
+        "displayName": "Section Title",
+        "purpose": "Operational section headings."
+      },
+      "body": {
+        "displayName": "Working Body",
+        "purpose": "Record content and field values."
+      },
+      "label": {
+        "displayName": "Field Label",
+        "purpose": "Visible labels and supporting interface context."
+      },
+      "button": {
+        "displayName": "Button",
+        "purpose": "Explicit primary and secondary actions."
+      },
+      "metric": {
+        "displayName": "Metric",
+        "purpose": "Saved numerical summaries."
+      }
+    },
+    "shadows": [
+      {
+        "name": "flat",
+        "value": "none",
+        "purpose": "Global box-shadow suppression; chart bar filters are also disabled."
+      }
+    ],
+    "motion": [
+      {
+        "name": "hover-feedback",
+        "value": "80ms ease-out",
+        "purpose": "Buttons, rail destinations and color/border state feedback."
+      },
+      {
+        "name": "drawer-slide",
+        "value": "120ms ease-out",
+        "purpose": "Mobile navigation transform; disabled with reduced motion."
+      },
+      {
+        "name": "entrance",
+        "value": "none",
+        "purpose": "Toasts and chart bars do not animate on entry."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "wide",
+        "value": "1500px"
+      },
+      {
+        "name": "medium",
+        "value": "1200px"
+      },
+      {
+        "name": "stack",
+        "value": "950px"
+      },
+      {
+        "name": "mobile",
+        "value": "700px"
+      },
+      {
+        "name": "short-desktop",
+        "value": "760px height"
+      }
+    ],
+    "contextMaterials": [
+      {
+        "name": "frosted-topbar",
+        "background": "rgba(255,255,255,.88)",
+        "backdropFilter": "blur(16px) saturate(110%)",
+        "fallback": "#fff"
+      },
+      {
+        "name": "frosted-rail",
+        "background": "rgba(17,24,39,.97)",
+        "backdropFilter": "blur(18px)",
+        "fallback": "#111827"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Primary saved-workflow action.",
+      "html": "<button type=\"button\" class=\"ds-btn-primary\">Record gift</button>",
+      "css": ".ds-btn-primary{font-family:'IBM Plex Sans',sans-serif;font-size:13px;letter-spacing:-.01em;font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:6px 12px;min-height:32px;border:1px solid var(--accent,#4f46e5);border-radius:4px;background:var(--accent,#4f46e5);color:#fff;cursor:pointer;white-space:nowrap;transition:background 80ms ease-out,color 80ms ease-out,border-color 80ms ease-out;}.ds-btn-primary:hover{background:#4338ca;}.ds-btn-primary:focus-visible{outline:2px solid var(--accent,#4f46e5);outline-offset:2px;}.ds-btn-primary:disabled{opacity:.55;cursor:not-allowed;}@media(prefers-reduced-motion:reduce){.ds-btn-primary{transition:none;}}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Secondary action on a white working surface.",
+      "html": "<button type=\"button\" class=\"ds-btn-secondary\">Cancel</button>",
+      "css": ".ds-btn-secondary{font-family:'IBM Plex Sans',sans-serif;font-size:13px;letter-spacing:-.01em;font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:6px 12px;min-height:32px;border:1px solid #d1d5db;border-radius:4px;background:#fff;color:#374151;cursor:pointer;white-space:nowrap;transition:background 80ms ease-out,color 80ms ease-out,border-color 80ms ease-out;}.ds-btn-secondary:hover{background:#f3f4f6;}.ds-btn-secondary:focus-visible{outline:2px solid var(--accent,#4f46e5);outline-offset:2px;}.ds-btn-secondary:disabled{opacity:.55;cursor:not-allowed;}@media(prefers-reduced-motion:reduce){.ds-btn-secondary{transition:none;}}"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Explicit destructive wording with neutral styling.",
+      "html": "<button type=\"button\" class=\"ds-btn-danger\">Void gift</button>",
+      "css": ".ds-btn-danger{font-family:'IBM Plex Sans',sans-serif;font-size:13px;letter-spacing:-.01em;font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:6px 12px;min-height:32px;border:1px solid #6b7280;border-radius:4px;background:#fff;color:#374151;cursor:pointer;white-space:nowrap;transition:background 80ms ease-out,color 80ms ease-out,border-color 80ms ease-out;}.ds-btn-danger:hover{background:#e5e7eb;}.ds-btn-danger:focus-visible{outline:2px solid var(--accent,#4f46e5);outline-offset:2px;}.ds-btn-danger:disabled{opacity:.55;cursor:not-allowed;}@media(prefers-reduced-motion:reduce){.ds-btn-danger{transition:none;}}"
+    },
+    {
+      "name": "Labeled Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Visible field label, bordered working input and supporting hint.",
+      "html": "<div class=\"ds-field\"><label for=\"ds-reference\">External reference</label><input id=\"ds-reference\" type=\"text\" aria-describedby=\"ds-reference-hint\" placeholder=\"Reference ID\"/><small id=\"ds-reference-hint\">Use the source record reference.</small></div>",
+      "css": ".ds-field{display:flex;flex-direction:column;gap:4px;font-family:'IBM Plex Sans',sans-serif;font-size:13px;letter-spacing:-.01em;color:var(--ink,#111827);}.ds-field label{font-size:12px;font-weight:500;}.ds-field input{font-family:'IBM Plex Sans',sans-serif;font-size:13px;letter-spacing:-.01em;border:1px solid #bdcbd6;border-radius:4px;background:#fff;padding:10px 12px;min-height:32px;min-width:0;color:var(--ink,#111827);caret-color:var(--accent,#4f46e5);transition:background 80ms ease-out,color 80ms ease-out,border-color 80ms ease-out;}.ds-field input::placeholder{color:#617180;}.ds-field input:focus-visible{outline:2px solid var(--accent,#4f46e5);outline-offset:2px;}.ds-field input:disabled{opacity:.55;cursor:not-allowed;}.ds-field small{font-size:11px;line-height:1.5;color:var(--muted,#4b5563);}@media(prefers-reduced-motion:reduce){.ds-field input{transition:none;}}"
+    },
+    {
+      "name": "Compact Navigation",
+      "kind": "nav",
+      "refersTo": "nav-item",
+      "description": "Neutral rail with indigo current destination. Runtime controls routes and the mobile drawer.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Main navigation\"><button type=\"button\">Constituents</button><button type=\"button\" aria-current=\"page\">Gifts</button><button type=\"button\">Reports</button></nav>",
+      "css": ".ds-nav{background:var(--navy,#111827);padding:12px;display:flex;flex-direction:column;gap:2px;}.ds-nav button{font-family:'IBM Plex Sans',sans-serif;font-size:13px;letter-spacing:-.01em;font-weight:400;line-height:18px;text-align:left;min-height:32px;padding:4px 12px;border:0;border-radius:4px;background:transparent;color:#d1d5db;cursor:pointer;transition:background 80ms ease-out,color 80ms ease-out,border-color 80ms ease-out;}.ds-nav button:hover{background:#1f2937;}.ds-nav button[aria-current=page]{background:var(--accent,#4f46e5);color:#fff;}.ds-nav button:focus-visible{outline:2px solid var(--accent,#4f46e5);outline-offset:2px;}@media(max-width:700px){.ds-nav button{min-height:36px;}}@media(prefers-reduced-motion:reduce){.ds-nav button{transition:none;}}"
+    },
+    {
+      "name": "Neutral Status",
+      "kind": "chip",
+      "refersTo": "status",
+      "description": "Plain status text with an explicit icon, without a colored pill.",
+      "html": "<span class=\"ds-status\"><svg width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" aria-hidden=\"true\"><path d=\"m5 12 4 4L19 6\"/></svg>Posted</span>",
+      "css": ".ds-status{font-family:'IBM Plex Sans',sans-serif;font-size:13px;letter-spacing:-.01em;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;font-size:12px;color:var(--muted,#4b5563);background:transparent;border:0;border-radius:0;padding:0;}.ds-status svg{flex-shrink:0;}"
+    },
+    {
+      "name": "Working Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Solid white bordered container for operational content.",
+      "html": "<section class=\"ds-panel\"><h2>Gift allocation</h2><p>Inspect the saved designation and amount.</p></section>",
+      "css": ".ds-panel{font-family:'IBM Plex Sans',sans-serif;font-size:13px;letter-spacing:-.01em;background:#fff;border:1px solid var(--line,#e5e7eb);border-radius:4px;padding:22px;min-width:0;color:var(--ink,#111827);}.ds-panel h2{font-family:inherit;font-size:18px;font-weight:600;line-height:1.3;letter-spacing:-.01em;margin:0 0 16px;}.ds-panel p{font-size:12px;line-height:1.5;max-width:75ch;color:var(--muted,#4b5563);margin:0;}@media(max-width:700px){.ds-panel{padding:18px;}}"
+    },
+    {
+      "name": "Help Surface",
+      "kind": "custom",
+      "refersTo": "tooltip",
+      "description": "Help trigger and dark tooltip appearance. Runtime supplies hover/focus/touch/Escape state and accessible descriptions.",
+      "html": "<span class=\"ds-help\"><button type=\"button\" class=\"ds-help-trigger\" aria-label=\"Help: Gift allocations\" aria-describedby=\"ds-help-text\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M9.5 9a2.5 2.5 0 0 1 5 0c0 2-2.5 2-2.5 4M12 16v.1\"/></svg></button><span class=\"ds-help-tooltip\" id=\"ds-help-text\" role=\"tooltip\">Allocate the whole gift before saving.</span></span>",
+      "css": ".ds-help{position:relative;display:inline-flex;min-height:160px;align-items:flex-start;font-family:'IBM Plex Sans',sans-serif;font-size:13px;letter-spacing:-.01em;}.ds-help-trigger{width:28px;height:28px;min-height:28px;display:inline-flex;align-items:center;justify-content:center;border:1px solid transparent;border-radius:4px;background:transparent;color:#6b7280;cursor:pointer;transition:background 80ms ease-out,color 80ms ease-out,border-color 80ms ease-out;}.ds-help-trigger:hover{background:#f3f4f6;}.ds-help-trigger:focus-visible{outline:2px solid var(--accent,#4f46e5);outline-offset:2px;}.ds-help-tooltip{position:absolute;left:0;top:36px;width:min(320px,calc(100vw - 48px));padding:12px 16px;background:var(--ink,#111827);color:#f9fafb;border:1px solid #374151;border-radius:4px;font-size:12px;line-height:1.6;text-align:left;white-space:normal;}@media(prefers-reduced-motion:reduce){.ds-help-trigger{transition:none;}}"
+    },
+    {
+      "name": "Frosted Context",
+      "kind": "nav",
+      "description": "Sticky navigation uses a frosted near-opaque layer over scrolling work; data planes stay solid.",
+      "html": "<div class=\"ds-frosted-context\"><header><strong>Operations</strong><span>Saved workspace</span></header><p>Find the next action and open its supporting record.</p></div>",
+      "css": ".ds-frosted-context{font-family:'IBM Plex Sans',sans-serif;font-size:13px;background:#f3f4f6;color:#111827;border:1px solid #e5e7eb;border-radius:4px}.ds-frosted-context header{display:flex;justify-content:space-between;gap:16px;background:rgba(255,255,255,.88);backdrop-filter:blur(16px) saturate(110%);border-bottom:1px solid rgba(209,213,219,.8);padding:16px}.ds-frosted-context header span{color:#4b5563;font-size:11px}.ds-frosted-context p{padding:16px;margin:0;color:#4b5563}@supports not(backdrop-filter:blur(1px)){.ds-frosted-context header{background:#fff}}@media(prefers-reduced-transparency:reduce){.ds-frosted-context header{background:#fff;backdrop-filter:none}}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The School Fund Ledger",
+    "overview": "Jordan Everbright is a compact enterprise workspace for inspecting relationships, entering records and comparing saved amounts. IBM Plex Sans, bordered white working surfaces and three light gray surface levels provide the structure. Indigo identifies primary actions and selected states; ordinary records, progress and annotations remain neutral.\n\nThe user's phase-three restyle establishes compact flat data planes; the subsequent phase-four request adds frosted navigation and context. Reuse the saved-workflow topology, restrained density and visible context captured here. The product remains a synthetic evaluator pilot: visual polish is not evidence of production certification, official district endorsement, live payment processing or message delivery.",
+    "keyCharacteristics": [
+      "IBM Plex Sans working text with a compact 13px body.",
+      "Three light gray surface levels and explicit borders.",
+      "Indigo primary actions and selected states.",
+      "Sticky navigation, table headers and first-column record context.",
+      "Right-aligned tabular monetary values and active-sort-only indicators.",
+      "Mobile priority fields with native record disclosure.",
+      "Screen guidance and help accessible by hover, focus and touch."
+    ],
+    "rules": [
+      {
+        "name": "The Functional Accent Rule",
+        "body": "Reserve indigo for primary actions, selection and visible interaction feedback. Status meaning must remain explicit in text or icons.",
+        "section": "colors"
+      },
+      {
+        "name": "The Numerical Comparison Rule",
+        "body": "Keep monetary values right-aligned, tabular and unwrapped. Preserve readable chart label sizes rather than shrinking a full-year comparison to fit.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat Working Surface Rule",
+        "body": "Keep tables, financial values and editors on solid backgrounds with one-pixel boundaries. Frosted navigation and context may provide depth; lift-on-hover and bouncing motion remain inappropriate.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Truthful Geometry Rule",
+        "body": "Bar-front height represents saved monetary amount on one shared scale. Optional top and side faces convey geometry only; exact values remain available in the inspector.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Frosted Context Rule",
+        "body": "The sticky topbar uses translucent white (88%) and backdrop blur (16px); the dark rail uses dark ink (97%) and blur (18px). Search and upcoming-work panels use near-opaque white (96%) and blur (16px). Opaque fallbacks and reduced-transparency rules preserve legibility. Operations summary uses a restrained white/gray surface wash; data values remain opaque and high contrast. No box shadows or chart filter halos are reintroduced.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** use IBM Plex Sans and the compact body hierarchy for working screens.",
+      "**Do** separate records with solid surfaces and one-pixel borders.",
+      "**Do** reserve indigo for primary actions, selection and visible interaction feedback.",
+      "**Do** keep money right-aligned and tabular, with exact supporting values available.",
+      "**Do** preserve sticky record context and active-sort-only direction indicators.",
+      "**Do** provide mobile priority fields, native disclosure and hover/focus/touch help.",
+      "**Do** retain explicit pilot scope and saved-workflow distinctions in guidance."
+    ],
+    "donts": [
+      "**Don't** place glass or gradients behind financial tables or editors; keep frosted effects on navigation and contextual layers.",
+      "**Don't** add box shadows, hover lift or bouncing motion.",
+      "**Don't** turn neutral statuses into a new decorative color palette.",
+      "**Don't** shrink full-year chart lettering to force twelve months into a narrow plot.",
+      "**Don't** treat optional chart geometry as another monetary data series.",
+      "**Don't** describe the evaluator pilot as production-certified or imply live delivery/settlement."
+    ]
+  }
+}
