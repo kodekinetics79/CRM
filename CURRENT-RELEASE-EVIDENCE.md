@@ -1,3 +1,5 @@
+> Latest restricted helper pass: **531/531 tests pass** (26.62s), build passes (2.07s). Assigned-ticket check-in, default-deny access, reasoned/session-revoking assignments and desktop/mobile synthetic journeys are verified. See [EVENT-HELPER-ACCESS-RELEASE.md](EVENT-HELPER-ACCESS-RELEASE.md). A8.3 remains Partial; no production or buyer acceptance is claimed. Earlier checkpoints below remain historical.
+
 > Latest persisted-history pass: **508/508 tests pass** (18.81s), build passes (2.67s). Saved fields and resolved links are verified transactionally, including reused dependencies; synthetic follow-on import and fixed-cutoff saved reporting passed. See [PERSISTED-HISTORY-INTEGRITY.md](PERSISTED-HISTORY-INTEGRITY.md). Earlier checkpoints below remain historical.
 
 > Latest connected-history pass: **504/504 tests pass** (17.91s), build passes (2.13s). Campaign links, explicitly shared dated Logged interactions, strict constituent contacts and current campaign revenue cutoffs are implemented and browser-verified with synthetic commit/replay. See [CONNECTED-HISTORY-CONVERSION.md](CONNECTED-HISTORY-CONVERSION.md). Earlier checkpoints below remain historical.
