@@ -92,3 +92,73 @@ test('revoked donor disclosure hides donor-containing draft and finalized origin
  await f.restart();const viewer=await f.login('board@foundation.example');assert.equal((await f.request('/tribute-notifications/'+draft.id,{session:viewer})).status,404);assert.deepEqual((await f.request('/tributes/'+r.id,{session:viewer})).json.revisions,[]);
  const restored=(await f.edit(revoked,{donorDisclosureApproved:true})).json.tribute;const visible=await f.request('/tributes/'+r.id,{session:viewer});assert.deepEqual(visible.json.revisions.map(v=>v.version),[1,3]);assert.equal(restored.version,3);assert.equal((await f.request('/tribute-notifications/'+draft.id,{session:viewer})).status,200);
 });
+
+const notificationWithdrawBody=(n,changes={})=>({version:n.version,preparationDigest:n.preparationDigest,reason:'Wrong unsent wording; retained original replaced after source review',confirmedNotSent:true,...changes});
+const encodedNoticeId=key=>'%'+key.charCodeAt(0).toString(16)+key.slice(1);
+
+test('unsent finalized notification withdrawal requires writable role, CSRF, current version, original digest and explicit reasoned confirmation',async t=>{
+ const f=await fixture(t),r=await f.tribute(),n=await f.prepare(r),path='/tribute-notifications/'+encodedNoticeId(n.id)+'/withdraw';
+ assert.equal((await f.request(path,{method:'POST',session:f.staff,body:notificationWithdrawBody(n)})).status,409);
+ const final=(await f.finalize(n)).json.notification;
+ for(const [options,status] of [[{},401],[{session:f.viewer},403],[{session:f.staff,csrf:false},403]])assert.equal((await f.request(path,{method:'POST',body:notificationWithdrawBody(final),...options})).status,status);
+ for(const changes of [{reason:' '},{reason:'x'.repeat(2001)},{confirmedNotSent:false},{extra:'Not allowed'}])assert.equal((await f.request(path,{method:'POST',session:f.staff,body:notificationWithdrawBody(final,changes)})).status,400);
+ assert.equal((await f.request(path,{method:'POST',session:f.staff,body:notificationWithdrawBody(final,{version:2})})).status,409);assert.equal((await f.request(path,{method:'POST',session:f.staff,body:notificationWithdrawBody(final,{preparationDigest:'0'.repeat(64)})})).status,409);
+ const original=f.db.prepare('SELECT * FROM tribute_notifications WHERE id=?').get(n.id),finalization=f.db.prepare('SELECT * FROM tribute_notification_finalizations WHERE notification_id=?').get(n.id),giftBefore=f.db.prepare("SELECT data FROM records WHERE collection='gifts' AND id=?").get(f.source.id);
+ const withdrawn=await f.request(path,{method:'POST',session:f.admin,body:notificationWithdrawBody(final)});assert.equal(withdrawn.status,200,JSON.stringify(withdrawn.json));const current=withdrawn.json.notification;
+ assert.equal(current.status,'Withdrawn');assert.equal(current.version,2);assert.equal(current.delivery,'Not sent');assert.equal(current.body,final.body);assert.equal(current.preparationDigest,final.preparationDigest);assert.equal(current.finalizedAt,final.finalizedAt);assert.equal(current.withdrawal.reason,notificationWithdrawBody(final).reason);assert.equal(current.withdrawal.actor,f.admin.user.id);assert.equal(current.withdrawal.confirmedNotSent,true);
+ assert.deepEqual(f.db.prepare('SELECT * FROM tribute_notifications WHERE id=?').get(n.id),original);assert.deepEqual(f.db.prepare('SELECT * FROM tribute_notification_finalizations WHERE notification_id=?').get(n.id),finalization);assert.deepEqual(f.db.prepare("SELECT data FROM records WHERE collection='gifts' AND id=?").get(f.source.id),giftBefore);
+ assert.equal((await f.request(path,{method:'POST',session:f.staff,body:notificationWithdrawBody(final)})).status,409);assert.equal((await f.finalize(n)).status,409);assert.throws(()=>f.db.exec("UPDATE tribute_notification_withdrawals SET reason='Rewrite'"),/immutable/);assert.throws(()=>f.db.exec('DELETE FROM tribute_notification_withdrawals'),/retained/);
+ await f.restart();const staff=await f.login('staff@foundation.example');assert.deepEqual((await f.request('/tribute-notifications/'+n.id,{session:staff})).json.notification,current);
+});
+
+test('all active finalized notices must withdraw before reasoned source correction, and replacement requires fresh current-source review',async t=>{
+ const f=await fixture(t),r=await f.tribute(),one=await f.prepare(r),two=await f.prepare(r),staleDraft=await f.prepare(r);assert.equal((await f.finalize(one)).status,200);assert.equal((await f.finalize(two)).status,200);
+ const corrections={amount:12002,allocations:[{designationId:f.fund.id,amount:12002}],method:'ACH',correctionReason:'Checked source evidence and corrected amount and method'};
+ assert.equal((await f.patch('gifts',f.source,corrections)).status,409);
+ const withdraw=n=>f.request('/tribute-notifications/'+n.id+'/withdraw',{method:'POST',session:f.staff,body:notificationWithdrawBody(n)});
+ assert.equal((await withdraw(one)).status,200);assert.equal((await f.patch('gifts',f.source,corrections)).status,409);assert.equal((await withdraw(two)).status,200);
+ const corrected=await f.patch('gifts',f.source,corrections);assert.equal(corrected.status,200,JSON.stringify(corrected.json));assert.equal(corrected.json.record.amount,12002);assert.equal(corrected.json.record.version,2);assert.equal((await f.finalize(staleDraft)).status,409);
+ const fresh=await f.prepare(r);assert.equal(fresh.status,'Draft');assert.equal(fresh.references.find(v=>v.collection==='gifts').version,2);assert.notEqual(fresh.preparationDigest,one.preparationDigest);assert.equal((await f.finalize(fresh,{confirmed:false})).status,400);assert.equal((await f.finalize(fresh)).status,200);
+ assert.equal((await f.patch('gifts',corrected.json.record,{date:'2025-09-14',correctionReason:'Another correction requires active notice disposition'})).status,409);
+ const history=(await f.request('/tribute-notifications?tributeId='+r.id,{session:f.staff})).json.notifications;assert.equal(history.filter(n=>n.status==='Withdrawn').length,2);assert.equal(history.filter(n=>n.status==='Finalized').length,1);assert.equal(history.find(n=>n.id===one.id).references.find(v=>v.collection==='gifts').version,1);
+ assert.equal((await f.patch('gifts',corrected.json.record,{softCreditId:null,correctionReason:'Identity retention remains protected'})).status,409);
+});
+
+test('withdrawn originals preserve saved/current disclosure privacy and hide internal withdrawal reasons from viewers',async t=>{
+ const f=await fixture(t),r=await f.tribute({visibility:'Staff only',message:'Private retained family wording'}),n=await f.prepare(r);assert.equal((await f.finalize(n)).status,200);const reason='Sensitive internal staff withdrawal reason';
+ assert.equal((await f.request('/tribute-notifications/'+n.id+'/withdraw',{method:'POST',session:f.staff,body:notificationWithdrawBody(n,{reason})})).status,200);assert.equal((await f.request('/tribute-notifications/'+n.id,{session:f.viewer})).status,404);
+ const shared=(await f.edit(r,{visibility:'Team',message:'Shared replacement wording'})).json.tribute;assert.equal((await f.request('/tribute-notifications/'+n.id,{session:f.viewer})).status,404);assert.doesNotMatch(JSON.stringify((await f.request('/tribute-notifications',{session:f.viewer})).json),/Private retained family wording|Sensitive internal/);
+ const sharedNotice=await f.prepare(shared);assert.equal((await f.finalize(sharedNotice)).status,200);assert.equal((await f.request('/tribute-notifications/'+sharedNotice.id+'/withdraw',{method:'POST',session:f.staff,body:notificationWithdrawBody(sharedNotice,{reason})})).status,200);
+ const viewerRead=await f.request('/tribute-notifications/'+sharedNotice.id,{session:f.viewer});assert.equal(viewerRead.status,200);assert.equal(viewerRead.json.notification.status,'Withdrawn');assert.equal(viewerRead.json.notification.withdrawal.reason,undefined);assert.doesNotMatch(JSON.stringify(viewerRead.json),/Sensitive internal/);
+ const revoked=(await f.edit(shared,{donorDisclosureApproved:false})).json.tribute;assert.equal((await f.request('/tribute-notifications/'+sharedNotice.id,{session:f.viewer})).status,404);assert.equal((await f.request('/tribute-notifications',{session:f.viewer})).json.notifications.length,0);assert.equal((await f.request('/tributes/'+r.id,{session:f.viewer})).json.revisions.length,0);
+ assert.equal((await f.request('/tributes/'+r.id+'/notifications/prepare',{method:'POST',session:f.staff,body:{version:revoked.version,channel:'Print'}})).status,403);
+ await f.restart();const viewer=await f.login('board@foundation.example');assert.equal((await f.request('/tribute-notifications/'+sharedNotice.id,{session:viewer})).status,404);assert.equal((await f.request('/tribute-notifications/'+n.id,{session:viewer})).status,404);
+});
+
+test('withdrawal audit failure rolls back disposition and preserves the active source lock',async t=>{
+ const f=await fixture(t),r=await f.tribute(),n=await f.prepare(r);const finalized=await f.finalize(n);assert.equal(finalized.status,200);const auditBefore=f.db.prepare('SELECT COUNT(*) n FROM audit').get().n;
+ f.db.exec("CREATE TRIGGER synthetic_withdrawal_audit_fault BEFORE INSERT ON audit WHEN NEW.action='withdraw_tribute_notification' BEGIN SELECT RAISE(ABORT,'Synthetic withdrawal audit fault'); END;");
+ assert.equal((await f.request('/tribute-notifications/'+n.id+'/withdraw',{method:'POST',session:f.staff,body:notificationWithdrawBody(n)})).status,500);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM tribute_notification_withdrawals').get().n,0);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM audit').get().n,auditBefore);assert.deepEqual((await f.request('/tribute-notifications/'+n.id,{session:f.staff})).json.notification,finalized.json.notification);assert.equal((await f.patch('gifts',f.source,{date:'2025-09-14',correctionReason:'Still protected after failed withdrawal'})).status,409);
+ f.db.exec('DROP TRIGGER synthetic_withdrawal_audit_fault');assert.equal((await f.request('/tribute-notifications/'+n.id+'/withdraw',{method:'POST',session:f.staff,body:notificationWithdrawBody(n)})).status,200);assert.equal((await f.patch('gifts',f.source,{date:'2025-09-14',correctionReason:'Successful retained withdrawal releases financial correction'})).status,200);
+});
+
+test('withdrawal does not waive current donor/recipient opt-outs for replacement preparation',async t=>{
+ const f=await fixture(t),r=await f.tribute(),n=await f.prepare(r);assert.equal((await f.finalize(n)).status,200);assert.equal((await f.request('/tribute-notifications/'+n.id+'/withdraw',{method:'POST',session:f.staff,body:notificationWithdrawBody(n)})).status,200);
+ const blocked=(await f.patch('constituents',f.recipient,{preference:'Do not contact'})).json.record;assert.equal((await f.request('/tributes/'+r.id+'/notifications/prepare',{method:'POST',session:f.staff,body:{version:r.version,channel:'Print'}})).status,403);
+ const restored=(await f.patch('constituents',blocked,{preference:'Post'})).json.record;const draft=await f.prepare(r);await f.patch('constituents',restored,{preference:'Do not contact'});assert.equal((await f.finalize(draft)).status,403);assert.equal(f.db.prepare('SELECT COUNT(*) n FROM tribute_notification_finalizations').get().n,1);
+ const audits=f.db.prepare("SELECT details FROM audit WHERE action='withdraw_tribute_notification'").all();assert.doesNotMatch(JSON.stringify(audits),/Wrong unsent wording|Tribute donor|family@example|Internal record/);
+});
+
+test('separately controlled gift void remains distinct from notification withdrawal and exposes retained source status',async t=>{
+ const f=await fixture(t),r=await f.tribute(),n=await f.prepare(r);const final=await f.finalize(n);assert.equal(final.status,200);assert.equal(final.json.notification.currentSourceStatus,'Posted');
+ const original=f.db.prepare('SELECT snapshot,digest FROM tribute_notifications WHERE id=?').get(n.id);assert.equal((await f.request('/gifts/'+f.source.id+'/void',{method:'POST',session:f.staff,body:{version:f.source.version,reason:'Actual source record reversed; unsent wording retained for review'}})).status,200);
+ const retained=await f.request('/tribute-notifications/'+n.id,{session:f.staff});assert.equal(retained.status,200);assert.equal(retained.json.notification.currentSourceStatus,'Voided');assert.equal(retained.json.notification.status,'Finalized');assert.equal(retained.json.notification.body,n.body);assert.deepEqual(f.db.prepare('SELECT snapshot,digest FROM tribute_notifications WHERE id=?').get(n.id),original);
+ assert.equal((await f.request('/tributes/'+r.id+'/notifications/prepare',{method:'POST',session:f.staff,body:{version:r.version,channel:'Print'}})).status,409);
+ const withdrawn=await f.request('/tribute-notifications/'+n.id+'/withdraw',{method:'POST',session:f.staff,body:notificationWithdrawBody(n)});assert.equal(withdrawn.status,200);assert.equal(withdrawn.json.notification.currentSourceStatus,'Voided');assert.equal(withdrawn.json.notification.status,'Withdrawn');assert.equal((await f.finalize(n)).status,409);
+});
+
+test('corrupt retained withdrawal evidence fails closed and cannot silently release a financial source lock',async t=>{
+ const f=await fixture(t),r=await f.tribute(),n=await f.prepare(r);assert.equal((await f.finalize(n)).status,200);
+ f.db.prepare('INSERT INTO tribute_notification_withdrawals VALUES(?,?,?,?,?,?,?)').run(n.id,2,'0'.repeat(64),'Synthetic corrupted evidence',f.staff.user.id,new Date().toISOString(),1);
+ assert.equal((await f.request('/tribute-notifications/'+n.id,{session:f.staff})).status,503);assert.equal((await f.patch('gifts',f.source,{date:'2025-09-14',correctionReason:'Corrupt evidence must not unlock financial edits'})).status,409);assert.equal(JSON.parse(f.db.prepare("SELECT data FROM records WHERE collection='gifts' AND id=?").get(f.source.id).data).version,1);
+});

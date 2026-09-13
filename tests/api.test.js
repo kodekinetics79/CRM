@@ -85,7 +85,10 @@ test('suspension ends every session, blocks login and preserves account and reco
   assert.equal(response.json.sessionsRevoked, 2);
   for (const session of [first, second]) assert.equal((await f.request('/api/workspace', { session })).status, 401);
   assert.equal((await f.request('/api/auth/login', { method: 'POST', body: { email: first.user.email, password } })).status, 401);
-  assert.deepEqual((await f.workspace()).data, before);
+  const after=(await f.workspace()).data;
+  assert.ok(after.tasks.filter(t=>t.ownerId===first.user.id).every(t=>t.ownerStatus==='Needs reassignment'));
+  const withoutAvailability=data=>({...data,tasks:data.tasks.map(({ownerStatus,...task})=>task)});
+  assert.deepEqual(withoutAvailability(after),withoutAvailability(before));
   const history = f.app.locals.db.prepare("SELECT details FROM audit WHERE action='change_access'").get();
   assert.equal(JSON.parse(history.details).previousActive, true);
   assert.equal(JSON.parse(history.details).active, false);
@@ -474,7 +477,7 @@ test('in-kind gifts require the in-kind method and cash cannot masquerade as non
 test('event-linked tasks validate the event and prevent removal while referenced', async t => {
   const f = await fixture(t);
   const benefit = await f.create('events', event(10));
-  const task = { title: 'Arrange event seating', dueDate: '2026-10-01', owner: 'Alex', status: 'Open', priority: 'Normal', constituentId: null, eventId: benefit.id, notes: '' };
+  const task = { title: 'Arrange event seating', dueDate: '2026-10-01', owner: 'Alex Morgan', status: 'Open', priority: 'Normal', constituentId: null, eventId: benefit.id, notes: '' };
   rejected(await f.request('/api/records/tasks', { method: 'POST', session: f.admin, body: { ...task, eventId: 'missing-event' } }));
   const created = await f.create('tasks', task);
   assert.equal(created.eventId, benefit.id);

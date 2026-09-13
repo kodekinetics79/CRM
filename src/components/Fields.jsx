@@ -9,7 +9,7 @@ export function Field({field,value,onChange,data,currentId}) {
  let input;
  if(type==='textarea')input=<textarea {...common} rows={key==='body'?7:3}/>;
  else if(type==='select')input=<select {...common}>{field.options.map(o=><option key={o}>{o}</option>)}</select>;
- else if(type==='reference')input=<select {...common} onChange={e=>onChange(e.target.value||null)}><option value="">{required?'Choose '+label.toLowerCase():'None'}</option>{data[field.collection].filter(r=>r.id!==currentId).map(r=><option key={r.id} value={r.id}>{r.name||r.title}</option>)}</select>;
+ else if(type==='reference')input=<select {...common} onChange={e=>onChange(e.target.value||null)}><option value="">{required?'Choose '+label.toLowerCase():'None'}</option>{data[field.collection].filter(r=>r.id!==currentId).map(r=><option key={r.id} value={r.id} disabled={r.disabled===true}>{r.name||r.title}</option>)}</select>;
  else if(type==='money')input=<div className="input-affix"><span aria-hidden="true">$</span><input {...common} type="text" inputMode="decimal" placeholder="0.00"/></div>;
  else input=<input {...common} type={type} min={field.min} max={field.max} step={field.step} maxLength={type==='text'?300:undefined}/>;
  return <div className={'field '+(type==='textarea'?'field-wide':'')}><div className="field-heading"><label htmlFor={inputId}>{label}{required&&<span className="required-mark" aria-hidden="true"> *</span>}</label>{hint&&<HelpHint label={label} text={hint}/>}</div>{input}{hint&&<small className="subtle" id={inputId+'-hint'}>{hint}</small>}</div>;

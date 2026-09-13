@@ -38,6 +38,7 @@ export function computePriorities(data,today=new Date().toISOString().slice(0,10
  const priorities=[];
  const add=(kind,title,detail,collection,id)=>priorities.push({kind,title,detail,sources:[{collection,id}],collection,recordId:id});
  for(const r of data.tasks||[])if(r.status!=='Completed'&&date(r.dueDate)&&r.dueDate<=today)add('task',label(r.title)||'Open task',`Recorded due date: ${r.dueDate}. Status: ${label(r.status)}.`,'tasks',r.id);
+ for(const a of data.fundraisingNextActions||[])if(a.nextActionStatus==='Open'&&!['Declined','Closed'].includes(a.stage)&&date(a.nextActionDate)&&a.nextActionDate<=today){add('fundraising',label(a.name)||'Review a major gift follow-up',`Recorded ${label(a.stage)} ask · due ${a.nextActionDate}. Owner: ${label(a.owner?.name)||'Recorded owner'}. Review the open follow-up; no income or delivered communication is implied.`,'fundraisingRecords',a.id);priorities.at(-1).view='fundraising';}
  const people=new Map((data.constituents||[]).map(r=>[r.id,r]));
  const grants=new Map((data.grants||[]).map(r=>[r.id,r]));
  const milestones=(data.grantMilestones||[]).filter(m=>grants.has(m.grantId)&&['Application','Report','Agreement'].includes(m.kind)&&['Open','Completed'].includes(m.status)&&date(m.dueDate));
@@ -83,7 +84,7 @@ async function generate(config,messages,req,res){
  finally{clearTimeout(timer);res.off('close',onClose);controller.abort();}
 }
 
-export function installAiRoutes(app,{list,get,audit,csrf,write,aiPolicy,provider,recheckAccess,getGrantMilestones,limitNow=Date.now}={}){
+export function installAiRoutes(app,{list,get,audit,csrf,write,aiPolicy,provider,recheckAccess,getGrantMilestones,getFundraisingNextActions,limitNow=Date.now}={}){
  const config=configuration(provider);
  const generationLimits=new Map();
  function acquireGeneration(req){
@@ -110,6 +111,7 @@ export function installAiRoutes(app,{list,get,audit,csrf,write,aiPolicy,provider
    const policy=policyFor(req),eligible=['admin','staff'].includes(req.user?.role)&&policy.enabled&&policy.dataMode==='synthetic';
    const data=Object.fromEntries(['tasks','constituents','gifts','grants','volunteers'].map(c=>[c,list(c,req)]));
    if(getGrantMilestones!==undefined){try{if(typeof getGrantMilestones!=='function')throw new Error();const milestones=getGrantMilestones(req);if(!Array.isArray(milestones))throw new Error();data.grantMilestones=milestones;}catch{throw error(503,'Grant milestone priorities are unavailable. No priority result was produced.');}}
+   if(getFundraisingNextActions!==undefined){try{if(typeof getFundraisingNextActions!=='function')throw new Error();const actions=getFundraisingNextActions(req);if(!Array.isArray(actions))throw new Error();data.fundraisingNextActions=actions;}catch{throw error(503,'Major gift follow-up priorities are unavailable. No priority result was produced.');}}
    res.json({priorities:computePriorities(data),scope:'Rule-based priorities from saved workspace facts; not model predictions.',policy,provider:{name:'Ollama',configured:config.configured,processing:config.cloud?'cloud':'local',reason:config.reason||'Configured; provider availability is checked when you request assistance.'},tasks:TASKS.map(t=>({...t,enabled:eligible&&config.configured}))});
   }catch(e){next(e);}
  });

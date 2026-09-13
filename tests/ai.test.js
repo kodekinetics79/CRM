@@ -10,13 +10,13 @@ const today=new Date().toISOString().slice(0,10);
 const person={id:personId,name:'Taylor Example',type:'Individual',preference:'Email',email:'private@example.test',phone:'555-123-1234',notes:'PRIVATE NOTE MUST NOT LEAVE',contacts:[{name:'Private additional contact'}]};
 const gift={id:giftId,constituentId:personId,amount:12500,type:'Cash',date:today,status:'Posted',notes:'PRIVATE GIFT NOTE',externalRef:'PRIVATE REF'};
 const dataset=()=>({constituents:[{...person}],gifts:[{...gift}],tasks:[{id:randomUUID(),title:'Review support',status:'Open',dueDate:today}],grants:[],volunteers:[]});
-async function fixture(t,{provider={},policy={enabled:true,dataMode:'synthetic'},data=dataset(),fetchImpl,recheckAccess=()=>true,getGrantMilestones,limitNow}={}){
+async function fixture(t,{provider={},policy={enabled:true,dataMode:'synthetic'},data=dataset(),fetchImpl,recheckAccess=()=>true,getGrantMilestones,getFundraisingNextActions,limitNow}={}){
  const calls=[],audits=[],scopes=[];const other=dataset();other.constituents[0]={...person,id:otherId,name:'Other tenant person'};other.gifts=[];
  const app=express();app.use(express.json());
  app.use((req,res,next)=>{if(req.get('X-Test-Role')!=='anonymous')req.user={id:req.get('X-Test-User')||'test-user',role:req.get('X-Test-Role')||'staff'};req.tenantId=req.get('X-Test-Tenant')||'first';next();});
  const csrf=(req,res,next)=>req.get('X-CSRF-Token')==='test-token'?next():res.status(403).json({error:'Invalid CSRF token'});
  const write=(req,res,next)=>['admin','staff'].includes(req.user?.role)?next():res.status(403).json({error:'Readonly role'});
- installAiRoutes(app,{csrf,write,recheckAccess,getGrantMilestones,limitNow,aiPolicy:policy,list:(collection,req)=>{scopes.push(req.tenantId);return (req.tenantId==='other'?other:data)[collection]||[];},get:(collection,id,req)=>{scopes.push(req.tenantId);const r=((req.tenantId==='other'?other:data)[collection]||[]).find(r=>r.id===id);if(!r)throw Object.assign(new Error('Record not found'),{status:404});return r;},audit:(...args)=>audits.push(args),provider:{model:'test-model',baseUrl:'http://127.0.0.1:11434',fetchImpl:async(url,options)=>{calls.push({url,options});return fetchImpl?fetchImpl(url,options):Response.json({message:{role:'assistant',content:'A factual response for review.'},done:true});},...provider}});
+ installAiRoutes(app,{csrf,write,recheckAccess,getGrantMilestones,getFundraisingNextActions,limitNow,aiPolicy:policy,list:(collection,req)=>{scopes.push(req.tenantId);return (req.tenantId==='other'?other:data)[collection]||[];},get:(collection,id,req)=>{scopes.push(req.tenantId);const r=((req.tenantId==='other'?other:data)[collection]||[]).find(r=>r.id===id);if(!r)throw Object.assign(new Error('Record not found'),{status:404});return r;},audit:(...args)=>audits.push(args),provider:{model:'test-model',baseUrl:'http://127.0.0.1:11434',fetchImpl:async(url,options)=>{calls.push({url,options});return fetchImpl?fetchImpl(url,options):Response.json({message:{role:'assistant',content:'A factual response for review.'},done:true});},...provider}});
  app.use((err,req,res,next)=>res.status(err.status||500).json({error:err.status?err.message:'Unexpected error'}));
  const server=app.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>new Promise(resolve=>server.close(resolve)));
  const base=`http://127.0.0.1:${server.address().port}`;
@@ -213,4 +213,14 @@ test('actual completed matching application removes stale queue reminder and reo
 test('actual unrelated completed milestone date cannot suppress a legacy deadline and private exact completion is not disclosed',async t=>{
  const f=await actualGrantQueueFixture(t),different=await f.milestone({dueDate:'2020-01-01'}),publicProof=await f.document();assert.equal((await f.complete(different,publicProof)).status,200);assert.equal((await f.priorities()).length,1);assert.equal((await f.priorities())[0].title,'Review a grant deadline');
  const exact=await f.milestone({name:'Restricted exact milestone'}),privateProof=await f.document('Administrators');assert.equal((await f.complete(exact,privateProof)).status,200);assert.deepEqual(await f.priorities(f.admin),[]);const staff=await f.priorities(f.staff),viewer=await f.priorities(f.viewer);for(const queue of [staff,viewer]){assert.equal(queue.length,1);assert.equal(queue[0].title,'Review a grant deadline');assert.doesNotMatch(JSON.stringify(queue),/Restricted exact|Human-confirmed|Queue completion evidence/);assert.equal(queue[0].milestoneId,undefined);}
+});
+
+
+test('major follow-up priorities use current scoped lifecycle data without a model and fail closed on missing projection',async t=>{
+ const id=randomUUID(),due={id,name:'Exact major follow-up',stage:'Asked',nextActionStatus:'Open',nextActionDate:today,owner:{name:'Saved owner'}};
+ const seen=[],f=await fixture(t,{data:{},getFundraisingNextActions:req=>{seen.push(req.tenantId);return req.tenantId==='first'?[due]:[];}});
+ const read=await f.request('/api/intelligence',{method:'GET',role:'viewer'});assert.equal(read.status,200);assert.equal(read.json.priorities.length,1);assert.equal(read.json.priorities[0].recordId,id);assert.equal(read.json.priorities[0].view,'fundraising');assert.match(read.json.priorities[0].detail,/no income/);assert.equal(f.calls.length,0);
+ assert.ok(!(await f.request('/api/intelligence',{method:'GET',tenant:'other'})).json.priorities.some(p=>p.kind==='fundraising'));assert.deepEqual(seen,['first','other']);
+ for(const change of [{nextActionStatus:'Completed'},{nextActionStatus:'Cancelled'},{stage:'Closed'},{stage:'Declined'},{nextActionDate:'2999-01-01'}])assert.deepEqual(computePriorities({fundraisingNextActions:[{...due,...change}]}),[]);
+ const broken=await fixture(t,{getFundraisingNextActions:()=>{throw new Error('private projection failure');}});const rejected=await broken.request('/api/intelligence',{method:'GET'});assert.equal(rejected.status,503);assert.doesNotMatch(JSON.stringify(rejected.json),/private projection failure/);assert.equal(broken.calls.length,0);
 });
