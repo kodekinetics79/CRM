@@ -19,8 +19,10 @@ async function fixture(t, options = {}) {
   const audit = (user, action, collection, id, details = {}) => db.prepare('INSERT INTO audit(action,details) VALUES(?,?)').run(action, JSON.stringify(details));
   const validate = (collection, record, recordId) => {
     if (record.parentId) get(collection, record.parentId);
+    if (collection === 'communications' && record.constituentId) get('constituents', record.constituentId);
     if (collection === 'gifts') {
       get('constituents', record.constituentId);
+      if (record.campaignId) get('campaigns', record.campaignId);
       if (record.softCreditId) get('constituents', record.softCreditId);
       for (const allocation of record.allocations) get('designations', allocation.designationId);
       if (record.allocations.reduce((n, a) => n + a.amount, 0) !== record.amount) throw new Error('Invalid allocations');
@@ -43,7 +45,7 @@ async function fixture(t, options = {}) {
   const csrf = (req, res, next) => req.get('X-CSRF-Token') === 'test-csrf' ? next() : res.status(403).json({ error: 'Invalid CSRF' });
   const listCalls = [];
   const migrationList = collection => { listCalls.push(collection); return list(collection); };
-  installMigrationRoutes(app, { list: migrationList, get, create, put, validate, audit, csrf, admin, transaction, db, collections: ['constituents', 'designations', 'gifts'], schoolYear: () => '2026–2027' });
+  installMigrationRoutes(app, { list: migrationList, get, create, put, validate, audit, csrf, admin, transaction, db, collections: ['constituents', 'designations', 'gifts', 'campaigns', 'communications'], schoolYear: () => '2026–2027' });
   app.use((error, req, res, next) => res.status(error.status || (error.name === 'ZodError' ? 400 : 500)).json({ error: error.message }));
   const server = app.listen(0, '127.0.0.1'); await once(server, 'listening');
   let closed = false;
@@ -412,10 +414,10 @@ test('indexed duplicate checking preserves all conflicting rows, mixed case/trim
   const preview = await f.request('preview', input); assert.equal(preview.status, 200); assert.equal(preview.json.valid, false); assert.equal(preview.json.summary.errorRows, 4);
   assert.equal(preview.json.rows.filter(row => row.error === 'Duplicate email in this batch').length, 2);
   assert.equal(preview.json.rows.filter(row => row.error === 'Duplicate accountCode in this batch').length, 2);
-  assert.deepEqual(f.listCalls.sort(), ['constituents', 'designations', 'gifts']); assert.deepEqual(f.counts(), before);
+  assert.deepEqual(f.listCalls.sort(), ['campaigns', 'communications', 'constituents', 'designations', 'gifts']); assert.deepEqual(f.counts(), before);
   donorRows[249].email = 'large-person-249@example.test'; fundRows[249].accountCode = 'LARGE-CODE-249'; f.listCalls.length = 0;
   const valid = await f.request('preview', input); assert.equal(valid.json.valid, true); assert.equal(valid.json.summary.validRows, 500);
-  assert.deepEqual(f.listCalls.sort(), ['constituents', 'designations', 'gifts']); assert.deepEqual(f.counts(), before);
+  assert.deepEqual(f.listCalls.sort(), ['campaigns', 'communications', 'constituents', 'designations', 'gifts']); assert.deepEqual(f.counts(), before);
 });
 
 test('indexed collisions exclude source-reused nodes from new groups but keep their current stored values as existing conflicts', async t => {

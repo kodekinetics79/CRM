@@ -82,7 +82,19 @@ test('oversized serialized mapped batch is stopped before a preview request and 
 
 test('named CSV examples keep staff fields, exact gift dollars and source dependencies under the shared headers',()=>{
  const downloads=[],render=harness('../src/features/Migration.jsx','default',{'../lib':{money,toCSV,parseCSV,dateLabel:v=>v,download:(...args)=>downloads.push(args)}}),tree=render({api:async()=>({}),user:{role:'admin'}});
- for(const type of ['constituents','designations','gifts'])find(tree,e=>e.type==='button'&&React.Children.toArray(e.props.children).filter(c=>typeof c==='string').join('')===type+' example').props.onClick();
- const donor=parseCSV(downloads[0][1])[0],fund=parseCSV(downloads[1][1])[0],gift=parseCSV(downloads[2][1])[0];
- assert.equal(donor.name,'Alex Sample');assert.equal(donor.type,'Individual');assert.equal(donor.preference,'Email');assert.equal(gift.amount,'123.45');assert.equal(gift.donorSourceId,donor.sourceId);assert.equal(gift.designationSourceId,fund.sourceId);assert.equal(gift.giftKind,'One-time');assert.equal(fund.accountCode,'SAMPLE-100');
+ for(const type of ['constituents','designations','campaigns','gifts','communications'])find(tree,e=>e.type==='button'&&React.Children.toArray(e.props.children).filter(c=>typeof c==='string').join('')===type+' example').props.onClick();
+ const donor=parseCSV(downloads[0][1])[0],fund=parseCSV(downloads[1][1])[0],campaign=parseCSV(downloads[2][1])[0],gift=parseCSV(downloads[3][1])[0],interaction=parseCSV(downloads[4][1])[0];
+ assert.equal(donor.name,'Alex Sample');assert.equal(donor.type,'Individual');assert.equal(donor.preference,'Email');assert.equal(donor.contacts,'[]');assert.equal(gift.amount,'123.45');assert.equal(gift.donorSourceId,donor.sourceId);assert.equal(gift.designationSourceId,fund.sourceId);assert.equal(gift.giftKind,'One-time');assert.equal(fund.accountCode,'SAMPLE-100');assert.equal(gift.campaignSourceId,campaign.sourceId);assert.equal(campaign.goal,'1000.00');assert.equal(campaign.status,'Completed');assert.equal(campaign.startDate,'2016-07-01');assert.equal(interaction.constituentSourceId,donor.sourceId);assert.equal(interaction.status,'Logged');assert.equal(interaction.date,'2016-09-13');assert.equal(interaction.accessScope,'Workspace');
+});
+
+test('gift mapping excludes only a wholly empty competing allocation column and leaves mixed rows for explicit review',async()=>{
+ for(const [designation,allocations,expected] of [['fund-1','','designationSourceId'],['','[{"designationSourceId":"fund-1","amount":"1.00"}]','allocations'],['fund-1','[{"designationSourceId":"fund-1","amount":"1.00"}]',null]]){
+  const calls=[],render=harness('../src/features/Migration.jsx','default',{'../lib':{money,toCSV,parseCSV,dateLabel:v=>v,download(){}}}),props={user:{role:'admin'},api:async(path,options)=>{calls.push([path,options]);return {};}};
+  let tree=render(props);find(tree,e=>e.type==='select'&&e.props.value==='constituents').props.onChange({target:{value:'gifts'}});tree=render(props);
+  const csv=toCSV(['sourceId','donorSourceId','amount','type','method','date','designationSourceId','allocations'],[['g1','d1','1.00','Cash','Check','2016-09-13',designation,allocations]]);
+  await find(tree,e=>e.type==='input'&&e.props.type==='file').props.onChange({target:{files:[{name:'gifts.csv',size:csv.length,text:async()=>csv}],value:'gifts.csv'}});tree=render(props);
+  await find(tree,e=>e.type==='form').props.onSubmit({preventDefault(){}});
+  const mapping=calls[0][1].body.files[0].mapping;
+  if(expected){assert.equal(mapping[expected],expected);assert.equal(Object.hasOwn(mapping,expected==='allocations'?'designationSourceId':'allocations'),false);}else{assert.equal(mapping.designationSourceId,'designationSourceId');assert.equal(mapping.allocations,'allocations');}
+ }
 });

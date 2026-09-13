@@ -30,11 +30,16 @@ const short = z.string().max(300);
 const sourceId = z.string().trim().min(1).max(100);
 const name = z.string().trim().min(1).max(250);
 const email = z.union([z.literal(''), z.email().max(254)]);
+// Native contact names are trimmed on save. Reject rather than silently alter
+// prepared source names; roles, emails and array order remain literal.
+const sourceContacts = z.array(z.object({ name: z.string().min(1).max(250).refine(v => v.trim().length > 0 && v === v.trim(), 'Contact name must be nonblank without surrounding whitespace'), email, role: short }).strict()).max(50);
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v => Number.isFinite(Date.parse(v)) && new Date(v + 'T00:00:00Z').toISOString().slice(0, 10) === v, 'Invalid source calendar date');
 const sourceSchemas = {
-  constituents: z.object({ sourceId, name, email, phone: short, type: z.enum(['Individual', 'Business', 'Foundation', 'Alumni', 'Employee', 'Staff', 'Community partner']), household: short, parentSourceId: z.string().max(100), segments: short, preference: z.enum(['Email', 'Phone', 'Post', 'Do not contact']), notes: text }).strict(),
+  constituents: z.object({ sourceId, name, email, phone: short, type: z.enum(['Individual', 'Business', 'Foundation', 'Alumni', 'Employee', 'Staff', 'Community partner']), household: short, parentSourceId: z.string().max(100), contacts: text.optional(), segments: short, preference: z.enum(['Email', 'Phone', 'Post', 'Do not contact']), notes: text }).strict(),
+  communications: z.object({ sourceId, constituentSourceId: sourceId, subject: name, channel: z.enum(['Email', 'Phone', 'Meeting', 'Post']), status: z.literal('Logged'), accessScope: z.literal('Workspace'), date, body: text, notes: text }).strict(),
+  campaigns: z.object({ sourceId, name, type: z.enum(['Annual', 'Capital', 'Major gifts', 'Planned giving', 'Matching gifts', 'Peer-to-peer']), goal: z.string(), startDate: date, endDate: date, status: z.enum(['Active', 'Planned', 'Completed']), description: text }).strict(),
   designations: z.object({ sourceId, name, school: short, parentSourceId: z.string().max(100), accountCode: short.min(1), description: text }).strict(),
-  gifts: z.object({ sourceId, donorSourceId: sourceId, designationSourceId: z.string().max(100), allocations: text, amount: z.string(), type: z.enum(['Cash', 'In-kind', 'Grant', 'Fee payment', 'Employee giving', 'Sponsorship']), method: z.enum(['Check', 'Cash', 'Credit card', 'ACH', 'Payroll', 'In-kind']), date, externalRef: short, notes: text, tribute: short, softCreditSourceId: z.string().max(100), giftKind: z.enum(['One-time', 'Recurring', 'Pledge fulfillment', 'Matching gift', 'Planned gift']) }).strict(),
+  gifts: z.object({ sourceId, donorSourceId: sourceId, campaignSourceId: z.string().max(100).optional(), designationSourceId: z.string().max(100), allocations: text, amount: z.string(), type: z.enum(['Cash', 'In-kind', 'Grant', 'Fee payment', 'Employee giving', 'Sponsorship']), method: z.enum(['Check', 'Cash', 'Credit card', 'ACH', 'Payroll', 'In-kind']), date, externalRef: short, notes: text, tribute: short, softCreditSourceId: z.string().max(100), giftKind: z.enum(['One-time', 'Recurring', 'Pledge fulfillment', 'Matching gift', 'Planned gift']) }).strict(),
 };
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(k => [k, canonical(value[k])])) : value;
 const hash = value => createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
@@ -55,11 +60,11 @@ function parseRequest(schema, body) {
   }
   return schema.parse(body);
 }
-function dollarCents(value) {
+function dollarCents(value, allowZero = false) {
   if (!/^\d{1,11}(?:\.\d{1,2})?$/.test(value)) throw failure(400, 'Amount must be an exact nonnegative decimal dollar string with at most two decimal places');
   const [whole, fraction = ''] = value.split('.');
   const cents = BigInt(whole) * 100n + BigInt(fraction.padEnd(2, '0'));
-  if (cents < 1n || cents > 1000000000000n) throw failure(400, 'Amount must be between one cent and the supported gift maximum');
+  if (cents < (allowZero ? 0n : 1n) || cents > 1000000000000n) throw failure(400, allowZero ? 'Goal must be between zero and the supported campaign maximum' : 'Amount must be between one cent and the supported gift maximum');
   return Number(cents);
 }
 function normalize(file, row) {
@@ -67,8 +72,21 @@ function normalize(file, row) {
   for (const [field, column] of Object.entries(file.mapping)) if (!Object.hasOwn(row, column)) throw failure(400, 'Missing mapped column: ' + field);
   if (file.collection === 'constituents' && !raw.preference) raw.preference = 'Email';
   if (file.collection === 'gifts' && !raw.giftKind) raw.giftKind = 'One-time';
-  for (const field of ['sourceId', 'parentSourceId', 'donorSourceId', 'designationSourceId', 'softCreditSourceId']) if (Object.hasOwn(raw, field)) raw[field] = raw[field].trim();
+  // Preserve source fingerprints from the prior three-collection contract.
+  // An unmapped optional campaign link must not become a new empty source field.
+  if (file.collection === 'gifts' && !Object.hasOwn(file.mapping, 'campaignSourceId')) delete raw.campaignSourceId;
+  if (file.collection === 'constituents' && !Object.hasOwn(file.mapping, 'contacts')) delete raw.contacts;
+  for (const field of ['sourceId', 'parentSourceId', 'donorSourceId', 'designationSourceId', 'softCreditSourceId', 'campaignSourceId', 'constituentSourceId']) if (Object.hasOwn(raw, field)) raw[field] = raw[field].trim();
   const parsed = sourceSchemas[file.collection].parse(raw);
+  if (file.collection === 'constituents' && Object.hasOwn(parsed, 'contacts')) {
+    try { parsed.sourceContacts = sourceContacts.parse(JSON.parse(parsed.contacts)); }
+    catch { throw failure(400, 'Contacts must be an explicit JSON array of at most 50 rows containing nonblank name, email and role only'); }
+  }
+  if (file.collection === 'communications' && parsed.date > new Date().toISOString().slice(0, 10)) throw failure(400, 'Historical interaction date must be current or past; future drafts are not converted');
+  if (file.collection === 'campaigns') {
+    parsed.goalCents = dollarCents(parsed.goal, true);
+    if (parsed.endDate < parsed.startDate) throw failure(400, 'Source campaign endDate must be on or after startDate');
+  }
   if (file.collection === 'gifts') {
     parsed.amountCents = dollarCents(parsed.amount);
     if ((parsed.type === 'In-kind') !== (parsed.method === 'In-kind')) throw failure(400, 'In-kind type and method must agree');
@@ -110,7 +128,7 @@ function controlTotals(gifts) {
 }
 
 export function installMigrationRoutes(app, { list, get, create, validate, audit, csrf, admin, transaction, db, collections, schoolYear }) {
-  if (!supported.every(c => collections.includes(c))) throw new Error('Migration requires constituents, designations and gifts');
+  if (!supported.every(c => collections.includes(c))) throw new Error('Migration requires ' + supported.join(', '));
   db.exec(`CREATE TABLE IF NOT EXISTS migration_mapping (
     source TEXT NOT NULL, collection TEXT NOT NULL, external_id TEXT NOT NULL,
     record_id TEXT NOT NULL, source_hash TEXT NOT NULL, record_hash TEXT NOT NULL,
@@ -125,7 +143,7 @@ export function installMigrationRoutes(app, { list, get, create, validate, audit
     next();
   });
   const signingKey = randomBytes(32);
-  const scope = 'Phase-one normalized constituent, designation and posted gift conversion only; contracts, attachments, interactions, source voids, recurring execution and full NonProfitEasy history are not converted.';
+  const scope = 'Normalized constituent, designation, campaign, Logged historical interaction and posted gift conversion only; contracts, attachments, source voids, original interaction actors/timestamps, provider delivery, recurring execution and full NonProfitEasy history are not converted.';
   const priorBatch = input => db.prepare('SELECT * FROM import_batches WHERE source=? AND file_key=?').get(input.source, input.fileKey);
   const fingerprint = input => hash(input);
   const dependencyHash = currentRecords => hash({
@@ -172,17 +190,18 @@ export function installMigrationRoutes(app, { list, get, create, validate, audit
     }
     const duplicateFields = { constituents: 'email', designations: 'accountCode', gifts: 'externalRef' };
     const normalizedKey = value => String(value || '').trim().toLowerCase();
-    const existingValues = new Map(supported.map(collection => [collection,
+    const duplicateCollections = supported.filter(collection => Object.hasOwn(duplicateFields, collection));
+    const existingValues = new Map(duplicateCollections.map(collection => [collection,
       new Set(currentRecords.get(collection).map(record => normalizedKey(record[duplicateFields[collection]])))]));
-    const newValues = new Map(supported.map(collection => [collection, new Map()]));
+    const newValues = new Map(duplicateCollections.map(collection => [collection, new Map()]));
     for (const node of nodes) {
-      if (node.existingId) continue;
+      if (node.existingId || !Object.hasOwn(duplicateFields, node.collection)) continue;
       const normalized = normalizedKey(node.data[duplicateFields[node.collection]]);
       const values = newValues.get(node.collection), prior = values.get(normalized) || { count: 0, hasNonempty: false };
       values.set(normalized, { count: prior.count + 1, hasNonempty: prior.hasNonempty || Boolean(node.data[duplicateFields[node.collection]]) });
     }
     for (const node of nodes) {
-      if (node.existingId) continue;
+      if (node.existingId || !Object.hasOwn(duplicateFields, node.collection)) continue;
       const field = duplicateFields[node.collection], normalized = normalizedKey(node.data[field]);
       if (node.data[field] && existingValues.get(node.collection).has(normalized)) reject(node, 'Existing ' + field + ' requires explicit source reconciliation; no record was inferred');
       // Preserve in-batch duplicate precedence over existing-value errors. Every
@@ -204,9 +223,11 @@ export function installMigrationRoutes(app, { list, get, create, validate, audit
     }
     function payload(node, resolve) {
       const d = node.data;
-      if (node.collection === 'constituents') return { name: d.name, email: d.email, phone: d.phone, type: d.type, household: d.household, parentId: d.parentSourceId ? resolve('constituents', d.parentSourceId) : null, contacts: [], segments: d.segments, preference: d.preference, notes: d.notes };
+      if (node.collection === 'constituents') return { name: d.name, email: d.email, phone: d.phone, type: d.type, household: d.household, parentId: d.parentSourceId ? resolve('constituents', d.parentSourceId) : null, contacts: d.sourceContacts || [], segments: d.segments, preference: d.preference, notes: d.notes };
+      if (node.collection === 'communications') return { constituentId: resolve('constituents', d.constituentSourceId), subject: d.subject, channel: d.channel, status: d.status, date: d.date, body: d.body, notes: d.notes };
+      if (node.collection === 'campaigns') return { name: d.name, type: d.type, goal: d.goalCents, startDate: d.startDate, endDate: d.endDate, status: d.status, description: d.description };
       if (node.collection === 'designations') return { name: d.name, school: d.school, parentId: d.parentSourceId ? resolve('designations', d.parentSourceId) : null, accountCode: d.accountCode, description: d.description };
-      return { constituentId: resolve('constituents', d.donorSourceId), amount: d.amountCents, type: d.type, method: d.method, date: d.date, campaignId: null, allocations: d.sourceAllocations.map(a => ({ designationId: resolve('designations', a.designationSourceId), amount: a.amount })), externalRef: d.externalRef, notes: d.notes, tribute: d.tribute, softCreditId: d.softCreditSourceId ? resolve('constituents', d.softCreditSourceId) : null, pledge: '', pledgeId: null, grantId: null, giftKind: d.giftKind };
+      return { constituentId: resolve('constituents', d.donorSourceId), amount: d.amountCents, type: d.type, method: d.method, date: d.date, campaignId: d.campaignSourceId ? resolve('campaigns', d.campaignSourceId) : null, allocations: d.sourceAllocations.map(a => ({ designationId: resolve('designations', a.designationSourceId), amount: a.amount })), externalRef: d.externalRef, notes: d.notes, tribute: d.tribute, softCreditId: d.softCreditSourceId ? resolve('constituents', d.softCreditSourceId) : null, pledge: '', pledgeId: null, grantId: null, giftKind: d.giftKind };
     }
     function visit(node) {
       if (visited.has(node.key) || node.entry.status === 'Error') return;
@@ -216,7 +237,7 @@ export function installMigrationRoutes(app, { list, get, create, validate, audit
         node.payload = payload(node, dependency);
         // The core validator is used whenever references already exist. Staged
         // references were strictly normalized above and are revalidated on commit.
-        const refs = node.collection === 'gifts' ? [node.payload.constituentId, node.payload.softCreditId, ...node.payload.allocations.map(a => a.designationId)] : [node.payload.parentId];
+        const refs = node.collection === 'gifts' ? [node.payload.constituentId, node.payload.softCreditId, node.payload.campaignId, ...node.payload.allocations.map(a => a.designationId)] : node.collection === 'communications' ? [node.payload.constituentId] : [node.payload.parentId];
         if (!refs.some(id => id?.startsWith('staged-'))) validate(node.collection, node.payload, node.existingId || null, node.existingId ? get(node.collection, node.existingId) : null);
         if (node.entry.status !== 'Error') ordered.push(node);
       } catch (error) { reject(node, error instanceof z.ZodError ? 'Source values fail the current record contract' : error.message); }
@@ -243,9 +264,10 @@ export function installMigrationRoutes(app, { list, get, create, validate, audit
         return { sourceId: a.designationSourceId, amount: a.amount, accountCode: staged?.data.accountCode || (mapped && get('designations', mapped.record_id).accountCode) || '' };
       }),
     })));
+    const countedCollections = supported.filter(collection => ['constituents', 'designations', 'gifts'].includes(collection) || input.files.some(file => file.collection === collection));
     const summary = { rowCount: rows.length, validRows: rows.filter(r => r.status !== 'Error').length, errorRows: rows.filter(r => r.status === 'Error').length,
-      constituents: count(validNodes, 'constituents'), designations: count(validNodes, 'designations'), gifts: count(validNodes, 'gifts'),
-      createCounts: Object.fromEntries(supported.map(c => [c, count(created, c)])), reusedRows: validNodes.length - created.length,
+      ...Object.fromEntries(countedCollections.map(collection => [collection, count(validNodes, collection)])),
+      createCounts: Object.fromEntries(countedCollections.map(c => [c, count(created, c)])), reusedRows: validNodes.length - created.length,
       giftTotalCents: giftSum(validNodes), newGiftTotalCents: giftSum(created),
       allocationCount: validGifts.reduce((n, g) => n + g.data.sourceAllocations.length, 0),
       allocationTotalCents: validGifts.reduce((sum, g) => sum + g.data.sourceAllocations.reduce((n, a) => n + BigInt(a.amount), 0n), 0n).toString(),
@@ -293,7 +315,7 @@ export function installMigrationRoutes(app, { list, get, create, validate, audit
       }));
       const completed = { ...publicPlan(result), batchId, committedAt: new Date().toISOString(), recordIds, sourceRecords,
         sourceFiles: input.files.map((file, index) => ({ file: index + 1, collection: file.collection, rowCount: file.rows.length, mapping: file.mapping })),
-        reconciliation: { expectedCreateCounts: result.summary.createCounts, actualCreateCounts: Object.fromEntries(supported.map(c => [c, recordIds.filter(r => r.collection === c).length])), expectedNewGiftCents: result.summary.newGiftTotalCents,
+        reconciliation: { expectedCreateCounts: result.summary.createCounts, actualCreateCounts: Object.fromEntries(Object.keys(result.summary.createCounts).map(c => [c, recordIds.filter(r => r.collection === c).length])), expectedNewGiftCents: result.summary.newGiftTotalCents,
           actualNewGiftCents: recordIds.filter(r => r.collection === 'gifts').reduce((sum, r) => sum + BigInt(get('gifts', r.recordId).amount), 0n).toString(),
           expectedNewControlTotals: result.summary.controlTotals.new, actualNewControlTotals } };
       if (completed.reconciliation.expectedNewGiftCents !== completed.reconciliation.actualNewGiftCents ||

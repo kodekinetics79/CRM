@@ -1071,9 +1071,9 @@
     "sourcePages": "19 / 28",
     "basicLocalDisposition": "Partial",
     "evidenceModules": "F, P, Q",
-    "currentBehaviorAndGap": "Normalized constituents/designations/posted-gifts migration tooling provides staged mappings, dependency validation, signed preview, atomic commit, exact-cent reconciliation and durable replay-safe source maps. Browser three-file commit/replay shows no duplicates. No actual NonProfitEasy source exports converted.",
+    "currentBehaviorAndGap": "Normalized constituents (including optional strict contacts), designations, campaigns, posted gifts with explicit campaign links and explicitly Workspace-classified dated Logged interactions provide staged mappings, dependency validation, signed preview, atomic commit, exact-cent reconciliation and durable replay-safe source maps. Browser five-file commit/replay and current source lineage are verified with synthetic data. No actual NonProfitEasy source exports converted.",
     "acceptanceToClose": "Obtain actual ten-year exports before November 30; complete all entity/history/void/file mappings, trial/delta/final counts and amounts, provenance and signed reconciliation/recovery acceptance.",
-    "reviewedAgainst": "Final RFP; supplied addenda; source baseline 94c8498 plus bounded September 13 Staff/dashboard/schedule corrections",
+    "reviewedAgainst": "Final RFP; supplied addenda; source baseline 94c8498 plus bounded September 13 Staff/dashboard/schedule corrections; connected-history conversion checkpoint September 13 (504 tests)",
     "acceptedByBuyer": false,
     "workstreams": [
       "Conversion and source custody"
