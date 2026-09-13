@@ -1,6 +1,6 @@
 # Wimblo security, privacy and buyer acceptance register
 
-September 13, 2026 · Wimblo 0.4.2 working source · Kode Kinetics LLC.
+September 13, 2026 · Wimblo 0.5.0 production-hardening source · Kode Kinetics LLC.
 
 This is a product control/evidence register, not a certification, signed contract, submitted technical proposal or district approval. **Institutional production admission remains blocked.** Implemented means tested locally unless explicitly identified as a live configuration inspection. Preparing a policy does not implement or operate its controls.
 
@@ -22,7 +22,7 @@ The published [R277-487 rule, sections 3/4/7](https://schools.utah.gov/adminrule
 |---|---|---|---|
 | C6, pp.19/28: constituent/employee protection; DPA willingness and FERPA | Authenticated API, strict schemas, protected sessions, CSRF, access-change audit; sensitive hashes/tokens excluded from snapshots | Authorized signatory confirms willingness and executes DPA; approved data schedule, purpose limitation, scoped access and operating program | Product owner + privacy/legal |
 | C7a, pp.19/29: role-based security | Server enforces administrator/staff/viewer; administrator-only users/settings/audit/snapshot; role/suspension changes revoke sessions; final active administrator protected | Staff/viewer still read all business collections. Module, school/program, field and export policy remain unimplemented. District approves a responsibility matrix; direct read/export tests must deny out-of-scope data | Solution architecture + district administrator |
-| C7b: MFA | None configured; password authentication is real but is not MFA | Approved identity provider or tested MFA enrollment, challenge, recovery, revocation and privileged-user enforcement. Evaluate institutional SSO under A8.7 | Identity engineering |
+| C7b: MFA | Tested workspace/platform TOTP and single-use recovery; production administrators are enrollment-only until fresh factor sign-in; sessions bind current account access; required MFA cannot be disabled | Complete live owner enrollment and adopt identity-recovery/key-custody policy. Preferred institutional SSO remains separate under A8.7 | Identity engineering |
 | C7c: encryption | Production HTTPS guard; Secure/HttpOnly/SameSite cookies; salted scrypt passwords; hashed opaque session tokens | SQLite business data is not application-encrypted. Prove encrypted database, backups/log storage, TLS database connection, key custody/rotation and provider coverage. Hashing passwords is not business-data encryption | Platform/security |
 | C7d: audit logs | Transactional actor/action/record/time audit; financial voids; access-change before/after metadata; SQL triggers reject application UPDATE/DELETE of audit | Not protected against a database/host administrator. Add access/export/security events, restricted off-host retention and monitored delivery. Independent assurance and retention approval remain | Security operations |
 | C7e: backup/disaster recovery | SQLite persists locally; JSON review export excludes credentials | Snapshot cannot restore service. Current Render free service has no disk. Establish durable database, encrypted consistent backups, recovery objectives and a timed restore/reconciliation drill | Platform operations |
@@ -63,7 +63,7 @@ The published [R277-487 rule, sections 3/4/7](https://schools.utah.gov/adminrule
 
 | Data category | Current product fields / purpose | Protection and approval boundary |
 |---|---|---|
-| Foundation accounts | Name/email/role; password hash; hashed sessions, CSRF, expiry/activity timestamps | Admin-only account inventory; hashes/session material never in snapshots; no identity federation/MFA configured |
+| Foundation accounts | Name/email/role; password hash; hashed sessions, CSRF, expiry/activity timestamps | Admin-only account inventory; hashes/session material never in snapshots; tested administrator MFA; no institutional identity federation |
 | Donors/contacts/possible employees | Name/email/phone/category, contacts, household text, hierarchy, preferences, segments, notes | All logged-in roles currently read business data. Free text can contain sensitive information: district must approve collection and scopes before real use |
 | Giving / commitments | Amount/date/type/method, allocations, references, tributes, soft credits, pledge/grant links | Financial history/void integrity implemented. No PAN/CVV collection; do not enter cards, bank credentials or SSNs in notes/imports |
 | Volunteers/events | Participation, reservations, activity hours, clocks, seating/registration, associated contacts | No public identity flow or child-specific consent procedure; do not infer student consent from participation |
@@ -87,3 +87,7 @@ The published [R277-487 rule, sections 3/4/7](https://schools.utah.gov/adminrule
 5. Assessment/certification-equivalence evidence accepted by buyer; incident tabletop, staffed contact roster and practiced notice process; LearnPlatform/iBoss approval.
 
 See `security_best_practices_report.md` for ranked code/deployment findings, `SECURITY-OPERATIONS.md` for draft operating procedures, `VERIFICATION.md` for performed checks and `PRODUCT-CLOSURE-REPORT.md` for wider functionality still pending. No criterion count or percentage is a prediction of buyer acceptance.
+
+## Current production handover checkpoint
+
+[PRODUCTION-HANDOVER.md](PRODUCTION-HANDOVER.md) records the latest MFA, private object-storage, full-platform encrypted recovery and durable-startup controls. Older deployment observations above are historical. Live rollout, off-host operation, approved retention/subprocessors/residency and signed buyer acceptance remain unproved; technical safeguards do not certify legal compliance.

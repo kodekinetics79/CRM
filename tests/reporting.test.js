@@ -39,7 +39,7 @@ async function integratedFixture(t){
  async function create(collection,body){const r=await request('/records/'+collection,{method:'POST',session:admin,body});assert.equal(r.status,201,JSON.stringify(r.json));return r.json.record;}
  async function run(entity,columns,session=admin,extra={}){const r=await request('/custom-reports/run',{method:'POST',session,body:{name:'Metadata proof',entity,columns,...extra}});assert.equal(r.status,200,JSON.stringify(r.json));return r.json;}
  async function catalog(session=admin){const r=await request('/custom-reports/catalog',{session});assert.equal(r.status,200,JSON.stringify(r.json));return r.json;}
- return {request,create,run,catalog,admin,staff,viewer,get app(){return app;},get db(){return app.locals.db;},restart:async()=>{await close();await open();}};
+ return {request,create,run,catalog,login,admin,staff,viewer,get app(){return app;},get db(){return app.locals.db;},restart:async()=>{await close();await open();}};
 }
 
 test('current metadata catalog discovers later installers and exposes stable units without security tables',async t=>{
@@ -171,7 +171,7 @@ test('administrative report sources deny creation, previews, edits and reruns af
  const definition={name:'Administrative user report',entity:'workspaceUsers',columns:['name']},created=await f.request('/custom-reports',{method:'POST',session:f.admin,body:definition});assert.equal(created.status,201);const id=created.json.report.id;
  for(const session of [f.staff,f.viewer]){assert.equal((await f.request(`/custom-reports/${id}/run`,{session})).status,403);assert.equal((await f.request(`/custom-reports/${id}`,{method:'PATCH',session,body:{...definition,version:1}})).status,403);assert.equal((await f.request('/custom-reports',{session})).json.reports.some(r=>r.id===id),false);}
  const startAt=new Date(Date.now()+30000).toISOString(),schedule=await reportingPost(f,'/report-schedules',{name:'Protected user schedule',reportId:id,cadence:'Daily',startAt});assert.equal(f.app.locals.runDueReports(Date.parse(startAt)+1000).produced,1);const delivery=f.db.prepare('SELECT id,result FROM report_deliveries WHERE schedule_id=?').get(schedule.schedule.id);assert.equal(JSON.parse(delivery.result).requiredRole,'admin');assert.equal((await f.request('/report-deliveries/'+delivery.id,{session:f.viewer})).status,403);
- f.db.prepare('UPDATE users SET role=? WHERE id=?').run('staff',f.admin.user.id);assert.equal((await f.request(`/custom-reports/${id}/run`,{session:f.admin})).status,403);
+ f.db.prepare('UPDATE users SET role=? WHERE id=?').run('staff',f.admin.user.id);assert.equal((await f.request(`/custom-reports/${id}/run`,{session:f.admin})).status,401);const changed=await f.login('alex@foundation.example');assert.equal(changed.user.role,'staff');assert.equal((await f.request(`/custom-reports/${id}/run`,{session:changed})).status,403);
 });
 
 async function reportingGrantFixture(f,name,visibility='Workspace'){
@@ -224,7 +224,7 @@ test('tribute current/history/notification reports are conservatively administra
  for(const session of [f.staff,f.viewer]){assert.equal((await f.request(`/custom-reports/${reportId}/run`,{session})).status,403);assert.equal((await f.request('/custom-reports',{session})).json.reports.some(r=>r.id===reportId),false);assert.equal((await f.run('customReportDefinitions',['name'],session)).rows.some(r=>r[0]==='Tribute private history'),false);}
  const startAt=new Date(Date.now()+30000).toISOString(),schedule=await reportingPost(f,'/report-schedules',{name:'Tribute protected schedule',reportId,cadence:'Daily',startAt});assert.equal(f.app.locals.runDueReports(Date.parse(startAt)+1000).produced,1);const stored=f.db.prepare('SELECT id,result FROM report_deliveries WHERE schedule_id=?').get(schedule.schedule.id);assert.equal(JSON.parse(stored.result).requiredRole,'admin');assert.ok(JSON.parse(stored.result).rows.some(r=>r[0]==='PRIVATE_STAFF_TRIBUTE_NOTE'));for(const session of [f.staff,f.viewer])assert.equal((await f.request('/report-deliveries/'+stored.id,{session})).status,403);
  await f.restart();assert.equal((await f.run('tributeNotifications',['delivery'])).rows[0][0],'Not sent');assert.equal((await f.request('/report-deliveries/'+stored.id,{session:f.viewer})).status,403);
- f.db.prepare('UPDATE users SET role=? WHERE id=?').run('staff',f.admin.user.id);assert.equal((await f.request(`/custom-reports/${reportId}/run`,{session:f.admin})).status,403);
+ f.db.prepare('UPDATE users SET role=? WHERE id=?').run('staff',f.admin.user.id);assert.equal((await f.request(`/custom-reports/${reportId}/run`,{session:f.admin})).status,401);const changed=await f.login('alex@foundation.example');assert.equal(changed.user.role,'staff');assert.equal((await f.request(`/custom-reports/${reportId}/run`,{session:changed})).status,403);
 });
 
 test('private document revisions never enter nonadmin current reports or new schedules and untrusted old snapshots stay admin-only',async t=>{

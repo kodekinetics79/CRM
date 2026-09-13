@@ -1,6 +1,6 @@
 # Wimblo: exact Render settings for the current code
 
-September 13, 2026. These settings prepare a hosted installation of the current React/Express/SQLite application. They do not close the product gaps in PRODUCT-CLOSURE-REPORT.md. No Render deployment was performed. Latest Wimblo source is not yet committed/pushed to the Git branch.
+September 13, 2026. These settings prepare a hosted installation of the current React/Express/SQLite application. They do not close the product gaps in PRODUCT-CLOSURE-REPORT.md. No Render deployment was performed. See PRODUCTION-HANDOVER.md and the current checkpoint evidence for exact source/deployment status.
 
 ## Service settings
 
@@ -31,15 +31,19 @@ Replace the origin/admin placeholders in Render's Environment page. No passwords
 | `APP_HOST` | `0.0.0.0` | Public listener behind Render's proxy |
 | `APP_ORIGIN` | `https://YOUR-ACTUAL-SERVICE.onrender.com` | Exact browser origin: no trailing slash, path, query or fragment; change to the exact custom HTTPS domain if used |
 | `TRUST_PROXY` | `true` | Existing code trusts one proxy hop so forwarded TLS is recognized |
-| `DB_PATH` | `/var/data/wimblo.sqlite` | SQLite database on the attached persistent disk |
+| `DB_PATH` | `/var/data/wimblo.sqlite` | SQLite database on the attached disk |
+| `PERSISTENT_DATA_DIR` | `/var/data` | Pre-existing actual persistent mount |
+| `PERSISTENT_STORAGE_CONFIRMED` | `true` | Owner verifies actual provider mount first |
+| `PLATFORM_DATA_DIR` | `/var/data/wimblo-platform` | Durable registry and tenant roots |
+| `PLATFORM_ADMIN_NAME`, `PLATFORM_ADMIN_EMAIL`, `PLATFORM_ADMIN_PASSWORD` | Actual separate initial platform admin; remove bootstrap password after enrollment | SQLite database on the attached persistent disk |
 | `ENABLE_ACCEPTANCE` | `false` | Blocks client-testing API/UI in standard production |
 | `ALLOW_DEMO` | `false` | No synthetic seeding/demo accounts in the clean installation |
 | `EVALUATOR_MODE` | `false` | The existing evaluator launcher is loopback-only and explicitly rejects production |
 | `ADMIN_NAME` | Your initial administrator's full name | Required when the production database has no users |
 | `ADMIN_EMAIL` | Your initial administrator's real email | Required at initial bootstrap; email is normalized to lowercase |
 | `ADMIN_PASSWORD` | Unique private password, at least 16 characters with upper/lowercase, number and symbol | Set as a secret only in Render; required at initial bootstrap |
-| `MFA_ENCRYPTION_KEY` | Independently generated server-only 32-byte key, encoded as hex or padded base64; configure as a private secret | Enables workspace-account authenticator enrollment/verification; preserve the same key for enrolled accounts/restores. No default and no platform-master MFA. |
-| `BACKUP_ENCRYPTION_KEY` | A distinct independently generated server/operator-only 32-byte hex/padded-base64 key | Required only for the manual backup/restore CLI operator process; no normal-startup default or automatic backup worker. Keep separately from archives and the MFA key. |
+| `MFA_ENCRYPTION_KEY` | Independently generated server-only 32-byte key, encoded as hex or padded base64; configure as a private secret | Enables workspace-account authenticator enrollment/verification; preserve the same key for enrolled accounts/restores. Required in production for both workspace/platform administrator MFA. |
+| `BACKUP_ENCRYPTION_KEY` | A distinct independently generated server/operator-only 32-byte hex/padded-base64 key | Required for production startup and recovery; no default or automatic backup worker. Keep separately from archives and the MFA key. |
 | `PORT` | Leave Render's supplied value; default `10000` | Application reads Render's port; setting `10000` explicitly is optional |
 
 [Render Node version configuration](https://render.com/docs/node-version) supports pinning via `NODE_VERSION`. A successful host build and runtime test is still required; local version testing is not proof of a live Render deployment.
@@ -73,7 +77,7 @@ See PLATFORM-AND-INTELLIGENCE-STATUS.md. PLATFORM_DATA_DIR must reside on durabl
 
 Both encryption keys are server/operator secrets: use independent values, never `VITE_*`, source, client bundles, shell arguments, logs or public files. No key values are supplied by this guide. `MFA_ENCRYPTION_KEY` protects individual account authenticator secrets; it does not encrypt the live business database/disk. Preserve the original key with independent restricted custody; replacing it without a reviewed re-encryption/re-enrollment plan can lock out enrolled users. Backup encryption uses its separately retained key; enabled restored accounts also need the original MFA key. No automatic key rotation exists.
 
-Workspace administrators/staff/viewers may enroll their own authenticator and obtain one-use recovery codes. Enrolled login first returns a password-valid challenge, then authenticates only after valid MFA. Confirm/disable revoke old sessions. Hosted acceptance must verify own-account/CSRF controls, failed/replayed factors, recovery, correct tenant challenge routing and fail-closed behavior when the key is unavailable. This does **not** implement MFA for the separate platform master administrator, SSO or forced organization-wide enrollment; privileged-platform access policy remains an operational gate.
+Workspace administrators/staff/viewers may enroll their own authenticator and obtain one-use recovery codes. Enrolled login first returns a password-valid challenge, then authenticates only after valid MFA. Confirm/disable revoke old sessions. Hosted acceptance must verify own-account/CSRF controls, failed/replayed factors, recovery, correct tenant challenge routing and fail-closed behavior when the key is unavailable. Production administrators in both planes must enroll before business/control-plane access. Staff/viewer enrollment remains optional, preferred SSO is separate, and identity recovery must follow an adopted operator policy.
 
 Configure the receipt organization/address/tax identifier/signature/footer through administrator-approved receipt-profile records, not invented environment defaults. Receipt issue requires staff confirmations of actual Print and hand-signing with date; unique numbered originals, voids and replacements remain retained. Active issued receipts protect financial edits/voids and identity merges. Noncash shows a description without assigned tax value; sponsorship benefits are disclosed without calculating deductibility. Tax/client wording approval remains required. Neither receipt issuance nor correspondence finalization independently verifies delivery, sends email or completes the existing gift acknowledgment ledger.
 

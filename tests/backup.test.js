@@ -9,7 +9,8 @@ import {DatabaseSync} from 'node:sqlite';
 import {spawn} from 'node:child_process';
 import {createApp} from '../server/app.js';
 import {totp} from '../server/mfa.js';
-import {backupWorkspace,restoreWorkspace,parseBackupKey,BACKUP_LIMITS} from '../server/backup.js';
+import {backupWorkspace,restoreWorkspace,publishOffHostBackup,parseBackupKey,BACKUP_LIMITS} from '../server/backup.js';
+import {createDocumentRecoveryAdapter} from '../server/documentRecovery.js';
 
 const mfaKey='4'.repeat(64),sha=b=>createHash('sha256').update(b).digest('hex');
 async function fixture(t){const dir=await mkdtemp(join(tmpdir(),'wimblo-full-backup-')),dbPath=join(dir,'original.sqlite'),tenantId=randomUUID(),key=randomBytes(32).toString('hex'),archivePath=join(dir,'archive.wbackup');let app=createApp({dbPath,seed:true,tenantId,mfaKey}),server=app.listen(0,'127.0.0.1');await once(server,'listening');let base=`http://127.0.0.1:${server.address().port}`;
@@ -78,3 +79,33 @@ test('live database writes after VACUUM snapshot do not enter snapshot counts or
  const liveConnection={prepare(sql){const statement=f.db.prepare(sql);return sql==='VACUUM INTO ?'?{run(path){const result=statement.run(path);f.db.prepare('INSERT INTO records VALUES(?,?,?)').run('tasks',id,JSON.stringify({id,version:1,title:'After snapshot task',dueDate:'2026-09-13',status:'Open'}));return result;}}:statement;}};
  const result=await f.backup({db:liveConnection});assert.equal(f.db.prepare('SELECT count(*) n FROM records').get().n,originalCount+1);assert.equal(result.tables.find(t=>t.name==='records').count,originalCount);const restored=await f.restore(),db=new DatabaseSync(restored.destinationPath,{readOnly:true});try{assert.equal(db.prepare('SELECT count(*) n FROM records').get().n,originalCount);assert.equal(db.prepare('SELECT data FROM records WHERE id=?').get(id),undefined);assert.equal(JSON.parse(db.prepare('SELECT data FROM records WHERE id=?').get(f.gift.id).data).amount,10001);}finally{db.close();}
 });
+
+test('off-host upload requires exact immutable-version encrypted readback and rejects wrong tenant or corrupt providers',async t=>{
+ const f=await fixture(t);await f.backup();let saved,versionRead;
+ const store={offHost:true,private:true,putImmutable:async({tenantId,bytes})=>{assert.equal(tenantId,f.tenantId);saved=Buffer.from(bytes);return {key:'private/encrypted-backup',versionId:'immutable-1'};},readVersion:async ref=>{versionRead=ref.versionId;return saved;}};
+ const result=await publishOffHostBackup({archivePath:f.archivePath,encryptionKey:f.key,tenantId:f.tenantId,store});assert.equal(result.verified,true);assert.equal(result.offHost,true);assert.equal(versionRead,'immutable-1');assert.equal(result.archiveSha256,sha(await readFile(f.archivePath)));
+ await assert.rejects(publishOffHostBackup({archivePath:f.archivePath,encryptionKey:f.key,tenantId:randomUUID(),store}),/tenant/);
+ await assert.rejects(publishOffHostBackup({archivePath:f.archivePath,encryptionKey:f.key,tenantId:f.tenantId,store:{...store,readVersion:async()=>Buffer.from('wrong bytes')}}),/readback verification failed/);
+ await assert.rejects(publishOffHostBackup({archivePath:f.archivePath,encryptionKey:f.key,tenantId:f.tenantId,store:{...store,putImmutable:async()=>({key:'object'})}}),/immutable object version/);
+ await assert.rejects(publishOffHostBackup({archivePath:f.archivePath,encryptionKey:f.key,tenantId:f.tenantId,store:{...store,offHost:false}}),/private off-host/);
+ const tampered=join(f.dir,'fake-encrypted.wbackup'),bytes=await readFile(f.archivePath);bytes[bytes.length-1]^=1;await writeFile(tampered,bytes);let uploaded=false;await assert.rejects(publishOffHostBackup({archivePath:tampered,tenantId:f.tenantId,encryptionKey:f.key,store:{...store,putImmutable:async()=>{uploaded=true;return {key:'bad',versionId:'bad'};}}}),/authentication failed/);assert.equal(uploaded,false);
+});
+
+function externalize(f){
+ f.db.exec('CREATE TABLE IF NOT EXISTS document_revision_storage(document_id TEXT,revision INTEGER,tenant_id TEXT,provider TEXT,bucket TEXT,namespace TEXT,object_key TEXT,object_version TEXT,sha256 TEXT,size INTEGER,created_at TEXT,PRIMARY KEY(document_id,revision));');
+ const reference={document_id:f.document.id,revision:1,tenant_id:f.tenantId,provider:'S3',bucket:'private-test-bucket',namespace:'tenant-test',object_key:'immutable/revision-1',object_version:'version-original',sha256:sha(f.documentBytes),size:f.documentBytes.length,created_at:new Date().toISOString()};
+ const existing=f.db.prepare('SELECT * FROM document_revision_storage WHERE document_id=? AND revision=?').get(f.document.id,1);if(!existing)f.db.prepare('INSERT INTO document_revision_storage VALUES(?,?,?,?,?,?,?,?,?,?,?)').run(...Object.values(reference));
+ const guard=f.db.prepare("SELECT sql FROM sqlite_schema WHERE name='document_revision_no_update'").get().sql;f.db.exec('DROP TRIGGER document_revision_no_update');f.db.prepare('UPDATE document_revisions SET bytes=? WHERE document_id=? AND revision=1').run(Buffer.alloc(0),f.document.id);f.db.exec(guard);return reference;
+}
+test('external document versions are bundled from the snapshot and recover offline as verified inline bytes with original provenance and immutable guards',async t=>{
+ const f=await fixture(t),reference=externalize(f);let fetched;
+ const result=await f.backup({documentStorage:{exportStoredRevision:async row=>{fetched=row;return {bytes:f.documentBytes};}}});assert.equal(result.externalDocumentRevisions,1);assert.equal(fetched.object_version,reference.object_version);
+ const restored=await f.restore();assert.equal(restored.materializedDocumentRevisions,1);const db=new DatabaseSync(restored.destinationPath);try{assert.deepEqual(Buffer.from(db.prepare('SELECT bytes FROM document_revisions WHERE document_id=? AND revision=1').get(f.document.id).bytes),f.documentBytes);assert.deepEqual({...db.prepare('SELECT * FROM document_revision_storage WHERE document_id=? AND revision=1').get(f.document.id)},reference);assert.throws(()=>db.prepare('UPDATE document_revisions SET bytes=? WHERE document_id=? AND revision=1').run(Buffer.from('rewrite'),f.document.id),/immutable/);assert.equal(restored.verifiedSourceInventory.schemaFingerprint,restored.restoredInventory.schemaFingerprint);}finally{db.close();}
+ assert.equal((await readFile(f.archivePath)).includes(f.documentBytes),false);
+});
+test('missing, corrupted and wrong-tenant external document versions never publish a successful archive',async t=>{
+ const f=await fixture(t);externalize(f);await assert.rejects(f.backup(),/recovery adapter/);await assert.rejects(f.backup({documentStorage:{exportStoredRevision:async()=>({bytes:Buffer.from('corrupt')})}}),/checksum or size/);await assert.rejects(lstat(f.archivePath),e=>e.code==='ENOENT');
+ const storageGuard=f.db.prepare("SELECT sql FROM sqlite_schema WHERE name='document_storage_no_update'").get()?.sql;if(storageGuard)f.db.exec('DROP TRIGGER document_storage_no_update');f.db.prepare('UPDATE document_revision_storage SET tenant_id=? WHERE document_id=?').run(randomUUID(),f.document.id);if(storageGuard)f.db.exec(storageGuard);await assert.rejects(f.backup({documentStorage:{exportStoredRevision:async()=>({bytes:f.documentBytes})}}),/tenant/);assert.equal((await readdir(f.dir)).filter(n=>n.startsWith('.wimblo-backup-')).length,0);
+});
+test('an empty external revision without its retained mapping cannot be called a successful full backup',async t=>{const f=await fixture(t),guard=f.db.prepare("SELECT sql FROM sqlite_schema WHERE name='document_revision_no_update'").get().sql;f.db.exec('DROP TRIGGER document_revision_no_update');f.db.prepare('UPDATE document_revisions SET bytes=? WHERE document_id=? AND revision=1').run(Buffer.alloc(0),f.document.id);f.db.exec(guard);await assert.rejects(f.backup(),/mapping is missing/);await assert.rejects(lstat(f.archivePath),e=>e.code==='ENOENT');});
+test('selected-tenant recovery adapter passes exact immutable document and provider identity into byte verification',async t=>{const f=await fixture(t),reference=externalize(f);let requested;const objectStorage={scope:{provider:reference.provider,bucket:reference.bucket,namespace:reference.namespace},get:async ref=>{requested=ref;assert.equal(ref.documentId,f.document.id);assert.equal(ref.revision,1);assert.equal(ref.version,reference.object_version);assert.equal(ref.tenantId,f.tenantId);return f.documentBytes;}};const documentStorage=createDocumentRecoveryAdapter({db:f.db,tenantId:f.tenantId,objectStorage});assert.equal((await f.backup({documentStorage})).externalDocumentRevisions,1);assert.equal(requested.sha256,sha(f.documentBytes));});

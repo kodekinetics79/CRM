@@ -1,3 +1,4 @@
+import {totp} from '../server/mfa.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, readdir, access } from 'node:fs/promises';
@@ -20,7 +21,7 @@ async function fixture(t, { configured = true, prepare, factory = createApp } = 
   if (prepare) await prepare(legacyDbPath);
   const policies = new Map(); let app, server, base;
   async function open() {
-    app = createPlatformApp({ rootDir: join(dir, 'registry'), legacyDbPath, seedLegacy: true, initialPlatformAdmin: configured ? platformAdmin : undefined, tenantFactory: args => { policies.set(args.tenantInfo.slug, { ...args }); return factory(args); } });
+    app = createPlatformApp({ rootDir: join(dir, 'registry'), legacyDbPath, seedLegacy: process.env.NODE_ENV!=='production', initialPlatformAdmin: configured ? platformAdmin : undefined, tenantFactory: args => { policies.set(args.tenantInfo.slug, { ...args }); return factory(args); } });
     server = app.listen(0, '127.0.0.1'); await once(server, 'listening'); base = `http://127.0.0.1:${server.address().port}`;
   }
   async function close() { if (server) await new Promise(resolve => server.close(resolve)); server = null; app?.locals.close(); app = null; }
@@ -137,15 +138,20 @@ test('platform login rejects foreign origins, rate limits failures and expires i
   assert.equal((await f.request('/api/platform/auth/me', { session: operator })).status, 401);
 });
 
-test('production platform requires HTTPS, explicit proxy trust and explicit synthetic permission', async t => {
-  const keys = ['NODE_ENV', 'APP_ORIGIN', 'TRUST_PROXY', 'ALLOW_DEMO']; const prior = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+test('production platform requires HTTPS, explicit proxy trust, MFA and excludes synthetic creation', async t => {
+  const keys = ['NODE_ENV', 'APP_ORIGIN', 'TRUST_PROXY', 'ALLOW_DEMO','MFA_ENCRYPTION_KEY']; const prior = Object.fromEntries(keys.map(key => [key, process.env[key]]));
   t.after(() => { for (const key of keys) { if (prior[key] === undefined) delete process.env[key]; else process.env[key] = prior[key]; } });
-  process.env.NODE_ENV = 'production'; process.env.APP_ORIGIN = 'https://crm.example.test'; process.env.TRUST_PROXY = 'true'; delete process.env.ALLOW_DEMO;
+  process.env.NODE_ENV = 'production'; process.env.APP_ORIGIN = 'https://crm.example.test'; process.env.TRUST_PROXY = 'true'; delete process.env.ALLOW_DEMO;process.env.MFA_ENCRYPTION_KEY='ac'.repeat(32);
   const factory = () => { const app = express(); app.get('/api/health', (req, res) => res.json({ status: 'ok' })); app.locals.close = () => {}; return app; };
   const f = await fixture(t, { factory });
   assert.equal((await f.request('/api/platform/config')).status, 403);
   const logged = await f.request('/api/platform/auth/login', { method: 'POST', headers: { 'X-Forwarded-Proto': 'https' }, origin: process.env.APP_ORIGIN, body: { email: platformAdmin.email, password: platformAdmin.password } }); assert.equal(logged.status, 200); assert.match(logged.headers.get('set-cookie'), /Secure/i);
-  const operator = { ...logged.json, cookie: cookies(logged.headers) };
+  const bootstrap={...logged.json,cookie:cookies(logged.headers)};assert.equal(bootstrap.mfaEnrollmentRequired,true);
+  assert.equal((await f.request('/api/platform/tenants',{session:bootstrap,headers:{'X-Forwarded-Proto':'https'}})).status,403);
+  const enrollment=await f.request('/api/platform/auth/mfa/enroll',{method:'POST',session:bootstrap,headers:{'X-Forwarded-Proto':'https'},body:{password:platformAdmin.password}});assert.equal(enrollment.status,200);
+  const confirmation=await f.request('/api/platform/auth/mfa/confirm',{method:'POST',session:bootstrap,headers:{'X-Forwarded-Proto':'https'},body:{code:totp(enrollment.json.secret)}});assert.equal(confirmation.status,200);
+  const challenge=await f.request('/api/platform/auth/login',{method:'POST',headers:{'X-Forwarded-Proto':'https'},body:{email:platformAdmin.email,password:platformAdmin.password}});assert.equal(challenge.json.mfaRequired,true);
+  const verified=await f.request('/api/platform/auth/mfa/verify',{method:'POST',headers:{'X-Forwarded-Proto':'https'},body:{challengeToken:challenge.json.challengeToken,code:confirmation.json.recoveryCodes[0]}});assert.equal(verified.status,200);const operator={...verified.json,cookie:cookies(verified.headers)};
   assert.equal((await f.request('/api/platform/tenants', { method: 'POST', session: operator, headers: { 'X-Forwarded-Proto': 'https' }, body: tenantBody('synthetic', { dataMode: 'synthetic' }) })).status, 403);
   assert.equal((await f.request('/api/platform/tenants', { method: 'POST', session: operator, headers: { 'X-Forwarded-Proto': 'https' }, body: tenantBody('restricted') })).status, 201);
 });

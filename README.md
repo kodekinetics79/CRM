@@ -86,22 +86,25 @@ The Express server serves `dist/` in production mode. This mode requires an exac
 | `NODE_ENV=production` | Enable production mode; serve built frontend files |
 | `APP_ORIGIN` | Required exact HTTPS origin, such as `https://crm.example.org`, without trailing slash/path/query |
 | `DB_PATH` | SQLite file path; use a fresh separate file for a nondemo installation |
-| `APP_HOST` | Listener address; defaults to `127.0.0.1` |
+| `APP_HOST` | Listener address; production defaults to `0.0.0.0`, local mode to `127.0.0.1` |
 | `PORT` | Listener port; defaults to `4311` |
 | `TRUST_PROXY=true` | Trust one controlled reverse proxy; set only when that proxy terminates HTTPS correctly |
-| `ALLOW_DEMO=true` | Explicitly allow synthetic demo accounts/seeding in production mode; never appropriate for real records |
+| `ALLOW_DEMO`, `EVALUATOR_MODE` | Must be false/unset in production; demonstration startup is rejected |
 | `ADMIN_EMAIL`, `ADMIN_NAME`, `ADMIN_PASSWORD` | Provision the initial legacy-workspace administrator on a fresh nondemo production database; password requires at least 16 characters, uppercase, lowercase, number and symbol |
-| `MFA_ENCRYPTION_KEY` | Optional protected workspace MFA key: exactly 32 bytes as 64 hex characters or canonical padded base64; no default |
+| `MFA_ENCRYPTION_KEY` | Required production key for workspace/platform MFA: exactly 32 bytes as 64 hex characters or canonical padded base64; no default |
 | `BACKUP_ENCRYPTION_KEY` | Operator-only 32-byte key for encrypted CLI backup/restore, retained separately from archives |
-| `ENABLE_ACCEPTANCE=true` | Explicit synthetic acceptance tools; additionally requires `ALLOW_DEMO=true` in production |
+| `ENABLE_ACCEPTANCE` | Keep false/unset in production; acceptance tools belong in a separate local synthetic deployment |
+| `PERSISTENT_DATA_DIR`, `PERSISTENT_STORAGE_CONFIRMED=true` | Pre-existing absolute provider-verified durable mount; both DB_PATH and PLATFORM_DATA_DIR must be inside it |
+| `PLATFORM_DATA_DIR` | Durable platform registry and isolated tenant directory |
+| `PLATFORM_ADMIN_EMAIL`, `PLATFORM_ADMIN_NAME`, `PLATFORM_ADMIN_PASSWORD` | Separate initial platform administrator; strong password, remove bootstrap password after enrollment |
 
-After a build, configure these variables privately for the intended HTTPS setup and run `npm run start`. Fresh nondemo production startup fails if administrator provisioning values are missing. An existing demo-account database is rejected unless `ALLOW_DEMO=true`; use a separate fresh `DB_PATH` for a nondemo environment. `ALLOW_DEMO` is the only demo authorization variable; do not substitute `DEMO_MODE`.
+After a build, configure these variables privately for the intended HTTPS setup and run `npm run start`. Fresh nondemo production startup fails if administrator provisioning values are missing. Production rejects demonstration startup and existing demonstration accounts. Use a separate fresh DB_PATH and PLATFORM_DATA_DIR on the verified durable mount. Never substitute DEMO_MODE for a security policy.
 
-These configuration controls do not establish readiness for public hosting. Durable hosting, live database/disk encryption, hosted recovery/key custody, institutional review and operational support remain separate work. [Platform and intelligence status](PLATFORM-AND-INTELLIGENCE-STATUS.md) lists separate platform/provider variables; neither tenant labels nor AI configuration implement billing or approved real-data transfer.
+See [production handover](PRODUCTION-HANDOVER.md) for the current deployment blockers and verified control scope. These configuration controls do not establish readiness for public hosting. Durable hosting, live database/disk encryption, hosted recovery/key custody, institutional review and operational support remain separate work. [Platform and intelligence status](PLATFORM-AND-INTELLIGENCE-STATUS.md) lists separate platform/provider variables; neither tenant labels nor AI configuration implement billing or approved real-data transfer.
 
 ## Account MFA and offline recovery
 
-All workspace roles can enroll their own authenticator only when a protected valid `MFA_ENCRYPTION_KEY` is configured. Enrollment requires current-password reauthentication and TOTP confirmation; recovery codes are shown once. Enabling/disabling revokes sessions and requires fresh sign-in. Missing/wrong keys fail closed for already enabled accounts. MFA is optional, not organization-wide enforcement; the separate platform master still lacks MFA/SSO/recovery. Production key custody and adopted account recovery policy remain unverified.
+All workspace roles can enroll their own authenticator only when a protected valid `MFA_ENCRYPTION_KEY` is configured. Enrollment requires current-password reauthentication and TOTP confirmation; recovery codes are shown once. Enabling/disabling revokes sessions and requires fresh sign-in. Missing/wrong keys fail closed for already enabled accounts. Production workspace administrators and platform administrators must enroll MFA before business/control-plane access. Initial password-only sessions can only enroll and sign out; confirmation revokes sessions and requires fresh factor sign-in. Verified sessions bind current account access, and required administrator MFA cannot be disabled. Staff/viewer MFA remains optional; preferred institutional SSO, key custody and adopted account recovery policy remain separate.
 
 The ordinary administrator JSON snapshot export is records-oriented and is not a service restore. The separate encrypted operator utility provides full-workspace SQLite backup and offline restore into a **new** destination:
 
@@ -109,7 +112,7 @@ The ordinary administrator JSON snapshot export is records-oriented and is not a
 node scripts/backup.mjs --help
 ```
 
-Provide private paths, the explicit original workspace UUID and server-side `BACKUP_ENCRYPTION_KEY` as described by that help. AES-256-GCM archives include installed workspace tables/document bytes and verify tenant/schema/counts/digests; outputs refuse overwrite. Restored sessions/challenges/pending enrollment are cleared. Retain the same separate `MFA_ENCRYPTION_KEY` for enabled restored MFA. The platform registry and environment/provider keys are outside the archive. This is tested local recovery, with 128 MiB/200-table/500,000-row limits, not scheduled backup, durable cloud storage or a hosted RPO/RTO commitment.
+Provide private paths, the explicit original workspace UUID and server-side `BACKUP_ENCRYPTION_KEY` as described by that help. AES-256-GCM archives include installed workspace tables/document bytes and verify tenant/schema/counts/digests; outputs refuse overwrite. Restored sessions/challenges/pending enrollment are cleared. Retain the same separate `MFA_ENCRYPTION_KEY` for enabled restored MFA. The workspace archive excludes the platform registry and environment/provider keys. Use the separate full-platform recovery utility for registry plus tenant recovery; encryption keys still remain outside all archives. This is tested local recovery, with 128 MiB/200-table/500,000-row limits, not scheduled backup, durable cloud storage or a hosted RPO/RTO commitment.
 
 ## Remaining work before real use
 

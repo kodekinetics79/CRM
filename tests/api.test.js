@@ -1,3 +1,4 @@
+import {totp} from '../server/mfa.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -487,7 +488,7 @@ test('event-linked tasks validate the event and prevent removal while referenced
 });
 
 test('production rejects unsafe origins and HTTP, and trusts TLS forwarding only explicitly', async t => {
-  const keys = ['NODE_ENV', 'APP_ORIGIN', 'ALLOW_DEMO', 'ENABLE_ACCEPTANCE', 'TRUST_PROXY', 'ADMIN_EMAIL', 'ADMIN_NAME', 'ADMIN_PASSWORD'];
+  const keys = ['NODE_ENV', 'APP_ORIGIN', 'ALLOW_DEMO', 'ENABLE_ACCEPTANCE', 'TRUST_PROXY', 'ADMIN_EMAIL', 'ADMIN_NAME', 'ADMIN_PASSWORD','MFA_ENCRYPTION_KEY'];
   const previous = Object.fromEntries(keys.map(key => [key, process.env[key]]));
   t.after(() => { for (const key of keys) { if (previous[key] === undefined) delete process.env[key]; else process.env[key] = previous[key]; } });
   process.env.NODE_ENV = 'production';
@@ -496,6 +497,7 @@ test('production rejects unsafe origins and HTTP, and trusts TLS forwarding only
   process.env.ADMIN_EMAIL = 'admin@production.example.test';
   process.env.ADMIN_NAME = 'Production test administrator';
   process.env.ADMIN_PASSWORD = 'ProductionTest!2026';
+  process.env.MFA_ENCRYPTION_KEY='ab'.repeat(32);
   const dir = await mkdtemp(join(tmpdir(), 'foundation-production-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   for (const origin of ['http://crm.example.test', 'https://crm.example.test/path', 'https://crm.example.test?query=1', 'https://user:pass@crm.example.test', 'https://crm.example.test/']) {
@@ -528,8 +530,14 @@ test('production rejects unsafe origins and HTTP, and trusts TLS forwarding only
         assert.equal(login.status, 200);
         assert.match(login.headers.get('set-cookie'), /secure/i);
         assert.equal(login.headers.get('access-control-allow-origin'), process.env.APP_ORIGIN);
-        const session = await login.json();
-        const headers = { 'X-Forwarded-Proto': 'https', Origin: process.env.APP_ORIGIN, Cookie: login.headers.get('set-cookie').split(';')[0], 'X-CSRF-Token': session.csrfToken, 'Content-Type': 'application/json' };
+        const bootstrapSession = await login.json();assert.equal(bootstrapSession.mfaEnrollmentRequired,true);
+        const bootstrapHeaders={'X-Forwarded-Proto':'https',Origin:process.env.APP_ORIGIN,Cookie:login.headers.get('set-cookie').split(';')[0],'X-CSRF-Token':bootstrapSession.csrfToken,'Content-Type':'application/json'};
+        assert.equal((await fetch(base+'/api/workspace',{headers:bootstrapHeaders})).status,403);
+        const enrollment=await fetch(base+'/api/auth/mfa/enroll',{method:'POST',headers:bootstrapHeaders,body:JSON.stringify({password:process.env.ADMIN_PASSWORD})});assert.equal(enrollment.status,200);const pending=await enrollment.json();
+        const confirmation=await fetch(base+'/api/auth/mfa/confirm',{method:'POST',headers:bootstrapHeaders,body:JSON.stringify({code:totp(pending.secret)})});assert.equal(confirmation.status,200);const enabled=await confirmation.json();
+        const challengeResponse=await fetch(base+'/api/auth/login',{method:'POST',headers:bootstrapHeaders,body:JSON.stringify({email:process.env.ADMIN_EMAIL,password:process.env.ADMIN_PASSWORD})});const challenge=await challengeResponse.json();assert.equal(challenge.mfaRequired,true);
+        const verified=await fetch(base+'/api/auth/mfa/verify',{method:'POST',headers:bootstrapHeaders,body:JSON.stringify({challengeToken:challenge.challengeToken,code:enabled.recoveryCodes[0]})});assert.equal(verified.status,200);const session=await verified.json();
+        const headers = { 'X-Forwarded-Proto': 'https', Origin: process.env.APP_ORIGIN, Cookie: verified.headers.get('set-cookie').split(';')[0], 'X-CSRF-Token': session.csrfToken, 'Content-Type': 'application/json' };
         const config = await fetch(base + '/api/config', { headers: { 'X-Forwarded-Proto': 'https', Origin: process.env.APP_ORIGIN } });
         assert.deepEqual(await config.json(), { demoAccess: false, acceptanceEnabled: false });
         const feedback = await fetch(base + '/api/records/evaluations', { method: 'POST', headers, body: '{}' });
