@@ -50,13 +50,13 @@ const roadmap = [
 export default function Guide() {
   return <div className="guide-page">
     <div className="page-header">
-      <div><h1>Jordan Everbright evaluator guide</h1><p className="subtle">Review working foundation workflows and the evidence needed before real use.</p></div>
+      <div><h1>Kinflect evaluator guide</h1><p className="subtle">Review working foundation workflows and the evidence needed before real use.</p></div>
       <a className="btn btn-secondary" href="#guide-review"><BookOpen size={16} aria-hidden="true" /> Start the review</a>
     </div>
 
     <section className="panel" aria-labelledby="guide-scope">
       <h2 className="section-title" id="guide-scope"><CheckCircle2 size={18} aria-hidden="true" /> Working local workflows</h2>
-      <p>Jordan Everbright is Kode Kinetics’ functional synthetic evaluator pilot tailored to Jordan Education Foundation. It is not an official district product or endorsement. Use fictional donors and amounts while reviewing; local changes persist.</p>
+      <p>Kinflect is Kode Kinetics’ functional synthetic evaluator pilot tailored to Jordan Education Foundation. It is not an official district product or endorsement. Use fictional donors and amounts while reviewing; local changes persist.</p>
       <dl>{workflows.map(([title, detail]) => <div key={title}>
         <dt><strong>{title}</strong></dt><dd className="subtle">{detail}</dd>
       </div>)}</dl>

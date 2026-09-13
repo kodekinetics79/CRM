@@ -1,4 +1,4 @@
-# Jordan Everbright — product ownership and expansion plan
+# Kinflect — product ownership and expansion plan
 
 September 13, 2026. This plan governs delivery beyond the phase-three synthetic evaluator. Kode Kinetics owns commercial commitments; the assistant acts as implementation and delivery coordinator within this authorized local workspace. It does not speak for the district, sign agreements or authorize external integrations.
 

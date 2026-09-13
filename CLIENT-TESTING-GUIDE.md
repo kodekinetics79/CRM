@@ -1,6 +1,6 @@
-# Jordan Everbright — client testing guide
+# Kinflect — client testing guide
 
-Use this local evaluator to review nonprofit fundraising workflows and record your observations. Jordan Everbright is Kode Kinetics' synthetic application tailored to Jordan Education Foundation; it is not an official district product or endorsement.
+Use this local evaluator to review nonprofit fundraising workflows and record your observations. Kinflect is Kode Kinetics' synthetic application tailored to Jordan Education Foundation; it is not an official district product or endorsement.
 
 Use fictional names, example-domain emails and sample amounts. Recording a gift does not move money, and recording a communication does not send a message. Work at your own pace; the application suggests about 50 minutes for the eleven scenarios, but that is a planning estimate.
 

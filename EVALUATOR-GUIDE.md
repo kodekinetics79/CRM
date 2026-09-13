@@ -1,6 +1,6 @@
-# Jordan Everbright evaluator guide
+# Kinflect evaluator guide
 
-Use this guide to review connected workflows in the local Jordan Everbright pilot, tailored to Jordan Education Foundation. This is Kode Kinetics' synthetic proof of concept, not an official district product. Run the application using [README.md](./README.md), then sign in as `alex@foundation.example` with password `FoundationDemo!2026`. Starting data is synthetic; create only fictional records.
+Use this guide to review connected workflows in the local Kinflect pilot, tailored to Jordan Education Foundation. This is Kode Kinetics' synthetic proof of concept, not an official district product. Run the application using [README.md](./README.md), then sign in as `alex@foundation.example` with password `FoundationDemo!2026`. Starting data is synthetic; create only fictional records.
 
 The steps below exercise persistence and validation as well as visible screens. Record any missing UI path or unexpected result as a pilot gap; do not infer functionality merely from a field label. Amounts shown in the application are currency values; the API stores integer cents.
 

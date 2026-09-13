@@ -1,8 +1,10 @@
-# Jordan Everbright evaluator pilot
+# Kinflect evaluator pilot
 
-Jordan Everbright is a functional local evaluator pilot tailored to Jordan Education Foundation, built for Kode Kinetics using Node.js 24, React, Vite, Express, and SQLite. It demonstrates connected workflows with synthetic records and persistent local data. The product name and tailored workspace do not imply district endorsement or an official district product.
+Kinflect is a functional local evaluator pilot tailored to Jordan Education Foundation, built for Kode Kinetics using Node.js 24, React, Vite, Express, and SQLite. It demonstrates connected workflows with synthetic records and persistent local data. The product name and tailored workspace do not imply district endorsement or an official district product.
 
 This release is suitable for reviewing workflows and identifying implementation gaps. It is not a production deployment or evidence of FERPA, PCI, SOC 2, ISO 27001, or Learn Platform approval. It does not replace the RFP's required three years of relevant experience and three qualifying references.
+
+Current release: **0.4.1 — Kinflect branding**. Earlier phase reviews and the release0.4.0 alignment matrix retain their historical Everbright name. Existing evaluator databases, sessions and saved density preferences remain compatible. Jordan Education Foundation remains the client workspace identity.
 
 ## Run from this repository
 
@@ -23,7 +25,7 @@ Open http://127.0.0.1:4321. This synthetic evaluator stays on your computer. Bui
 
 ## Client testing handover
 
-Install Node.js 24 or newer, unzip the handover package, and open a terminal in the Jordan-Everbright directory:
+Install Node.js 24 or newer, unzip the handover package, and open a terminal in the Jordan-Kinflect directory:
 
 ```sh
 npm ci

@@ -1,6 +1,6 @@
 # Future capabilities and acceptance roadmap
 
-This is the remaining product roadmap beyond Jordan Everbright's current local synthetic evaluator pilot. The tailored Jordan Education Foundation workspace is not an official district product or endorsement. Stages describe a useful implementation order, not delivery dates, commitments or certification claims. Future capabilities should enter the interface only when they work; the pilot should not display inactive buttons implying these services exist.
+This is the remaining product roadmap beyond Kinflect's current local synthetic evaluator pilot. The tailored Jordan Education Foundation workspace is not an official district product or endorsement. Stages describe a useful implementation order, not delivery dates, commitments or certification claims. Future capabilities should enter the interface only when they work; the pilot should not display inactive buttons implying these services exist.
 
 ## Delivered in the local pilot
 

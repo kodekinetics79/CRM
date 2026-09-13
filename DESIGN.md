@@ -1,5 +1,5 @@
 ---
-name: Jordan Everbright
+name: Kinflect
 description: A compact enterprise ledger for foundation relationships and saved giving workflows.
 colors:
   accent: "#4f46e5"
@@ -120,13 +120,13 @@ components:
     padding: "12px 16px"
 ---
 
-# Design System: Jordan Everbright
+# Design System: Kinflect
 
 ## Overview
 
 **Creative North Star: "The School Fund Ledger"**
 
-Jordan Everbright is a compact enterprise workspace for inspecting relationships, entering records and comparing saved amounts. IBM Plex Sans, bordered white working surfaces and three light gray surface levels provide the structure. Indigo identifies primary actions and selected states; ordinary records, progress and annotations remain neutral.
+Kinflect is a compact enterprise workspace for inspecting relationships, entering records and comparing saved amounts. IBM Plex Sans, bordered white working surfaces and three light gray surface levels provide the structure. Indigo identifies primary actions and selected states; ordinary records, progress and annotations remain neutral.
 
 The user's phase-three restyle establishes compact flat data planes; the subsequent phase-four request adds frosted navigation and context. Reuse the saved-workflow topology, restrained density and visible context captured here. The product remains a synthetic evaluator pilot: visual polish is not evidence of production certification, official district endorsement, live payment processing or message delivery.
 

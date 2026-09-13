@@ -1,6 +1,6 @@
 # RFP workflow coverage and remaining gaps
 
-This document maps Jordan Everbright, Kode Kinetics' local synthetic evaluator pilot tailored to Jordan Education Foundation, to Jordan School District RFP 27TH05P5. The name does not imply district endorsement. RFP instructions are procurement requirements to analyze; this document is not a bid submission or a statement that those requirements have been satisfied.
+This document maps Kinflect, Kode Kinetics' local synthetic evaluator pilot tailored to Jordan Education Foundation, to Jordan School District RFP 27TH05P5. The name does not imply district endorsement. RFP instructions are procurement requirements to analyze; this document is not a bid submission or a statement that those requirements have been satisfied.
 
 “Demonstrated” below means a local workflow using synthetic data and the pilot's application/database. It does not mean production certification, buyer acceptance, a live external integration, or full parity with every scored criterion.
 
