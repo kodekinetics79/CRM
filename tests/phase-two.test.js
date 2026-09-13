@@ -132,7 +132,7 @@ test('moving a receipt transfers fulfillment without double-counting and checks 
   const a = await f.create('pledges', pledge(donor, { name: 'Pledge A', amount: 5000 }));
   const b = await f.create('pledges', pledge(donor, { name: 'Pledge B', amount: 5000 }));
   const receipt = await f.create('gifts', gift(donor, fund, 3000, { pledgeId: a.id }));
-  assert.equal((await f.patch('gifts', receipt, { pledgeId: b.id })).status, 200);
+  assert.equal((await f.patch('gifts', receipt, { pledgeId: b.id, correctionReason: 'Correct the pledge association after source review' })).status, 200);
   await f.create('gifts', gift(donor, fund, 5000, { pledgeId: a.id }));
   rejected(await f.request('/api/records/gifts', { method: 'POST', session: f.admin, body: gift(donor, fund, 2001, { pledgeId: b.id }) }));
   await f.create('gifts', gift(donor, fund, 2000, { pledgeId: b.id }));

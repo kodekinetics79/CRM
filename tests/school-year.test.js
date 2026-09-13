@@ -88,7 +88,7 @@ test('protected assignment fields cannot bypass the dedicated endpoint', async t
 test('date edits retain assignment; explicit reset restores the date-derived year', async t => {
   const f = await fixture(t);
   assert.equal((await f.assign({ version: 1, schoolYear: '2024–2025', reason: 'Finance reassignment' })).status, 200);
-  const edited = await f.request(`/api/records/gifts/${f.gift.id}`, { method: 'PATCH', session: f.admin, body: { version: 2, date: '2027-08-01', notes: 'Updated transaction date' } });
+  const edited = await f.request(`/api/records/gifts/${f.gift.id}`, { method: 'PATCH', session: f.admin, body: { version: 2, date: '2027-08-01', notes: 'Updated transaction date', correctionReason: 'Correct source date after finance review' } });
   assert.equal(edited.status, 200, JSON.stringify(edited.json)); assert.equal(edited.json.record.schoolYear, '2024–2025'); assert.equal(edited.json.record.version, 3);
   const reset = await f.assign({ version: 3, schoolYear: null, reason: 'Use the corrected transaction date' });
   assert.equal(reset.status, 200); assert.equal(reset.json.record.schoolYear, '2027–2028'); assert.equal(reset.json.record.schoolYearOverride, null); assert.equal(reset.json.record.version, 4);
