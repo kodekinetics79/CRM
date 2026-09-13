@@ -41,7 +41,9 @@ async function fixture(t, options = {}) {
   app.use((req, res, next) => { const role = req.get('Test-Role'); if (!role) return res.status(401).json({ error: 'Authentication required' }); req.user = { id: 'test-admin', role }; next(); });
   const admin = (req, res, next) => req.user.role === 'admin' ? next() : res.status(403).json({ error: 'Administrator required' });
   const csrf = (req, res, next) => req.get('X-CSRF-Token') === 'test-csrf' ? next() : res.status(403).json({ error: 'Invalid CSRF' });
-  installMigrationRoutes(app, { list, get, create, put, validate, audit, csrf, admin, transaction, db, collections: ['constituents', 'designations', 'gifts'], schoolYear: () => '2026–2027' });
+  const listCalls = [];
+  const migrationList = collection => { listCalls.push(collection); return list(collection); };
+  installMigrationRoutes(app, { list: migrationList, get, create, put, validate, audit, csrf, admin, transaction, db, collections: ['constituents', 'designations', 'gifts'], schoolYear: () => '2026–2027' });
   app.use((error, req, res, next) => res.status(error.status || (error.name === 'ZodError' ? 400 : 500)).json({ error: error.message }));
   const server = app.listen(0, '127.0.0.1'); await once(server, 'listening');
   let closed = false;
@@ -53,7 +55,7 @@ async function fixture(t, options = {}) {
     return { status: response.status, json: await response.json() };
   }
   const counts = () => ({ records: db.prepare('SELECT COUNT(*) AS n FROM records').get().n, mappings: db.prepare('SELECT COUNT(*) AS n FROM migration_mapping').get().n, batches: db.prepare('SELECT COUNT(*) AS n FROM import_batches').get().n, audit: db.prepare('SELECT COUNT(*) AS n FROM audit').get().n });
-  return { db, request, list, get, put, counts, close };
+  return { db, request, list, get, put, counts, close, listCalls };
 }
 const file = (collection, rows) => ({ collection, mapping: Object.fromEntries(Object.keys(rows[0]).map(k => [k, k])), rows });
 const donors = () => file('constituents', [{ sourceId: 'donor-1', name: 'Fictional donor', type: 'Individual', email: 'migration@example.test', notes: 'Actual source note' }]);
@@ -397,4 +399,92 @@ test('migration history rejects malformed and oversized pagination before exposi
 test('empty migration history returns a terminal page without a cursor or count query', async t => {
   const f = await fixture(t); const page = await f.request('batches');
   assert.equal(page.status, 200); assert.deepEqual(page.json.batches, []); assert.equal(page.json.nextCursor, null);
+});
+
+
+test('indexed duplicate checking preserves all conflicting rows, mixed case/trimmed values and bounded planning collection reads', async t => {
+  const f = await fixture(t);
+  const donorRows = Array.from({ length: 250 }, (_, i) => ({ sourceId: 'large-person-' + i, name: 'Synthetic person ' + i, type: 'Individual', email: 'large-person-' + i + '@example.test' }));
+  const fundRows = Array.from({ length: 250 }, (_, i) => ({ sourceId: 'large-fund-' + i, name: 'Synthetic fund ' + i, accountCode: 'LARGE-CODE-' + i }));
+  donorRows[249].email = donorRows[0].email.toUpperCase(); fundRows[249].accountCode = '  large-code-0  ';
+  const input = batch({ fileKey: 'large-mixed-collision', files: [file('constituents', donorRows), file('designations', fundRows)] });
+  const before = f.counts(); f.listCalls.length = 0;
+  const preview = await f.request('preview', input); assert.equal(preview.status, 200); assert.equal(preview.json.valid, false); assert.equal(preview.json.summary.errorRows, 4);
+  assert.equal(preview.json.rows.filter(row => row.error === 'Duplicate email in this batch').length, 2);
+  assert.equal(preview.json.rows.filter(row => row.error === 'Duplicate accountCode in this batch').length, 2);
+  assert.deepEqual(f.listCalls.sort(), ['constituents', 'designations', 'gifts']); assert.deepEqual(f.counts(), before);
+  donorRows[249].email = 'large-person-249@example.test'; fundRows[249].accountCode = 'LARGE-CODE-249'; f.listCalls.length = 0;
+  const valid = await f.request('preview', input); assert.equal(valid.json.valid, true); assert.equal(valid.json.summary.validRows, 500);
+  assert.deepEqual(f.listCalls.sort(), ['constituents', 'designations', 'gifts']); assert.deepEqual(f.counts(), before);
+});
+
+test('indexed collisions exclude source-reused nodes from new groups but keep their current stored values as existing conflicts', async t => {
+  const f = await fixture(t); const committed = await previewAndCommit(f, batch()); assert.equal(committed.status, 201);
+  const input = batch({ fileKey: 'mapped-and-new-conflicts', files: [
+    file('constituents', [donors().rows[0], { ...donors().rows[0], sourceId: 'new-donor', email: donors().rows[0].email.toUpperCase() }]),
+    file('designations', [funds().rows[0], { ...funds().rows[0], sourceId: 'new-fund', accountCode: '  school-101  ' }]),
+    file('gifts', [gifts().rows[0], { ...gifts().rows[0], sourceId: 'new-gift', externalRef: '  source-receipt-1  ' }]),
+  ] });
+  const before = f.counts(), preview = await f.request('preview', input); assert.equal(preview.json.valid, false);
+  for (const sourceId of ['donor-1', 'fund-1', 'gift-1']) assert.equal(preview.json.rows.find(row => row.sourceId === sourceId).status, 'Already mapped');
+  for (const sourceId of ['new-donor', 'new-fund', 'new-gift']) assert.match(preview.json.rows.find(row => row.sourceId === sourceId).error, /^Existing /);
+  assert.equal(preview.json.rows.some(row => /^Duplicate /.test(row.error)), false); assert.deepEqual(f.counts(), before);
+});
+
+test('indexed duplicate checks retain legacy raw-empty versus whitespace-only key boundaries', async t => {
+  const f = await fixture(t); assert.equal((await previewAndCommit(f, batch({ fileKey: 'blank-keys-foundation', files: [donors(), funds()] }))).status, 201);
+  const giftRows = Array.from({ length: 3 }, (_, i) => ({ ...gifts().rows[0], sourceId: 'blank-gift-' + i, externalRef: '' }));
+  const input = batch({ fileKey: 'blank-gifts', files: [file('gifts', giftRows)] });
+  assert.equal((await f.request('preview', input)).json.valid, true);
+  giftRows[0].externalRef = '   ';
+  const whitespace = await f.request('preview', input); assert.equal(whitespace.json.valid, false);
+  assert.equal(whitespace.json.rows.filter(row => row.error === 'Duplicate externalRef in this batch').length, 3);
+  const donor = f.list('constituents')[0], fund = f.list('designations')[0];
+  f.put('gifts', { id: randomUUID(), constituentId: donor.id, amount: 12345, type: 'Cash', method: 'Check', date: '2016-09-13', status: 'Posted', allocations: [{ designationId: fund.id, amount: 12345 }], externalRef: '' });
+  const one = await f.request('preview', batch({ fileKey: 'one-whitespace-gift', files: [gifts({ sourceId: 'white-single', externalRef: ' ' })] }));
+  assert.equal(one.json.valid, false); assert.match(one.json.rows[0].error, /^Existing externalRef/);
+  const whitespaceFunds = file('designations', [{ sourceId: 'whitespace-fund-1', name: 'Synthetic blank-code fund 1', accountCode: ' ' }, { sourceId: 'whitespace-fund-2', name: 'Synthetic blank-code fund 2', accountCode: '  ' }]);
+  const codes = await f.request('preview', batch({ fileKey: 'white-account-codes', files: [whitespaceFunds] }));
+  assert.equal(codes.json.valid, false); assert.equal(codes.json.rows.filter(row => row.error === 'Duplicate accountCode in this batch').length, 2);
+});
+
+test('mounted 500-row source batch rejects normalized collisions then preserves exact mapped identity, replay and reordered source keys after restart', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'wimblo-large-migration-')); const dbPath = join(dir, 'workspace.sqlite');
+  const credentials = { name: 'Synthetic conversion operator', email: 'large.operator@example.test', password: 'LargeSourceFixture!2026' };
+  let app, server, base, session;
+  async function close() { if (server) await new Promise(resolve => server.close(resolve)); server = null; app?.locals.close(); app = null; }
+  async function call(path, body) {
+    const response = await fetch(base + '/api' + path, { method: body ? 'POST' : 'GET', headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(session ? { Cookie: session.cookie, 'X-CSRF-Token': session.csrfToken } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    return { status: response.status, json: await response.json(), headers: response.headers };
+  }
+  async function open() {
+    app = createApp({ dbPath, seed: false, initialAdmin: credentials }); server = app.listen(0, '127.0.0.1'); await once(server, 'listening'); base = 'http://127.0.0.1:' + server.address().port; session = null;
+    const signed = await call('/auth/login', { email: credentials.email, password: credentials.password }); assert.equal(signed.status, 200); session = { ...signed.json, cookie: signed.headers.get('set-cookie').split(';')[0] };
+  }
+  await open(); t.after(async () => { await close(); await rm(dir, { recursive: true, force: true }); });
+  const people = Array.from({ length: 250 }, (_, i) => ({ sourceId: 'mounted-person-' + i, name: 'Synthetic migrated person ' + i, type: i % 20 === 0 ? 'Staff' : 'Individual', email: 'mounted-person-' + i + '@example.test' }));
+  const revenue = Array.from({ length: 249 }, (_, i) => ({ ...gifts().rows[0], sourceId: 'mounted-gift-' + i, donorSourceId: people[i].sourceId, amount: '0.10', externalRef: 'MOUNTED-REVENUE-' + i }));
+  const input = batch({ fileKey: 'mounted-large-source', files: [file('constituents', people), funds(), file('gifts', revenue)] });
+  people[249].email = people[0].email.toUpperCase(); revenue[248].externalRef = '  mounted-revenue-0  ';
+  const invalid = await call('/migration/preview', input); assert.equal(invalid.status, 200); assert.equal(invalid.json.valid, false);
+  assert.equal(invalid.json.rows.filter(row => row.error === 'Duplicate email in this batch').length, 2);
+  assert.equal(invalid.json.rows.filter(row => row.error === 'Duplicate externalRef in this batch').length, 2);
+  const rejected = await call('/migration/commit', { ...input, previewDigest: '0'.repeat(64) }); assert.equal(rejected.status, 400);
+  assert.equal(app.locals.db.prepare('SELECT count(*) n FROM records').get().n, 0); assert.equal(app.locals.db.prepare('SELECT count(*) n FROM import_batches').get().n, 0);
+  people[249].email = 'mounted-person-249@example.test'; revenue[248].externalRef = 'MOUNTED-REVENUE-248';
+  const preview = await call('/migration/preview', input); assert.equal(preview.json.valid, true);
+  const saved = await call('/migration/commit', { ...input, previewDigest: preview.json.previewDigest }); assert.equal(saved.status, 201, JSON.stringify(saved.json));
+  assert.deepEqual(saved.json.reconciliation.actualCreateCounts, { constituents: 250, designations: 1, gifts: 249 }); assert.equal(saved.json.reconciliation.actualNewGiftCents, '2490');
+  const mappingsBefore = app.locals.db.prepare('SELECT * FROM migration_mapping ORDER BY collection,external_id').all();
+  await close(); await open();
+  const reverseKeys = object => Object.fromEntries(Object.entries(object).reverse());
+  const reordered = { ...input, files: input.files.map(source => ({ ...source, mapping: reverseKeys(source.mapping), rows: source.rows.map(reverseKeys) })) };
+  const replay = await call('/migration/commit', { ...reordered, previewDigest: preview.json.previewDigest }); assert.equal(replay.status, 200); assert.equal(replay.json.replayed, true);
+  assert.deepEqual(app.locals.db.prepare('SELECT * FROM migration_mapping ORDER BY collection,external_id').all(), mappingsBefore);
+  const reusedPreview = await call('/migration/preview', { ...reordered, fileKey: 'mounted-large-reuse' }); assert.equal(reusedPreview.json.valid, true, JSON.stringify(reusedPreview.json)); assert.equal(reusedPreview.json.summary.reusedRows, 500); assert.equal(reusedPreview.json.summary.newGiftTotalCents, '0');
+  const reuse = await call('/migration/commit', { ...reordered, fileKey: 'mounted-large-reuse', previewDigest: reusedPreview.json.previewDigest }); assert.equal(reuse.status, 201); assert.equal(reuse.json.recordIds.length, 0);
+  const data = (await call('/workspace')).json.data; assert.equal(data.constituents.length, 250); assert.equal(data.designations.length, 1); assert.equal(data.gifts.length, 249); assert.equal(data.gifts.reduce((sum, g) => sum + g.amount, 0), 2490);
+  const mapped = data.constituents.find(row => row.email === people[0].email); assert.equal(mapped.type, 'Staff'); assert.equal(data.gifts.find(row => row.externalRef === revenue[0].externalRef).constituentId, mapped.id);
+  const collision = await call('/migration/preview', batch({ fileKey: 'post-restart-existing-collision', files: [file('constituents', [{ ...people[0], sourceId: 'different-new-id', email: people[0].email.toUpperCase() }])] }));
+  assert.equal(collision.json.valid, false); assert.match(collision.json.rows[0].error, /^Existing email/);
 });

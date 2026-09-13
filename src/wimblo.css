@@ -241,7 +241,7 @@ section[aria-labelledby="intelligence-assistance"]>section {border-top:1px solid
  .migration-lineage-mobile dl>div {display:flex;gap:12px;align-items:baseline;margin:8px 0}
  .migration-lineage-mobile dt {width:96px;flex-shrink:0;color:var(--muted)}
  .migration-lineage-mobile dd {margin:0;min-width:0;overflow-wrap:anywhere}
- .migration-batch-detail table[aria-label="Committed migration reconciliation"] {min-width:0}
+ .migration-workspace table[aria-label="Committed migration reconciliation"] {min-width:0}
 }
 @media(max-width:700px) {.mapping-grid,.reconciliation-summary {grid-template-columns:minmax(0,1fr)}.workflow-steps {gap:12px}.workflow-steps>svg {display:none}.workflow-steps span {width:100%}}
 

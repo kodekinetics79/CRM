@@ -1,37 +1,30 @@
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { MIGRATION_COLLECTIONS, MIGRATION_FIELDS, MIGRATION_REQUIRED, MIGRATION_LIMITS } from '../shared/migrationContract.js';
 
 // Phase one accepts explicitly normalized CSV data, not arbitrary source schemas.
-const supported = ['constituents', 'designations', 'gifts'];
-const fields = {
-  constituents: ['sourceId', 'name', 'email', 'phone', 'type', 'household', 'parentSourceId', 'segments', 'preference', 'notes'],
-  designations: ['sourceId', 'name', 'school', 'parentSourceId', 'accountCode', 'description'],
-  gifts: ['sourceId', 'donorSourceId', 'designationSourceId', 'allocations', 'amount', 'type', 'method', 'date', 'externalRef', 'notes', 'tribute', 'softCreditSourceId', 'giftKind'],
-};
-const required = {
-  constituents: ['sourceId', 'name', 'type'],
-  designations: ['sourceId', 'name', 'accountCode'],
-  gifts: ['sourceId', 'donorSourceId', 'amount', 'type', 'method', 'date'],
-};
+const supported = MIGRATION_COLLECTIONS;
+const fields = MIGRATION_FIELDS;
+const required = MIGRATION_REQUIRED;
 const safeKey = z.string().min(1).max(100).refine(v => !['__proto__', 'prototype', 'constructor'].includes(v), 'Unsupported column name');
 const fileSchema = z.object({
   collection: z.enum(supported),
   mapping: z.record(safeKey, safeKey),
-  rows: z.array(z.record(safeKey, z.string().max(8000))).min(1).max(500),
+  rows: z.array(z.record(safeKey, z.string().max(8000))).min(1).max(MIGRATION_LIMITS.rowsPerBatch),
 }).strict().superRefine((file, ctx) => {
   for (const key of Object.keys(file.mapping)) if (!fields[file.collection].includes(key)) ctx.addIssue({ code: 'custom', message: 'Unsupported mapped field: ' + key });
   for (const key of required[file.collection]) if (!Object.hasOwn(file.mapping, key)) ctx.addIssue({ code: 'custom', message: 'Required mapping: ' + key });
   if (file.collection === 'gifts' && Number(Object.hasOwn(file.mapping, 'allocations')) + Number(Object.hasOwn(file.mapping, 'designationSourceId')) !== 1) ctx.addIssue({ code: 'custom', message: 'Map designationSourceId or allocations, exactly one' });
   if (new Set(Object.values(file.mapping)).size !== Object.keys(file.mapping).length) ctx.addIssue({ code: 'custom', message: 'A column cannot map to more than one field' });
-  for (const row of file.rows) if (Object.keys(row).length > 30) ctx.addIssue({ code: 'custom', message: 'Maximum 30 columns per row' });
+  for (const row of file.rows) if (Object.keys(row).length > MIGRATION_LIMITS.columnsPerRow) ctx.addIssue({ code: 'custom', message: 'Maximum ' + MIGRATION_LIMITS.columnsPerRow + ' columns per row' });
 });
 const requestShape = {
-  source: z.string().trim().min(1).max(80).regex(/^[A-Za-z0-9][A-Za-z0-9 ._-]*$/),
-  fileKey: z.string().trim().min(1).max(160),
-  files: z.array(fileSchema).min(1).max(10),
+  source: z.string().trim().min(1).max(MIGRATION_LIMITS.sourceName).regex(/^[A-Za-z0-9][A-Za-z0-9 ._-]*$/),
+  fileKey: z.string().trim().min(1).max(MIGRATION_LIMITS.fileKey),
+  files: z.array(fileSchema).min(1).max(MIGRATION_LIMITS.filesPerBatch),
 };
-const previewSchema = z.object(requestShape).strict().refine(v => v.files.reduce((n, f) => n + f.rows.length, 0) <= 500, 'Maximum 500 rows across all files');
-const commitSchema = z.object({ ...requestShape, previewDigest: z.string().regex(/^[a-f0-9]{64}$/) }).strict().refine(v => v.files.reduce((n, f) => n + f.rows.length, 0) <= 500, 'Maximum 500 rows across all files');
+const previewSchema = z.object(requestShape).strict().refine(v => v.files.reduce((n, f) => n + f.rows.length, 0) <= MIGRATION_LIMITS.rowsPerBatch, 'Maximum ' + MIGRATION_LIMITS.rowsPerBatch + ' rows across all files');
+const commitSchema = z.object({ ...requestShape, previewDigest: z.string().regex(/^[a-f0-9]{64}$/) }).strict().refine(v => v.files.reduce((n, f) => n + f.rows.length, 0) <= MIGRATION_LIMITS.rowsPerBatch, 'Maximum ' + MIGRATION_LIMITS.rowsPerBatch + ' rows across all files');
 const text = z.string().max(8000);
 const short = z.string().max(300);
 const sourceId = z.string().trim().min(1).max(100);
@@ -135,9 +128,9 @@ export function installMigrationRoutes(app, { list, get, create, validate, audit
   const scope = 'Phase-one normalized constituent, designation and posted gift conversion only; contracts, attachments, interactions, source voids, recurring execution and full NonProfitEasy history are not converted.';
   const priorBatch = input => db.prepare('SELECT * FROM import_batches WHERE source=? AND file_key=?').get(input.source, input.fileKey);
   const fingerprint = input => hash(input);
-  const dependencyHash = () => hash({
+  const dependencyHash = currentRecords => hash({
     // Including current data as well as versions detects source-reference/duplicate changes.
-    records: supported.map(c => [c, list(c).sort((a, b) => a.id.localeCompare(b.id))]),
+    records: supported.map(c => [c, [...currentRecords.get(c)].sort((a, b) => a.id.localeCompare(b.id))]),
     mappings: db.prepare('SELECT * FROM migration_mapping ORDER BY source,collection,external_id').all(),
     // Every fiscal start month must produce a distinct policy fingerprint,
     // including an empty workspace where no gift versions can invalidate it.
@@ -151,6 +144,7 @@ export function installMigrationRoutes(app, { list, get, create, validate, audit
       if (previous.content_hash !== contentHash) throw failure(409, 'This source/fileKey was already committed with different content or mapping; use a new fileKey and reconcile source conflicts');
       return { ...JSON.parse(previous.result), valid: true, replayed: true, previewDigest: previous.preview_digest, contentHash, nodes: [] };
     }
+    const currentRecords = new Map(supported.map(collection => [collection, list(collection)]));
     const mappings = new Map(db.prepare('SELECT * FROM migration_mapping WHERE source=?').all(input.source).map(m => [keyOf(m.collection, m.external_id), m]));
     const rows = [];
     const nodes = [];
@@ -176,16 +170,27 @@ export function installMigrationRoutes(app, { list, get, create, validate, audit
         else { node.existingId = prior.record_id; if (node.entry.status !== 'Error') node.entry.status = 'Already mapped'; }
       }
     }
-    function duplicate(node, collection, field, value) {
-      if (!value || node.existingId) return;
-      const normalized = value.trim().toLowerCase();
-      if (list(collection).some(r => String(r[field] || '').trim().toLowerCase() === normalized)) reject(node, 'Existing ' + field + ' requires explicit source reconciliation; no record was inferred');
-      for (const other of nodes) if (other !== node && other.collection === collection && !other.existingId && String(other.data[field] || '').trim().toLowerCase() === normalized) { reject(node, 'Duplicate ' + field + ' in this batch'); reject(other, 'Duplicate ' + field + ' in this batch'); }
+    const duplicateFields = { constituents: 'email', designations: 'accountCode', gifts: 'externalRef' };
+    const normalizedKey = value => String(value || '').trim().toLowerCase();
+    const existingValues = new Map(supported.map(collection => [collection,
+      new Set(currentRecords.get(collection).map(record => normalizedKey(record[duplicateFields[collection]])))]));
+    const newValues = new Map(supported.map(collection => [collection, new Map()]));
+    for (const node of nodes) {
+      if (node.existingId) continue;
+      const normalized = normalizedKey(node.data[duplicateFields[node.collection]]);
+      const values = newValues.get(node.collection), prior = values.get(normalized) || { count: 0, hasNonempty: false };
+      values.set(normalized, { count: prior.count + 1, hasNonempty: prior.hasNonempty || Boolean(node.data[duplicateFields[node.collection]]) });
     }
     for (const node of nodes) {
-      if (node.collection === 'constituents') duplicate(node, 'constituents', 'email', node.data.email);
-      if (node.collection === 'designations') duplicate(node, 'designations', 'accountCode', node.data.accountCode);
-      if (node.collection === 'gifts') duplicate(node, 'gifts', 'externalRef', node.data.externalRef);
+      if (node.existingId) continue;
+      const field = duplicateFields[node.collection], normalized = normalizedKey(node.data[field]);
+      if (node.data[field] && existingValues.get(node.collection).has(normalized)) reject(node, 'Existing ' + field + ' requires explicit source reconciliation; no record was inferred');
+      // Preserve in-batch duplicate precedence over existing-value errors. Every
+      // conflicting new source row is rejected, including earlier invalid rows.
+      const group = newValues.get(node.collection).get(normalized);
+      // Raw empty values trigger no check themselves, but historically a raw
+      // whitespace value also collides with other raw-empty rows in this batch.
+      if (group.count > 1 && group.hasNonempty) reject(node, 'Duplicate ' + field + ' in this batch');
     }
     const ordered = [];
     const visiting = new Set(), visited = new Set();
@@ -250,7 +255,7 @@ export function installMigrationRoutes(app, { list, get, create, validate, audit
       accountCodeCount: accountCodes.size,
       controlTotals: { all: sourceGiftControls(validNodes), new: sourceGiftControls(created), reused: sourceGiftControls(validNodes.filter(n => n.existingId)) } };
     const valid = summary.errorRows === 0;
-    return { valid, replayed: false, source: input.source, fileKey: input.fileKey, scope, rows, summary, contentHash, previewDigest: valid ? digest(contentHash, dependencyHash()) : null, nodes: ordered, payload };
+    return { valid, replayed: false, source: input.source, fileKey: input.fileKey, scope, rows, summary, contentHash, previewDigest: valid ? digest(contentHash, dependencyHash(currentRecords)) : null, nodes: ordered, payload };
   }
   const publicPlan = result => { const { nodes, payload, contentHash, ...visible } = result; return visible; };
   const route = handler => (req, res, next) => { try { handler(req, res); } catch (error) { next(error); } };

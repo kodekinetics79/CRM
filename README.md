@@ -1,3 +1,5 @@
+> Latest conversion reliability pass: **484/484 tests pass** (17.73s), final build passes (1.16s). Unified mapping contract, indexed duplicate previews, preserved opt-out guidance, bounded request checks and mobile saved reconciliation are verified. Browser synthetic commit/replay passed with no duplicate revenue. See [MIGRATION-RELIABILITY-DEPTH.md](MIGRATION-RELIABILITY-DEPTH.md) for scope and remaining conversion/custody work. Earlier checkpoints below remain historical.
+
 > Requirements-depth checkpoint: all 84 scored criteria reviewed; 46 local basic / 24 partial / 11 missing / 3 external evidence. Latest integrated verification: 477/477 tests and build pass. See [REQUIREMENTS-DEPTH-AUDIT.md](REQUIREMENTS-DEPTH-AUDIT.md) for accurate scope, limits and closure order. Local basic coverage is not production or buyer acceptance.
 
 # Wimblo 0.5.0 local release

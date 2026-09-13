@@ -4,13 +4,14 @@ import {readFileSync} from 'node:fs';
 import {transformSync} from 'esbuild';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
-import {money,toCSV} from '../src/lib.js';
+import {money,toCSV,parseCSV} from '../src/lib.js';
+import * as migrationContract from '../shared/migrationContract.js';
 
 // State/event isolation; desktop/mobile browser integration is checked separately.
 function harness(file,exportName='default',dependencies={}) {
  let index=0,state=[];
  const mock={...React,useState(initial){const i=index++;if(!(i in state))state[i]=typeof initial==='function'?initial():initial;return [state[i],value=>state[i]=typeof value==='function'?value(state[i]):value];},useRef(initial){const i=index++;return state[i]??=({current:initial});},useEffect(){index++;}};
- const module={exports:{}},require=id=>id==='react'?mock:id==='lucide-react'?new Proxy({},{get:()=>()=>null}):dependencies[id]||{money,toCSV,download(){}};
+ const module={exports:{}},require=id=>id==='react'?mock:id==='lucide-react'?new Proxy({},{get:()=>()=>null}):id==='../../shared/migrationContract.js'?migrationContract:dependencies[id]||{money,toCSV,download(){}};
  new Function('React','require','module','exports',transformSync(readFileSync(new URL(file,import.meta.url),'utf8'),{loader:'jsx',format:'cjs'}).code)(React,require,module,module.exports);
  return props=>{index=0;return module.exports[exportName](props);};
 }
@@ -63,4 +64,25 @@ test('batch history appends older pages using the server cursor and refresh star
  let tree=render(props);await button(tree,'Refresh history').props.onClick();tree=render(props);assert.match(html(tree),/batch-newer/);assert.doesNotMatch(html(tree),/batch-older/);
  await button(tree,'Load older batches').props.onClick();tree=render(props);assert.match(html(tree),/batch-newer/);assert.match(html(tree),/batch-older/);assert.equal(button(tree,'Load older batches'),null);
  await button(tree,'Refresh history').props.onClick();tree=render(props);assert.doesNotMatch(html(tree),/batch-older/);assert.deepEqual(calls,['/migration/batches','/migration/batches?cursor=opaque%2Fcursor','/migration/batches']);
+});
+
+test('mapping preserves opt-outs and exposes an unmapped contact default before preview',async()=>{
+ const render=harness('../src/features/Migration.jsx','default',{'../lib':{money,toCSV,parseCSV,dateLabel:v=>v,download(){}}}),props={api:async()=>({}),user:{role:'admin'}};
+ let tree=render(props);await find(tree,e=>e.type==='input'&&e.props.type==='file').props.onChange({target:{files:[{name:'source.csv',size:100,text:async()=>toCSV(['sourceId','name','type','preference'],[['d1','Synthetic Staff','Staff','Do not contact']])}],value:'source.csv'}});tree=render(props);
+ assert.doesNotMatch(html(tree),/Contact preference is not mapped/);assert.match(html(tree),/First data row: Do not contact/);
+ const preference=find(tree,e=>e.type==='select'&&e.props.value==='preference');preference.props.onChange({target:{value:''}});tree=render(props);assert.match(html(tree),/that default is not marketing consent/);
+ find(find(tree,e=>e.type==='label'&&React.Children.toArray(e.props.children).includes('preference')),e=>e.type==='select').props.onChange({target:{value:'preference'}});tree=render(props);assert.doesNotMatch(html(tree),/Contact preference is not mapped/);
+});
+
+test('oversized serialized mapped batch is stopped before a preview request and source remains staged',async()=>{
+ const calls=[],rows=Array.from({length:500},(_,i)=>({sourceId:'d'+i,name:'Synthetic donor '+i,type:'Individual',notes:'x'.repeat(5000)})),render=harness('../src/features/Migration.jsx','default',{'../lib':{money,toCSV,dateLabel:v=>v,parseCSV:()=>rows,download(){}}}),props={api:async(...args)=>{calls.push(args);return {};},user:{role:'admin'}};
+ let tree=render(props);await find(tree,e=>e.type==='input'&&e.props.type==='file').props.onChange({target:{files:[{name:'expanded.csv',size:100,text:async()=>''}],value:'expanded.csv'}});tree=render(props);await find(tree,e=>e.type==='form').props.onSubmit({preventDefault(){}});tree=render(props);
+ assert.equal(calls.length,0);assert.match(html(tree),/exceeds the 2 MiB request limit/);assert.match(html(tree),/expanded.csv/);assert.equal(button(tree,'Commit validated batch'),null);
+});
+
+test('named CSV examples keep staff fields, exact gift dollars and source dependencies under the shared headers',()=>{
+ const downloads=[],render=harness('../src/features/Migration.jsx','default',{'../lib':{money,toCSV,parseCSV,dateLabel:v=>v,download:(...args)=>downloads.push(args)}}),tree=render({api:async()=>({}),user:{role:'admin'}});
+ for(const type of ['constituents','designations','gifts'])find(tree,e=>e.type==='button'&&React.Children.toArray(e.props.children).filter(c=>typeof c==='string').join('')===type+' example').props.onClick();
+ const donor=parseCSV(downloads[0][1])[0],fund=parseCSV(downloads[1][1])[0],gift=parseCSV(downloads[2][1])[0];
+ assert.equal(donor.name,'Alex Sample');assert.equal(donor.type,'Individual');assert.equal(donor.preference,'Email');assert.equal(gift.amount,'123.45');assert.equal(gift.donorSourceId,donor.sourceId);assert.equal(gift.designationSourceId,fund.sourceId);assert.equal(gift.giftKind,'One-time');assert.equal(fund.accountCode,'SAMPLE-100');
 });
