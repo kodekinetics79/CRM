@@ -207,11 +207,11 @@
     "capability": "Online donations/credit cards",
     "points": 40,
     "sourcePages": "16 / 23",
-    "basicLocalDisposition": "Missing",
+    "basicLocalDisposition": "Partial",
     "evidenceModules": "F",
-    "currentBehaviorAndGap": "Credit-card method labels do not collect money; public giving and approved hosted payment flow are missing.",
-    "acceptanceToClose": "Sandbox success/failure/cancellation and duplicate signed events produce correct gifts without direct JEF bank linking.",
-    "reviewedAgainst": "Final RFP; supplied addenda; source baseline 94c8498 plus bounded September 13 Staff/dashboard/schedule corrections",
+    "currentBehaviorAndGap": "Administrator-only TEST_ONLY hosted Checkout preparation now retains exact request/source/idempotency custody and safe link, signed evidence, server verification and explicit one-gift recording. Simulated card/ACH/replay/failure/refund/dispute and built synthetic journey pass. No executed provider account, public giving, live collection or accepted processor operations.",
+    "acceptanceToClose": "Execute approved provider sandbox and independent donor journeys, reconcile payment/failure/cancellation/replay/refund outcomes against native gifts and manual file model; preserve the district account-link restriction.",
+    "reviewedAgainst": "Final RFP and supplied addenda/Q&A; September13 hosted-giving frozen source,717 integrated tests and mocked-provider built journey; actual provider/buyer acceptance remains open",
     "acceptedByBuyer": false,
     "workstreams": [
       "Hosted giving and external compatibility"
@@ -263,11 +263,11 @@
     "capability": "Online donations",
     "points": 40,
     "sourcePages": "16 / 23",
-    "basicLocalDisposition": "Missing",
+    "basicLocalDisposition": "Partial",
     "evidenceModules": "F",
-    "currentBehaviorAndGap": "No public online donation checkout or verified provider ingestion exists.",
-    "acceptanceToClose": "Hosted donation success/failure and replayed provider events map to one correct recorded financial result.",
-    "reviewedAgainst": "Final RFP; supplied addenda; source baseline 94c8498 plus bounded September 13 Staff/dashboard/schedule corrections",
+    "currentBehaviorAndGap": "Staff-prepared TEST_ONLY hosted checkout and signed simulated provider evidence precede explicit server verification and separate native recording. Initial request replay and concurrent recording are guarded. A browser return or unpaid callback records no income. Public donation self-service and executed hosted-provider acceptance remain open.",
+    "acceptanceToClose": "Approved executed hosted success/failure/pending/replay and independent public-donor acceptance map to one correct native financial outcome; complete consent, refund/reconciliation operations and adopted financial policy.",
+    "reviewedAgainst": "Final RFP and supplied addenda/Q&A; September13 hosted-giving frozen source,717 integrated tests and mocked-provider built journey; actual provider/buyer acceptance remains open",
     "acceptedByBuyer": false,
     "workstreams": [
       "Hosted giving and external compatibility"
@@ -278,11 +278,11 @@
     "capability": "Credit cards/ACH",
     "points": 40,
     "sourcePages": "16 / 23",
-    "basicLocalDisposition": "Missing",
+    "basicLocalDisposition": "Partial",
     "evidenceModules": "F",
-    "currentBehaviorAndGap": "Manual card/ACH labels/imports exist; actual approved processor acceptance/settlement is missing.",
-    "acceptanceToClose": "Sandbox card and ACH pending/success/failure/refund cases reconcile; PAN/CVV never enter CRM.",
-    "reviewedAgainst": "Final RFP; supplied addenda; source baseline 94c8498 plus bounded September 13 Staff/dashboard/schedule corrections",
+    "currentBehaviorAndGap": "Official Stripe SDK TEST_ONLY validation accepts current expanded card/us_bank_account paid facts with exact amount/currency/identity; unpaid ACH stays pending. Fresh refunded/disputed evidence denies posting and signed adjustments retain review without automatic void. Tests use mocked provider data, not actual processor acceptance/settlement.",
+    "acceptanceToClose": "Execute approved card and ACH sandbox pending/success/failure/refund/dispute reconciliation; establish financial operations/fees/settlement/custody and accepted provider arrangement. PAN/CVV must stay outside CRM; do not connect district payment accounts.",
+    "reviewedAgainst": "Final RFP and supplied addenda/Q&A; September13 hosted-giving frozen source,717 integrated tests and mocked-provider built journey; actual provider/buyer acceptance remains open",
     "acceptedByBuyer": false,
     "workstreams": [
       "Hosted giving and external compatibility"
@@ -897,11 +897,11 @@
     "capability": "Stripe compatibility",
     "points": 40,
     "sourcePages": "18 / 26",
-    "basicLocalDisposition": "Missing",
+    "basicLocalDisposition": "Partial",
     "evidenceModules": "X, F",
-    "currentBehaviorAndGap": "No executed Stripe checkout/webhook/reconciliation exists.",
-    "acceptanceToClose": "Vendor-controlled compatibility evidence and manual-file mapping prove offered Stripe capability; disclose no JEF Stripe account or permitted account connection under Q&A86.",
-    "reviewedAgainst": "Final RFP; supplied addenda; source baseline 94c8498 plus bounded September 13 Staff/dashboard/schedule corrections",
+    "currentBehaviorAndGap": "Pinned official Stripe22.6.2 SDK (API2026-08-26.dahlia), hosted_page Sessions, raw signed tenant-scoped callbacks, immutable request/event/link custody and explicit native reconciliation are locally tested. No external Stripe account/checkout was executed and production test enablement is refused.",
+    "acceptanceToClose": "Provide approved vendor-controlled executed Stripe compatibility and independent sandbox evidence, adopt financial/custody operations and manual-file mapping; disclose Q&A86 no buyer Stripe account or permitted district account connection.",
+    "reviewedAgainst": "Final RFP and supplied addenda/Q&A; September13 hosted-giving frozen source,717 integrated tests and mocked-provider built journey; actual provider/buyer acceptance remains open",
     "acceptedByBuyer": false,
     "workstreams": [
       "Hosted giving and external compatibility"

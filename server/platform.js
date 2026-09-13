@@ -69,7 +69,30 @@ export function createPlatformApp({ rootDir, legacyDbPath, seedLegacy = true, te
   const app = express();
   let closed = false; app.locals.close = () => { if (closed) return; closed = true; for (const child of apps.values()) child.locals.close?.(); db.close(); };
   if (process.env.TRUST_PROXY === 'true') app.set('trust proxy', 1);
-  app.use(helmet()); app.use(express.json({ limit: '2mb' }));
+  app.use(helmet());
+  // Processor callbacks have no workspace-selector cookie. Route only this
+  // bounded raw endpoint to an existing tenant; the child verifies its signature
+  // and exact native intent/tenant binding before accepting any payment fact.
+  const callbackAttempts=new Map();
+  app.post('/api/hosted-giving/webhook/:tenantId',(req,res,next)=>{
+    res.set('Cache-Control','no-store');
+    if(production&&!req.secure)return res.status(403).json({error:'HTTPS required'});
+    if(req.get('Origin'))return res.status(403).json({error:'Browser-origin callback denied'});
+    const time=Date.now();for(const [key,value] of callbackAttempts)if(value.until<=time)callbackAttempts.delete(key);
+    const key=req.ip||'unknown';let rate=callbackAttempts.get(key);
+    if(!rate){if(callbackAttempts.size>=1024)return res.status(429).json({error:'Callback capacity reached; retry later'});rate={count:0,until:time+60000};callbackAttempts.set(key,rate);}
+    if(++rate.count>300)return res.status(429).json({error:'Callback rate exceeded; retry later'});
+    if(!z.uuid().safeParse(req.params.tenantId).success)return res.status(400).json({error:'Invalid callback workspace'});
+    try{
+      const tenant=lookup(req.params.tenantId);
+      if(!tenant||tenant.status!=='active'||!existsSync(tenantPath(tenant.id)))return res.status(503).json({error:'Callback workspace unavailable; retry later'});
+      const child=getTenantApp(tenant),original=req.url;
+      req.url='/api/hosted-giving/webhook';
+      child(req,res,error=>{req.url=original;next(error);});
+    }catch(error){next(error);}
+  });
+  app.all('/api/hosted-giving/webhook',(req,res)=>res.status(404).json({error:'Use the workspace-bound callback endpoint'}));
+  app.use(express.json({ limit: '2mb' }));
   const allowed = new Set(production ? [productionOrigin.origin] : ['http://localhost:5174', 'http://127.0.0.1:5174', 'http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:4311', 'http://127.0.0.1:4311', 'http://localhost:4321', 'http://127.0.0.1:4321', ...(process.env.EVALUATOR_MODE === 'true' ? [`http://127.0.0.1:${process.env.PORT || 4321}`, `http://localhost:${process.env.PORT || 4321}`] : []), ...(process.env.APP_ORIGIN ? [process.env.APP_ORIGIN] : [])]);
   app.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); if (production && !req.secure) return res.status(403).json({ error: 'HTTPS required' }); const origin = req.get('Origin'); if (origin && !allowed.has(origin)) return res.status(403).json({ error: 'Origin denied' }); if (origin) { res.set('Access-Control-Allow-Origin', origin); res.set('Access-Control-Allow-Credentials', 'true'); res.set('Vary', 'Origin'); res.set('Access-Control-Allow-Headers', 'Content-Type,X-CSRF-Token'); res.set('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS'); } if (req.method === 'OPTIONS') return res.sendStatus(204); next(); });
   const cookies = { httpOnly: true, sameSite: 'strict', secure: production, path: '/', maxAge: 8 * 3600 * 1000 };

@@ -6,12 +6,14 @@ import { resolve, dirname } from 'node:path';
 import { existsSync } from 'node:fs';
 import {resolveRuntimeConfig} from './runtimeConfig.js';
 import {createObjectStorageFromEnv} from './objectStorage.js';
+import {hostedGivingConfigFromEnv} from './hostedGiving.js';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 if(process.env.NODE_ENV==='production')process.umask(0o077);
 const {evaluator,production,port,host,built,dbPath:legacyDbPath,platformRoot}=resolveRuntimeConfig(process.env,root);
 if(built&&!existsSync(resolve(root,'dist/index.html')))throw new Error('Built frontend missing. Run npm run build before starting the built application.');
 const documentStorage=createObjectStorageFromEnv(process.env);
-const app=createPlatformApp({rootDir:platformRoot,legacyDbPath,seedLegacy:!production,tenantFactory:options=>createApp({...options,documentStorage,documentTenantId:options.tenantId||'00000000-0000-4000-8000-000000000001'})});
+const hostedGiving=hostedGivingConfigFromEnv(process.env);
+const app=createPlatformApp({rootDir:platformRoot,legacyDbPath,seedLegacy:!production,tenantFactory:options=>createApp({...options,hostedGiving:hostedGiving&&options.tenantId===hostedGiving.tenantId?hostedGiving:null,documentStorage,documentTenantId:options.tenantId||'00000000-0000-4000-8000-000000000001'})});
 if(built){app.use(express.static(resolve(root,'dist')));app.get('/{*path}',(req,res)=>res.sendFile(resolve(root,'dist/index.html')));}
 const server=app.listen(port,host,()=>{console.log(`Wimblo ${evaluator?'local evaluator':'application'}: http://${host}:${port}`);if(evaluator)console.log('Synthetic demo only. Changes persist in the separate evaluator database. Press Ctrl+C to stop.');});
 server.on('error',error=>{console.error(error.code==='EADDRINUSE'?`Port ${port} is already in use. Set PORT to another local port and restart.`:'Unable to start Wimblo: '+error.message);app.locals.close();process.exitCode=1;});
