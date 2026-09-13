@@ -97,3 +97,9 @@ See `security_best_practices_report.md` for ranked code/deployment findings, `SE
 Attachment E DPA 2.2 access/copy/correction and 4.6 transfer/disposal require a controlled operational path. Current immutable document and derived-history guards do not implement LEA-directed, category/hold-aware disposal across current files, financial/communication/migration snapshots and restored backups. Approve retention categories and lawful exceptions before implementing disposition; a blanket ten-year retention label is not sufficient. Preserve evidence and prevent disposed data from reappearing during restore. This is an open engineering and governance workstream, not certified compliance.
 
 Restricted helper evidence: EVENT-HELPER-ACCESS-RELEASE.md. Helper grants/history survive native recovery; new ledgers require adopted institutional retention/exit treatment. Helper MFA remains optional under key policy, and broad staff/viewer reads remain unchanged. No DPA/certification/hosted acceptance is inferred.
+
+## Private reminder evidence checkpoint
+
+Owner-private task schedules/current-source inbox endpoints deny viewer/helpers and administrator bypass of another owner. Native writes recheck current session/MFA/account/tenant/source revisions. Administrator-only report projections omit security bindings and task titles/bodies. Immutable schedule/outcome/inbox evidence is included in independently verified encrypted native recovery; institutional retention/exit custody remains unaccepted.
+
+Platform suspension failure ordering is tested: commit registry suspension before workspace suppression/revocation; partial failure keeps access blocked, retry completes effects and resume rejects missing storage or failed suppression. This is a safe local lifecycle sequence across two databases, not distributed atomicity, live incident monitoring or security certification. See TASK-REMINDERS-RELEASE.md.
