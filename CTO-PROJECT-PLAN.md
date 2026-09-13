@@ -1,4 +1,4 @@
-# Kinflect — product ownership and expansion plan
+# Wimblo — product ownership and expansion plan
 
 September 13, 2026. This plan governs delivery beyond the phase-three synthetic evaluator. Kode Kinetics owns commercial commitments; the assistant acts as implementation and delivery coordinator within this authorized local workspace. It does not speak for the district, sign agreements or authorize external integrations.
 
@@ -52,3 +52,7 @@ Approve the source data inventory and fiscal/scheduling policy; provide sandbox 
 ## Required-first refinement from the full RFP re-review
 
 The September 13, 2026 fresh 84-criterion review is recorded in RFP-Alignment-Review-0.4.0.md. Required document/contract conversion, buyer-specific constituent/household/subaccount/sponsorship behavior, custom/native reporting and 4–6-user/volume acceptance receive priority before optional prediction and further visual effects. Provider-dependent communications, public volunteering and payments remain sandbox/configuration acceptance work; implementation/training/support and security/recovery evidence remain production gates. Labels such as Recurring, Peer-to-peer, Credit card or Sponsorship are never evidence of the complete operational service. The source ZIP is not a permitted Bonfire proposal format.
+
+## Current security closure work — Wimblo 0.4.2
+
+Delivered/tested account lifecycle and production acceptance boundary; 93 checks pass. RFP-SECURITY-COMPLIANCE.md governs the security requirement/evidence backlog and security_best_practices_report.md ranks launch blockers. SECURITY-OPERATIONS.md needs staffed adoption and performed drills. Before institutional handover, close least-privilege reads/exports, MFA/SSO, durable backend, encryption/key/backup/restore evidence, approved US/Canada stored copies/processors, DPA/LearnPlatform/iBoss and accepted assurance. Render native runtime/build/origin/health corrected; free/no-disk storage remains unresolved. ASP.NET Core/Postgres remains proposed, not shipped.

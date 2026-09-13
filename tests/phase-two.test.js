@@ -362,7 +362,7 @@ test('a phase-one-shaped database upgrades legacy hours and the old default name
   }
   db.prepare('UPDATE settings SET data=? WHERE id=1').run(JSON.stringify({ organizationName: 'Foundation CRM · Evaluator pilot', fiscalStartMonth: 7 }));
   const upgraded = await f.restart();
-  assert.equal(upgraded.settings.organizationName, 'Jordan Education Foundation');
+  assert.equal(upgraded.settings.organizationName, 'Wimblo');
   assert.equal(upgraded.data.constituents.length, before.data.constituents.length);
   assert.equal(upgraded.data.gifts.length, before.data.gifts.length);
   const retained = sameRecord(upgraded, 'gifts', marker.id);
@@ -384,4 +384,15 @@ test('a phase-one-shaped database upgrades legacy hours and the old default name
   assert.deepEqual(reopened.data.volunteerTime.map(r => r.id).sort(), upgraded.data.volunteerTime.map(r => r.id).sort());
   assert.deepEqual(reopened.data.pledges.map(r => r.id).sort(), upgraded.data.pledges.map(r => r.id).sort());
   assert.equal(reopened.audit.filter(a => a.action === 'upgrade_brand').length, 1);
+  for (const legacyName of ['Jordan Education Foundation', 'Jordan Foundation']) {
+    f.app.locals.db.prepare('UPDATE settings SET data=? WHERE id=1').run(JSON.stringify({ organizationName: legacyName, fiscalStartMonth: 9 }));
+    const rebranded = await f.restart();
+    assert.equal(rebranded.settings.organizationName, 'Wimblo');
+    assert.equal(rebranded.settings.fiscalStartMonth, 9);
+    assert.equal(sameRecord(rebranded, 'gifts', marker.id).amount, 12345);
+    const lastBrandChange = rebranded.audit.find(a => a.action === 'upgrade_brand');
+    assert.equal(lastBrandChange.details.previousName, legacyName);
+    const stable = await f.restart();
+    assert.equal(stable.audit.filter(a => a.action === 'upgrade_brand').length, rebranded.audit.filter(a => a.action === 'upgrade_brand').length);
+  }
 });

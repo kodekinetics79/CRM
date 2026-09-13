@@ -1,10 +1,10 @@
-# Kinflect evaluator pilot
+# Wimblo 0.5.0 local release
 
-Kinflect is a functional local evaluator pilot tailored to Jordan Education Foundation, built for Kode Kinetics using Node.js 24, React, Vite, Express, and SQLite. It demonstrates connected workflows with synthetic records and persistent local data. The product name and tailored workspace do not imply district endorsement or an official district product.
+Wimblo is an independently branded nonprofit CRM by Kode Kinetics, currently available as a functional local evaluator pilot built using Node.js 24, React, Vite, Express, and SQLite. It demonstrates connected workflows with synthetic records and persistent local data. Wimblo is the product identity throughout the application.
 
 This release is suitable for reviewing workflows and identifying implementation gaps. It is not a production deployment or evidence of FERPA, PCI, SOC 2, ISO 27001, or Learn Platform approval. It does not replace the RFP's required three years of relevant experience and three qualifying references.
 
-Current release: **0.4.1 — Kinflect branding**. Earlier phase reviews and the release0.4.0 alignment matrix retain their historical Everbright name. Existing evaluator databases, sessions and saved density preferences remain compatible. Jordan Education Foundation remains the client workspace identity.
+Current release: **0.5.0 — requirements-first local implementation**. Current inventory: **46 Local / 24 Partial / 11 Missing / 3 Evidence required** across 84 criteria. [Current requirements matrix](CURRENT-RFP-REQUIREMENTS-MATRIX.md), [closure progress](REQUIREMENTS-CLOSURE-PROGRESS.md) and [requirements-first sequence](REQUIREMENTS-FIRST-CLOSURE.md) distinguish actual workflows, limits and remaining acceptance. Earlier phase reports/release ZIPs are historical. Default product/workspace identity is Wimblo; known legacy defaults migrate while customized organization settings/business records are preserved. This source is captured in the local 0.5.0 release commit and review package; consult the external handover note for its commit and checksum. No 0.5.0 cloud deployment is claimed.
 
 ## Run from this repository
 
@@ -21,11 +21,11 @@ npm run evaluate
 
 Open http://127.0.0.1:4321. This synthetic evaluator stays on your computer. Build output, installed dependencies, local databases and private environment settings are excluded from Git. The downloadable prebuilt handover package has a separate startup path below.
 
-[Full RFP alignment review](./RFP-Alignment-Review-0.4.0.md) compares all 84 scored criteria with release 0.4.0 and distinguishes implemented local workflows, partial coverage and remaining evidence. This repository is a POC source deliverable, not a submitted bid or approved production service.
+[Current RFP requirements matrix](./CURRENT-RFP-REQUIREMENTS-MATRIX.md) compares all 84 scored criteria with current source and acceptance gaps. [Release 0.4.0 alignment review](./RFP-Alignment-Review-0.4.0.md) remains historical. This repository is a POC source deliverable, not a submitted bid or approved production service.
 
 ## Client testing handover
 
-Install Node.js 24 or newer, unzip the handover package, and open a terminal in the Jordan-Kinflect directory:
+Install Node.js 24 or newer, unzip the handover package, and open a terminal in the Wimblo application directory:
 
 ```sh
 npm ci
@@ -50,16 +50,21 @@ These shared credentials are only for the synthetic local demo. Do not use them 
 
 ## What to evaluate
 
-- Constituent records, household and organization relationships, extra contacts, segmentation, and contact preferences.
+- Constituents/contacts/preferences, managed households/membership, organization hierarchy, controlled duplicate merge and protected retained aliases.
 - Gifts with school/classroom designations, split allocations, campaign links, revenue types, tribute information, soft credits, real pledge links, legacy pledge-reference labels, and traceable voids.
 - Pledge commitments with monthly, quarterly or annual installment schedules, exact-cent distribution, received/balance/overdue amounts and linked gift history. Posted monetary receipts reconcile to the oldest installments; voids release fulfillment and commitments do not become received income.
 - Grant requests, recorded award amounts/dates, matching-funder linked Grant receipts, explicit unknown legacy awards and as-of reconciliation reports. Requests/awards remain commitments; received records stay separate.
-- Campaigns and reporting deadlines, event registration/check-in, and constituent/event-linked operational tasks.
+- Owned major asks/activity, planned instruments/commitments and matching ratio/cap claims with versioned existing-receipt links/unlink history. Commitments are not income; future/voided receipts are excluded from current received balances.
+- Offline staff event tables/seats, tickets/check-in/cancellation, sponsor benefits, auction items/bids/winners and compatible existing payment links; no checkout, public bidding or processor refund.
+- Campaigns/reporting deadlines and constituent/event-linked tasks.
 - Volunteer clock intervals in a dated ledger, separate undated historical hours, and reason-required audited corrections that preserve original hours and dates.
-- Communication drafts and interaction logs with local previews, plus a Stewardship queue for manually recording completed acknowledgments and linked logged interactions; no messages or tax receipts are issued.
+- Communication drafts/logs, selected-recipient/annual Payroll correspondence templates and immutable human review. Finalized correspondence remains Not sent; Stewardship manually records completed acknowledgments.
+- Receipt profile/preparation/history and validated manual print/hand-sign confirmation issuance, numbering, void/reissue APIs. Browser proof is preparation only; no buyer tax-valid document/physical signature/provider email is established.
 - Database-derived dashboards, fiscal-year reports and local exports; direct/soft-credit, organization-descendant and household recognition reports distinguish monetary and noncash value. Recognition overlap across groups is not additional income.
 - Shared saved report views that persist filters and can be applied by viewers; staff/admin can create/delete them. Dated volunteer reports preserve historical totals separately; pledge balance reports use an explicit as-of date.
-- Authenticated access, role restrictions, server-side validation, stale-write protection, and audit records.
+- Real custom field/filter/group/calculation reports with versioned saved reruns, current source previews and internal persisted schedules; deterministic cohort/campaign/distribution/frequency analytics with source drill-through. The catalog is curated stored business fields/metadata, not arbitrary raw secrets/binary access or SQL. Source/output caps and full buyer field/history inventory remain acceptance work.
+- Record-linked document upload/download/revisions/visibility/archive (PDF/PNG/JPEG/TXT/CSV, at most 1 MiB/file) and normalized constituent/designation/posted-gift migration preview/commit/replay (500 total rows, at most ten files). No complete NonProfitEasy/XLSX/history adapter.
+- Authenticated roles/lifecycle/session revocation, optional own-account workspace TOTP/recovery, stale-write/CSRF protections, audit and manual encrypted full-workspace backup/offline NEW-path restore.
 
 Follow [EVALUATOR-GUIDE.md](./EVALUATOR-GUIDE.md) for practical review steps. See [RFP-COVERAGE.md](./RFP-COVERAGE.md) for demonstrated workflows and remaining procurement/production gaps, and [FUTURE-CAPABILITIES.md](./FUTURE-CAPABILITIES.md) for the remaining roadmap. [API-CONTRACT.md](./API-CONTRACT.md) describes the initial API, while [PHASE-TWO-CONTRACT.md](./PHASE-TWO-CONTRACT.md) and [PHASE-TWO-ACCEPTANCE.md](./PHASE-TWO-ACCEPTANCE.md) cover the pledge, recognition, time-ledger, acknowledgment and saved-view additions.
 
@@ -70,7 +75,7 @@ npm run build
 npm test
 ```
 
-The build generates the frontend in `dist/`. The test command runs the repository's automated checks; its output is the current source of truth for results.
+The build generates the frontend in `dist/`. The test command runs the repository's automated checks; its output is the current source of truth for results. The current integrated 0.5.0 source passed **325/325 tests**, zero failures/skips, in 10.8 seconds, followed by a successful production build in 1.13 seconds. The earlier 290/296/316 checkpoints are historical; focused runs overlap and must not be summed. See [CURRENT-RELEASE-EVIDENCE.md](CURRENT-RELEASE-EVIDENCE.md), [VERIFICATION.md](VERIFICATION.md) and [closure progress](REQUIREMENTS-CLOSURE-PROGRESS.md) for scope and remaining acceptance.
 
 ## Production-mode configuration
 
@@ -85,16 +90,35 @@ The Express server serves `dist/` in production mode. This mode requires an exac
 | `PORT` | Listener port; defaults to `4311` |
 | `TRUST_PROXY=true` | Trust one controlled reverse proxy; set only when that proxy terminates HTTPS correctly |
 | `ALLOW_DEMO=true` | Explicitly allow synthetic demo accounts/seeding in production mode; never appropriate for real records |
-| `ADMIN_EMAIL`, `ADMIN_NAME`, `ADMIN_PASSWORD` | Provision the initial administrator on a fresh nondemo production database. Password must have at least 16 characters and uppercase, lowercase, number, and symbol |
+| `ADMIN_EMAIL`, `ADMIN_NAME`, `ADMIN_PASSWORD` | Provision the initial legacy-workspace administrator on a fresh nondemo production database; password requires at least 16 characters, uppercase, lowercase, number and symbol |
+| `MFA_ENCRYPTION_KEY` | Optional protected workspace MFA key: exactly 32 bytes as 64 hex characters or canonical padded base64; no default |
+| `BACKUP_ENCRYPTION_KEY` | Operator-only 32-byte key for encrypted CLI backup/restore, retained separately from archives |
+| `ENABLE_ACCEPTANCE=true` | Explicit synthetic acceptance tools; additionally requires `ALLOW_DEMO=true` in production |
 
 After a build, configure these variables privately for the intended HTTPS setup and run `npm run start`. Fresh nondemo production startup fails if administrator provisioning values are missing. An existing demo-account database is rejected unless `ALLOW_DEMO=true`; use a separate fresh `DB_PATH` for a nondemo environment. `ALLOW_DEMO` is the only demo authorization variable; do not substitute `DEMO_MODE`.
 
-These configuration controls do not establish readiness for public hosting. Production hosting, encryption at rest, recovery, institutional review, and operational support remain separate work.
+These configuration controls do not establish readiness for public hosting. Durable hosting, live database/disk encryption, hosted recovery/key custody, institutional review and operational support remain separate work. [Platform and intelligence status](PLATFORM-AND-INTELLIGENCE-STATUS.md) lists separate platform/provider variables; neither tenant labels nor AI configuration implement billing or approved real-data transfer.
+
+## Account MFA and offline recovery
+
+All workspace roles can enroll their own authenticator only when a protected valid `MFA_ENCRYPTION_KEY` is configured. Enrollment requires current-password reauthentication and TOTP confirmation; recovery codes are shown once. Enabling/disabling revokes sessions and requires fresh sign-in. Missing/wrong keys fail closed for already enabled accounts. MFA is optional, not organization-wide enforcement; the separate platform master still lacks MFA/SSO/recovery. Production key custody and adopted account recovery policy remain unverified.
+
+The ordinary administrator JSON snapshot export is records-oriented and is not a service restore. The separate encrypted operator utility provides full-workspace SQLite backup and offline restore into a **new** destination:
+
+```sh
+node scripts/backup.mjs --help
+```
+
+Provide private paths, the explicit original workspace UUID and server-side `BACKUP_ENCRYPTION_KEY` as described by that help. AES-256-GCM archives include installed workspace tables/document bytes and verify tenant/schema/counts/digests; outputs refuse overwrite. Restored sessions/challenges/pending enrollment are cleared. Retain the same separate `MFA_ENCRYPTION_KEY` for enabled restored MFA. The platform registry and environment/provider keys are outside the archive. This is tested local recovery, with 128 MiB/200-table/500,000-row limits, not scheduled backup, durable cloud storage or a hosted RPO/RTO commitment.
 
 ## Remaining work before real use
 
-SSO and MFA, production hosting and encryption, managed backups and tested disaster recovery, external security assessment/certification, Learn Platform approval, a signed district DPA, verified NonProfitEasy mapping and migration, and live payment/productivity/email integrations remain outside this release. Google Workspace, Microsoft Office, Mailchimp, Stripe, other processors, and giving-platform connections are not live integrations. Importing a CSV or recording a payment method does not authorize, settle, or reconcile a transaction.
+Actual buyer source discovery/mapping/conversion, approved report/field/history/output acceptance, durable cloud hosting, production keys/encrypted storage and workspace/platform recovery, approved SSO/helper role policy, district DPA/LearnPlatform/iBoss/assurance and named funded training/support remain open. Google/Microsoft/Mailchimp/Stripe, card/ACH/public giving/recurrence, email/SMS sends and provider compatibility are not live. Recording a payment method does not authorize or settle a payment; finalized correspondence does not send or complete an acknowledgment.
 
-The fiscal start month is configurable and defaults to July for demonstration; the buyer's actual fiscal configuration must be verified. Manual pledge receipt reconciliation compares recorded gifts to commitments, not bank or processor settlements. Completed acknowledgment records describe staff-entered activity, not provider-confirmed delivery. Tax-receipt or acknowledgment output requires policy/legal review before issuing real donor documents. Synthetic event registrations, grant records, and volunteer time do not establish qualifying institutional experience.
+Q&A86 prioritizes core revenue/account codes/donors/basic reports before the **November 30, 2026** source-download boundary, with new-system migration/use from November 1. Q&A49 manual CSV/Excel/payroll conversion and reconciliation outside CRM remain the primary model; JEF has no Stripe account and may not connect district payment accounts. July 1–June 30 fiscal assignment/authorized reassignment now works locally; buyer correction/output acceptance remains necessary. Q&A54 says users are JEF personnel, so school-level reporting restrictions are not mandatory; optional helpers/module/field/export policy still needs agreement.
 
-Release0.4.0 adds Operations, volunteer capacity/waitlist/cancellation workflows, exact shared-email review, eleven client scenarios and administrator workspace checks. See [PHASE-FOUR-ACCEPTANCE.md](./PHASE-FOUR-ACCEPTANCE.md) and [CTO-PROJECT-PLAN.md](./CTO-PROJECT-PLAN.md) for current scope and expansion gates.
+The proposed license is one year plus up to four annual renewals, with four full users plus two optional no-added-cost nonadministrator helpers. No implemented billing, guaranteed award, signed service terms or IP buyout is claimed. Qualifying software-provider history/references and institutional acceptance cannot be created by synthetic workflows or local tests. [Product closure report](PRODUCT-CLOSURE-REPORT.md) records the current commercial/access/release boundaries.
+
+## Security and compliance evidence
+
+See [requirement/control register](RFP-SECURITY-COMPLIANCE.md), [ranked security findings](security_best_practices_report.md) and [draft operations procedures](SECURITY-OPERATIONS.md). Current local source includes account access changes with session revocation and production acceptance-tool gating. Institutional production remains blocked by the documented configuration/helper-policy, hosted storage/recovery, external service, qualification and assurance gaps. Local workspace MFA, encrypted operator recovery and controlled private metadata/file access now exist; they do not prove district approval or hosted service operation.

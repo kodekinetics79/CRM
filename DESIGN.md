@@ -1,22 +1,35 @@
 ---
-name: Kinflect
-description: A compact enterprise ledger for foundation relationships and saved giving workflows.
+name: Wimblo
+description: A warm, crisp connected workspace for relationships, giving, and everyday work.
 colors:
-  accent: "#4f46e5"
-  accent-hover: "#4338ca"
-  selected-context: "#e0e7ff"
-  canvas: "#f3f4f6"
-  white: "#fff"
-  table-header: "#f9fafb"
-  ink: "#111827"
-  secondary-ink: "#374151"
-  muted: "#4b5563"
-  annotation: "#6b7280"
-  line: "#e5e7eb"
-  field-border: "#bdcbd6"
-  control-border: "#d1d5db"
-  rail-hover: "#1f2937"
-  chart-neutral: "#9ca3af"
+  accent: "#314568"
+  accent-hover: "#243550"
+  selected-context: "#ffeadb"
+  canvas: "#f5f3f0"
+  white: "#fffdfa"
+  table-header: "#f0ede8"
+  ink: "#1c2942"
+  secondary-ink: "#39455b"
+  muted: "#586172"
+  annotation: "#60697a"
+  line: "#dedbd7"
+  field-border: "#828b99"
+  control-border: "#c1c1c2"
+  rail-hover: "#2a3953"
+  chart-neutral: "#8d97a6"
+  apricot: "#ffb07c"
+  apricot-ink: "#7b3f20"
+  surface-hover: "#f7f0e9"
+  chart-side: "#243550"
+  chart-top: "#aebacf"
+  rail-text: "#f4eee8"
+  rail-muted: "#c4cbd7"
+  rail-line: "#48536a"
+  danger: "#922e35"
+  danger-surface: "#fff0ef"
+  danger-border: "#c99194"
+  scroll-thumb: "#858d9b"
+  scroll-track: "#eeeae5"
 typography:
   headline:
     fontFamily: "'IBM Plex Sans', sans-serif"
@@ -52,7 +65,7 @@ typography:
     fontWeight: 600
     lineHeight: 1.2
 rounded:
-  control: "4px"
+  control: "6px"
   keyboard: "3px"
   progress: "2px"
 spacing:
@@ -91,18 +104,18 @@ components:
     rounded: "{rounded.control}"
     padding: "10px 12px"
   nav-item:
-    textColor: "{colors.control-border}"
+    textColor: "{colors.rail-text}"
     typography: "{typography.body}"
     rounded: "{rounded.control}"
     padding: "4px 12px"
   nav-item-active:
-    backgroundColor: "{colors.accent}"
-    textColor: "{colors.white}"
+    backgroundColor: "{colors.selected-context}"
+    textColor: "{colors.ink}"
   status:
     textColor: "{colors.muted}"
   panel:
     backgroundColor: "{colors.white}"
-    rounded: "{rounded.control}"
+    rounded: "8px"
     padding: "22px"
   table-row-compact:
     backgroundColor: "{colors.white}"
@@ -120,143 +133,74 @@ components:
     padding: "12px 16px"
 ---
 
-# Design System: Kinflect
+# Design System: Wimblo
 
 ## Overview
 
-**Creative North Star: "The School Fund Ledger"**
+Wimblo’s creative direction is **Gather**: separate pieces become one clear picture. The user approved the sculptural three-piece indigo/apricot logo and requested its warmth, confidence, and crispness across every page. This is an intentional evolution from the prior neutral Kinflect evaluator identity.
 
-Kinflect is a compact enterprise workspace for inspecting relationships, entering records and comparing saved amounts. IBM Plex Sans, bordered white working surfaces and three light gray surface levels provide the structure. Indigo identifies primary actions and selected states; ordinary records, progress and annotations remain neutral.
+The operating workspace keeps familiar record workflows, compact typography, exact financial values, and explicit next actions. The logo is the expressive signature; ordinary tables remain quiet. About is a reading surface inside the same identity, with a larger product statement and the real mark.
 
-The user's phase-three restyle establishes compact flat data planes; the subsequent phase-four request adds frosted navigation and context. Reuse the saved-workflow topology, restrained density and visible context captured here. The product remains a synthetic evaluator pilot: visual polish is not evidence of production certification, official district endorsement, live payment processing or message delivery.
-
-**Key Characteristics:**
-
-- IBM Plex Sans working text with a compact 13px body.
-- Three light gray surface levels and explicit borders.
-- Indigo primary actions and selected states.
-- Sticky navigation, table headers and first-column record context.
-- Right-aligned tabular monetary values and active-sort-only indicators.
-- Mobile priority fields with native record disclosure.
-- Screen guidance and help accessible by hover, focus and touch.
+The evaluator uses synthetic records and local persistence. Brand polish does not establish district endorsement, live integrations, production certification, or procurement eligibility.
 
 ## Colors
 
-The palette is neutral and functional. Frontmatter owns reused color values; the names below explain where they belong.
+**Ownership: Model B.** `src/wimblo.css` owns the runtime color roles. `src/styles.css` and shared components consume CSS variables. This document mirrors accepted role values. The Impeccable sidecar is a documentation adapter, not a second runtime theme.
 
-### Primary
+| Document role | Runtime role | Consumers |
+|---|---|---|
+| accent / accent-hover | --accent / --accent-hover | Primary action, links, active work tabs, chart selection |
+| selected-context | --selected-context | Apricot-tinted selected navigation, first metric context, work overview, scenario/month selection |
+| apricot / apricot-ink | --apricot / --apricot-ink | Warm logo/detail, navigation focus, selected icon, readable warm annotation |
+| canvas / white / table-header | --canvas / --white / --table-header | Workspace, record surfaces, table headings and contextual inspectors |
+| ink / secondary-ink / muted / annotation | Corresponding CSS role | Content and supporting hierarchy |
+| line / field-border / control-border | Corresponding CSS role | One-pixel surfaces, fields, controls |
+| rail-hover / rail-text / rail-muted / rail-line | Corresponding CSS role | Dark navigation, profile, login context |
+| chart-neutral / chart-side / chart-top | Corresponding CSS role | Unselected chart bars and geometrical depth |
+| danger / danger-surface / danger-border | Corresponding CSS role | Destructive actions and recovery |
+| scroll-thumb / scroll-track | Corresponding CSS role | Global scroll baseline; dark rail has a deliberate adapter |
 
-- **Action Indigo** (`accent`, `accent-hover`): primary buttons, current navigation, selected chart months and selected scenario/segment controls. The same indigo provides keyboard focus and invalid-field review outlines.
-- **Selected Context** (`selected-context`): text selection against strong dark ink.
-
-### Neutral
-
-- **Working White** (`white`), **Header Gray** (`table-header`) and **Canvas Gray** (`canvas`): white records, softly differentiated table headings and the surrounding workspace/hover context.
-- **Ledger Ink** (`ink`): primary text, dark navigation, login-story and tooltip surfaces.
-- **Secondary Ink** (`secondary-ink`), **Supporting Gray** (`muted`) and **Annotation Gray** (`annotation`): record actions, explanatory copy, secondary labels and status text.
-- **Quiet Divider** (`line`), **Control Boundary** (`control-border`) and **Field Boundary** (`field-border`): one-pixel structural separators and control outlines.
-- **Rail Hover** (`rail-hover`): a dark neutral hover state within the rail and the login proof surface.
-- **Measured Gray** (`chart-neutral`): unselected monetary bars and quiet chart geometry.
-
-**The Functional Accent Rule.** Reserve indigo for primary actions, selection and visible interaction feedback. Status meaning must remain explicit in text or icons.
+Deep indigo anchors the product. Apricot is a contextual highlight, not a replacement for readable action text. Warm neutrals distinguish canvas, headings, and records. Status uses explicit text/icons; color alone never communicates business meaning. Chart values remain labeled and inspectable.
 
 ## Typography
 
-**Body and Heading Font:** self-hosted IBM Plex Sans with sans-serif fallback. The application imports its available weights (400, 500, 600). Newsreader remains bundled from the prior phase but is not the working-screen heading rule.
+Self-hosted IBM Plex Sans, weights 400/500/600, owns both operating and display text. Body is 13px with -0.01em tracking and 1.5 line height. Page titles are 28px/600, mobile 26px. Section titles retain 18px/600; About section titles use 20px. About’s introduction is 42px, 34px at intermediate width, 32px on mobile. Login statement is 42px/500, mobile 32px. Avoid making ordinary workflows look like marketing pages.
 
-Body text is compact; labels and annotations supply secondary context without competing with values. Tabular numerals are enabled globally, and monetary cells additionally request tabular font features and right alignment. Supporting paragraphs retain a maximum measure (75ch); testing instructions use (72ch).
-
-### Hierarchy
-
-- **Page headline:** the frontmatter headline role for working screens.
-- **Section title:** the frontmatter title role; section-title components explicitly retain this size on mobile.
-- **Body:** the frontmatter body role for records and field values. Navigation shares the body size with an (18px) line height.
-- **Labels and controls:** field labels use the label role; primary controls use the button role. Table headers, density controls, table notes and field hints use (11px). Screen guidance and help text use (12px).
-- **Metrics:** the standard metric role; the first dashboard metric is emphasized at (36px), contracting to (28px) on mobile. Other mobile metrics remain (24px).
-- **Chart comparison:** axis, value and month labels use (11px) in SVG geometry with equal rendered and viewBox widths. The exact-value inspector uses (24px), contracting to (21px) on mobile.
-- **Login statement:** IBM Plex Sans (44px), weight (500), contracting to (32px) on mobile. Login form headings retain their authored (33px), then (30px) treatment.
-
-**The Numerical Comparison Rule.** Keep monetary values right-aligned, tabular and unwrapped. Preserve readable chart label sizes rather than shrinking a full-year comparison to fit.
+Numbers use tabular figures. Monetary values stay right aligned, unwrapped, and never truncated. Supporting paragraphs keep a bounded measure, while the About introduction uses a 52ch maximum. Labels remain visible and left aligned.
 
 ## Layout
 
-Desktop uses a two-track grid: a persistent rail (220px) and a flexible main track. The main shell has automatic width and no left offset. The rail is sticky at the viewport top with a (100dvh) height; its navigation scrolls while identity and profile context remain available. The top bar is sticky and (64px) high. Working content has a maximum width (1700px) and padding (24px 32px).
+Desktop retains the 220px sticky navigation rail and flexible workspace, with 64px sticky topbar and existing 24px/32px content rhythm. Main navigation scrolls separately while brand and profile remain available. Adding About must not clip workflow destinations.
 
-Panels retain (22px) padding, one-pixel borders and (16px) vertical separation. Detail grids and form grids use (16px) gaps. Dashboard middle columns retain their (1.6:1) ratio until responsive adjustment/stacking; the bottom pair uses (1.65:1). The metric strip emphasizes its first column (1.4:1:1:1). At (1200px) and below, workspace padding becomes (24px), metrics become two columns, the bottom pair stacks and the middle ratio becomes (1.4:1). At (950px) and below, dashboard middle/detail layouts stack and client testing scenarios become a horizontal list.
+At 700px and below, use the existing mobile drawer, 56px topbar, and 20px/16px workspace padding. Prioritized mobile records replace desktop tables rather than shrinking every column. Table headers and the first column remain sticky on desktop inside the bounded record scroller. Compact/default/review density remains 40/48/56px.
 
-At (700px) and below, the working grid becomes one column, workspace padding becomes (20px 16px), the top bar is (56px), and forms become one column. The fixed mobile navigation drawer is (256px) wide with a scrim. Closed navigation is inert; opening focuses its first destination and makes the workspace inert. Escape closes the drawer and returns focus to the menu button. These implemented behaviors do not establish a complete focus trap.
-
-Record tables scroll inside a bounded wrapper (620px maximum height), with sticky headers and the first column. Compact is the initial stored density; the density selector offers Compact, Default and Review using the frontmatter row heights. Rows may expand when content requires it. At mobile widths, the common DataTable swaps the desktop table for a record list: primary identity and ranked priority fields stay visible, while additional fields use native `details`/`summary` disclosure. It ranks three columns; specialized screens should rank identity within that set so the visible summary stays within three priority fields. Other specialized tables may retain their own scrolling layout.
-
-Print removes navigation and interactive controls, displays the desktop record representation, expands table scrolling and suppresses help/chart surfaces.
+About uses a two-column introduction and three definition rows on desktop. On mobile, the introduction, relationship definitions, and provider/evaluator sections stack naturally, with no centered operating labels or fixed-height content traps. Long forms retain document scroll ownership.
 
 ## Elevation & Depth
 
-Surfaces use borders and tonal separation. Box shadows are globally disabled. White records, gray context and a dark rail establish hierarchy without floating panels. The login-story and login-proof use solid dark surfaces. The chart defaults to flat bar fronts on a shared baseline; the explicit depth toggle adds top and side geometry while leaving amount encoding on the fronts. Optional geometry is not a general surface style.
+Working panels are flat, with one-pixel borders and no shadows. Three warm surface values establish hierarchy. Hover changes the surface, not elevation. Frosting is limited to the sticky topbar to preserve readable context over scrolling content; opaque fallbacks and reduced-transparency support remain available.
 
-**The Flat Working Surface Rule.** Keep tables, financial values and editors on solid backgrounds with one-pixel boundaries. Frosted navigation and context may provide depth; lift-on-hover and bouncing motion remain inappropriate.
+The navigation rail echoes Gather’s satin, beveled material: a directional indigo surface, narrow inset edge lighting, and a warm apricot selected row with a small physical bottom edge. The transparent Gather mark is embossed directly into the rail: a narrow upper-left highlight and lower-right silhouette shadow reveal the sculptural edge without a separate tile. These scoped material gradients and shadows belong to navigation; working panels and primary action buttons stay flat. Hover adds surface lighting without moving labels or changing hit boxes.
 
-**The Truthful Geometry Rule.** Bar-front height represents saved monetary amount on one shared scale. Optional top and side faces convey geometry only; exact values remain available in the inspector.
-
-**The Frosted Context Rule.** The sticky topbar uses translucent white (88%) and backdrop blur (16px); the dark rail uses dark ink (97%) and blur (18px). Search and upcoming-work panels use near-opaque white (96%) and blur (16px). Opaque fallbacks and reduced-transparency rules preserve legibility. Operations summary uses a restrained white/gray surface wash; data values remain opaque and high contrast. No box shadows or chart filter halos are reintroduced.
+The 3D Gather raster supplies physical depth in branding. The giving chart retains its explicit flat/depth toggle and labeled exact-value inspector. No animated or decorative glow is added to records.
 
 ## Shapes
 
-Working panels, buttons, inputs, navigation states and tooltips share compact corners from the control radius. Keyboard hints use the smaller keyboard radius; neutral progress tracks use the progress radius. Statuses are plain text or text with an icon rather than colored pills. Keep boundaries explicit and silhouettes rectangular; the circular user avatar is an identity exception.
+Controls use 6px corners; record panels and overview/context strips use 8px. About’s introduction uses 12px. The mark has no background tile, border or enclosing rounded square. Navigation uses a 44px transparent sculpture with restrained directional relief; login uses the same transparent material at a larger size. Preserve a four-pixel spacing rhythm and consistently sized Lucide icons. Do not scatter rounded pastel icon tiles across ordinary records.
 
 ## Components
 
-### Buttons
+`Brand.jsx` owns mark and wordmark composition. `public/brand/wimblo-gather.png` is the common generated raster, used by navigation, login, About, and favicon. Asset provenance is in BRAND-ASSETS.md. Explicit image dimensions reserve geometry.
 
-Compact and explicit. Primary buttons use indigo with white text; secondary buttons use white, secondary ink and a control boundary. Danger buttons use neutral ink with a stronger annotation-gray boundary and explicit action wording. Button minimum height is (32px); icon controls generally use (36px), with smaller authored chart/help controls. Hover changes color rather than position. Keyboard focus uses an indigo outline (2px) with offset (2px). Disabled controls retain reduced opacity (.55).
+`ScreenGuide` and `HelpHint` preserve hover/focus/click guidance. `Fields`, `RecordForm`, and `GiftForm` remain the canonical form owners. Native select/date/time popups remain browser-owned; this theme styles their closed controls. `Workspace` owns navigation, editor state, role-sensitive actions, and live-status feedback; About uses that same navigation handler.
 
-### Inputs / Fields
-
-White, bordered controls with compact corners, visible labels and contextual help. Field values use body typography. Fields retain their authored vertical padding; a minimum height is not a guarantee of a fixed rendered height. Invalid fields use an indigo review outline and append “Review this field” to the label. Preserve explanatory errors alongside the visual state.
-
-### Navigation
-
-Dark neutral rail, body-size destinations, compact spacing and indigo current destination. Main rail items are at least (32px) high, increasing to (36px) on mobile. Keep `aria-current`, the menu button's expanded/controlled state and mobile inert behavior aligned with the visible destination.
-
-### Statuses / Containers
-
-Statuses use neutral text, with an icon where implemented, and no colored pill fill. White containers have a one-pixel divider border, compact corners and the panel spacing. Metrics remain one divided strip; client testing uses one scenario list and a detail pane rather than floating tiles.
-
-### Record Tables
-
-Only the actively sorted column shows a direction icon; all sortable headers remain keyboard-operable and expose `aria-sort`. Cell text truncates inside bounded widths with native titles when the rendered value is a string. First-column record actions stay available; supplementary row-open icons appear on row hover/focus and are always available on devices without hover. Use configured priority fields and native disclosure for mobile records.
-
-### Giving Inspector
-
-Flat is the initial chart view. Six months fit the measured plot; the full school year retains a minimum width (620px) and scrolls horizontally when needed. Native month buttons support keyboard/touch inspection, and pointer inspection updates the same exact saved-value context. Explore gifts opens supporting records and is disabled for an empty month. Fees, in-kind support and voided gifts are excluded as stated by the screen.
-
-### Screen Guidance / Help
-
-Each working route includes a short instruction and a help trigger. Field help supplements the visible hint. The trigger exposes expanded state and an accessible description while its tooltip is open. Hover, focus and touch/click open help; leaving or blurring closes it when focus is outside, and Escape closes it. Tooltips use dark ink, light text, a one-pixel dark boundary, compact corners and a bounded width (320px or available viewport). Native expandable testing guidance supplies longer evaluation context.
-
-### Keyboard / Motion
-
-`C` creates on supported routes for writable roles when a text input/editor is not active; the dashboard starts a gift. Command/Ctrl `K` focuses global search. Command/Ctrl `Enter` requests submission of the active workspace form when its submit action is enabled. Keep shortcuts supplementary to visible actions. Hover feedback uses (80ms) easing; the drawer uses a (120ms) slide. Toasts and chart bars have no entrance animation. Reduced-motion preferences disable transitions and animations.
-
-Operations uses action rows with source-record links, chronological work dates and explicit action labels. Volunteer shift rosters expose reserved capacity, availability and waitlists; forms explain the shared foundation scheduling timezone and protect booked schedule fields. Focus moves to the new shift form or selected shift heading. Work tabs support arrow/Home/End navigation.
+Hover color feedback takes 80ms; navigation edge lighting and the selected row’s one-time lighting transition take 120ms. The mobile drawer retains 120ms motion. No bounce or ambient motion is added. Reduced motion disables transitions and animation. Focus, caret, text selection, and all owned scrollbars use palette roles, with forced-colors support.
 
 ## Do's and Don'ts
 
-### Do:
-
-- **Do** use IBM Plex Sans and the compact body hierarchy for working screens.
-- **Do** separate records with solid surfaces and one-pixel borders.
-- **Do** reserve indigo for primary actions, selection and visible interaction feedback.
-- **Do** keep money right-aligned and tabular, with exact supporting values available.
-- **Do** preserve sticky record context and active-sort-only direction indicators.
-- **Do** provide mobile priority fields, native disclosure and hover/focus/touch help.
-- **Do** retain explicit pilot scope and saved-workflow distinctions in guidance.
-
-### Don't:
-
-- **Don't** place glass or gradients behind financial tables or editors; keep frosted effects on navigation and contextual layers.
-- **Don't** add box shadows, hover lift or bouncing motion.
-- **Don't** turn neutral statuses into a new decorative color palette.
-- **Don't** shrink full-year chart lettering to force twelve months into a narrow plot.
-- **Don't** treat optional chart geometry as another monetary data series.
-- **Don't** describe the evaluator pilot as production-certified or imply live delivery/settlement.
+- Use the logo for memorable expression; keep dense work screens calm and predictable.
+- Preserve posted monetary contributions, commitments, in-kind support, and receipt reconciliation as separate concepts.
+- Make the next action explicit and show supporting records behind totals.
+- Keep synthetic/evaluator scope and provider identity honest.
+- Do not use gradients on primary action buttons, rainbow metric tiles, color-only statuses, or decorative shadows on working panels. Navigation material depth is the deliberate branding exception.
+- Do not turn this brand change into a rewrite of financial, permission, reservation, or contact-preference behavior.

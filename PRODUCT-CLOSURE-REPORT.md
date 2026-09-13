@@ -1,0 +1,70 @@
+# Wimblo: commercial model, access control and release closure
+
+September 13, 2026. Scope: local Wimblo **0.5.0** working source, supplied RFP/attachments, current requirements review and recorded local verification. This is an owner assessment, not buyer acceptance, certification, a submitted proposal or a forecast of awarded points.
+
+## Current position
+
+Wimblo has authenticated, persisted local business workflows. The current 84-criterion inventory is **46 Local / 24 Partial / 11 Missing / 3 Evidence required**. [CURRENT-RFP-REQUIREMENTS-MATRIX.md](CURRENT-RFP-REQUIREMENTS-MATRIX.md) contains every criterion and acceptance condition; [REQUIREMENTS-CLOSURE-PROGRESS.md](REQUIREMENTS-CLOSURE-PROGRESS.md) records implementation and browser evidence. Historical 0.4.0 counts are retained only in historical reports. Local means basic behavior exists for local synthetic workflows, not complete institutional acceptance or production readiness. The full hosted, supported RFP product remains incomplete.
+
+## Buyer and commercial scope
+
+The RFP requests cloud software licenses, implementation/configuration, migration, training, documentation, support, maintenance and future updates. The initial contract is **one year with up to four annual renewals**, maximum five years; applicable yearly prices and guarantees belong in the separate Attachment C cost form. There is no guaranteed five-year award.
+
+Offer Wimblo as Kode Kinetics' licensed product, with **four full users plus two optional nonadministrator board/event data-entry helpers without added cost**, as clarified by Q&A86. Price onboarding, conversion and training separately and disclose later-year renewals, thresholds and third-party costs. No approved prices, signed license, billing system, funded SLA or entitlement contract is claimed. Procurement/PO invoicing is compatible with this proposed approach; in-app checkout is absent.
+
+The reviewed documents do not expressly require source/IP assignment or an exclusive bespoke product. Customer data ownership/control under the DPA is separate from application ownership. Source buyout, exclusive rights or escrow would be separate negotiated terms; no completed buyout or ownership/license audit is claimed. The repository is public. Optional customer logo/theme configuration remains pending; default product/workspace identity is Wimblo and organization name/fiscal start are configurable.
+
+Q&A86 puts core revenue/account codes/donors/basic reports first: migration/use starts November 1 and NonProfitEasy source download/report availability ends **November 30, 2026**. March account access does not extend downloads. Q&A49 describes SchoolWindows/Successfund manual CSV/Excel inputs, payroll Excel-to-CSV and reconciliation outside CRM. JEF has no Stripe account and cannot connect district payment accounts; manual entry/upload remains primary. Card/ACH/Stripe capability narratives still require truthful offered compatibility evidence.
+
+Q&A54 confirms July 1–June 30 fiscal assignment, transaction-level school-year reassignment, current reporting of stored business data and internal-or-email scheduled reports. Users are **JEF personnel**, so school-level reporting restrictions are not a mandatory bidder gap. Optional helpers and any module/field/export restrictions still require an agreed access policy. No school scoping is imposed as a prerequisite by this report.
+
+## Access and security: actual implementation
+
+| Role | Working access | Remaining policy/operational limit |
+|---|---|---|
+| Administrator | Workspace business mutations, versioned user access/suspension, settings/audit/integrity, controlled identity merge, normalized migration and private document/report sources | Final administrator protected; password invitation/reset and approved SSO absent. Production configuration and adopted privilege policy remain open. |
+| Staff | Broad business reads/edits and specialized gift, pledge/grant, volunteer, fundraising/event, document, correspondence and reporting workflows | Administrator-only documents and metadata denied. No separate helper, module/field or finance-approval profile. |
+| Viewer / board | Broad workspace business reads, ordinary documents and current read-only reports | Not an aggregate-only board view. Administrator-only files/report sources denied. Synthetic testing observations allowed only in acceptance mode. |
+
+Core workspace roles still receive broad business collections. Donor/employee/alumni/volunteer attributes do not confer login rights, and no verified public donor/volunteer identity exists. Backend roles, CSRF/origin checks, reference validation, optimistic versions and transactional constraints enforce access beyond UI visibility. Existing password/session hashing, HTTP-only/SameSite cookies, production Secure/TLS controls, eight-hour absolute/30-minute idle sessions and login throttling remain. Role/status changes revoke sessions. Financial records use reasoned voids; database audit triggers are append-only application controls, not independently tamper-proof infrastructure.
+
+**Optional workspace MFA is implemented** when a protected `MFA_ENCRYPTION_KEY` supplies exactly 32 bytes as 64 hex characters or canonical padded base64. Own-account password-reauthenticated enrollment, TOTP challenge/replay/failure limits, encrypted secrets and hashed one-use recovery codes are tested. Enabling/disabling revokes sessions and requires fresh sign-in; missing/wrong key cannot bypass enabled MFA. No default key, organization-wide mandatory enforcement, SSO or platform-master MFA exists. Production keys/custody/enrollment/recovery policy remain open.
+
+**Manual encrypted backup/offline recovery is implemented** separately from ordinary JSON record export. AES-256-GCM full-workspace SQLite archives include installed tables and document bytes. Restore verifies expected tenant/schema/counts/digests into a **new destination**, refuses overwrite, and clears sessions/challenges/pending enrollment while preserving enabled MFA with its separately retained key. See `node scripts/backup.mjs --help` and [VERIFICATION.md](VERIFICATION.md). This is local operator recovery proof, not scheduled backup, cloud durability, live disk encryption, platform-registry/key recovery or an adopted RPO/RTO service.
+
+## Delivered workflows and remaining depth
+
+| Area | Working locally in 0.5.0 | Material remaining gap |
+|---|---|---|
+| People | Constituents/contacts/preferences/segments, organization hierarchy, managed households/membership, controlled duplicate preview/commit and retained aliases | Accepted historical merge/blocked-case policy, overlapping categories and actual buyer conversion |
+| Giving | Manual/atomic CSV gifts, exact-cent splits/account codes, effective fiscal override/reset, reasoned voids, pledge/grant receipt reconciliation | Online/card/ACH/processor recurrence/refunds; actual source mappings and output acceptance |
+| Documents | Record-linked PDF/PNG/JPEG/TXT/CSV upload/download, immutable revisions, visibility, archive/retention | 1 MiB/file and narrow types; no malware scanning, adopted holds/disposal/exit or converted contracts |
+| Migration | Normalized constituent/designation/posted-gift preview, durable mappings, atomic commit/replay | 500 rows/ten files; no direct NonProfitEasy/XLSX adapter or complete source history/contracts/interactions |
+| Fundraising | Owned major asks/activity, planned instruments/commitments, matching ratio/cap claims, versioned compatible existing receipt associations/unlink history | Public peer-to-peer, collection/recurrence and actual buyer eligibility/realization policy |
+| Events | Staff tables/seats, tickets/check-in/cancellation, sponsorship benefits, auction items/bids/winners, compatible existing one-time payment links | Public signup/checkout/bidding, provider refunds and buyer operational acceptance |
+| Volunteers/grants | Staff capacity/waitlist/cancellation, dated clock/correction ledger; grant request/award/receipt separation and documents | Verified public participation/reminders; actual source conversion and external submission/reminders; staff-owned milestone/calendar/completion history is now implemented |
+| Tributes | Honor/memory identity, separate donor/honoree/recipient, versioned consent/visibility, reviewed immutable notification drafts/history/export | Not sent; no provider delivery. Finalized source corrections need a reasoned withdrawal release workflow. |
+| Correspondence/receipts | Versioned plain-text selected-recipient letters/annual Payroll drafts, immutable human review; receipt profiles/preparation/history, numbering/manual print-sign confirmation issue/void/reissue | Finalized correspondence is Not sent; no live email/SMS/Mailchimp. Receipt browser proof is preparation only; buyer tax/wording/physical issue policy remains unaccepted. |
+| Reporting | Thirteen standard behaviors, live custom field/filter/group/calculation builder, saved versioned reruns, exact-cents/source previews, internal persisted schedules, retention/cohort/campaign/frequency analytics with drill-through | Curated business fields/metadata, not arbitrary SQL/secrets/binaries. Source/output caps, full buyer field/history inventory, scale/export and board output acceptance remain open. No forecast or emailed schedule. |
+| Platform/AI | Separate isolated local tenant registry/provisioning/suspension/labels/policy; deterministic priorities and bounded synthetic-only Ollama text assistance | No billing/renewals/hosted multi-customer acceptance; restricted real-data model processing and platform MFA absent |
+| Release/service | Local source/build/tests, desktop/mobile guidance and synthetic task evidence | Local source commit/review package; no deployed 0.5.0 service, buyer migration/training/support acceptance |
+
+Fundraising asks, sponsorship prices/commitments and auction bids are not income. Compatible existing posted receipts realize obligations; future/voided receipts do not count as current received support. No money is collected automatically. Receipt history may repeat a gift through void/reissue and is not new income or a deduction calculation. AI and reviewed drafts execute no provider send/payment/receipt write.
+
+## Architecture and launch gates
+
+Actual stack: React 19/Vite, Express/Node and SQLite; built UI/API are served from one origin. Next.js, ASP.NET Core/.NET and managed PostgreSQL/Neon are proposed future implementation options, **not implemented migrations** or mandated RFP frameworks. `DATABASE_URL` is not a shipped PostgreSQL business configuration. Preserve tested exact cents, source references, fiscal/void history, concurrency and access contracts if architecture changes.
+
+Production admission still needs durable country-approved hosted storage/TLS/session behavior, tested workspace/platform/key recovery, encryption/key custody, adopted retention/exit/incident operations and named funded human delivery/support. The local platform and AI addons cannot displace buyer conversion/report/output work. C5 requests an explanation of human versus AI support, not construction of AI support.
+
+Qualification remains unproven: required software-provider/product history and comparable references cannot be supplied by a new UI or general personnel experience. Q&A60/64/85 preserve provider qualification/pass-fail and actual reseller authorization letter conditions; custom-build permission is no waiver. No qualifying references, signed contract/PO/DPA, LearnPlatform/iBoss admission, FERPA/PCI/SOC2/ISO certification or other institutional approval is claimed. Q&A56 accepts equivalent controls and does not require an independent proposal-stage pentest/questionnaire; preferred PCI AoC can follow later. Record the Q&A56 geography conflict with later Addendum2's collected-data US/Canada restriction; conservatively apply the later amendment until officially clarified.
+
+## Evidence and release state
+
+The current mounted 0.5.0 source passed **325/325 tests**, zero failures/skips, in **10.8 seconds**, followed by a successful production build in **1.13 seconds**. Earlier 290/296/316 counts are historical checkpoints. Independent review reproduced and repaired private document-revision, revoked tribute-disclosure and retained scheduled-report access gaps; actual regression and follow-up API checks passed. Focused runs overlap the full suite. See [CURRENT-RELEASE-EVIDENCE.md](CURRENT-RELEASE-EVIDENCE.md). No count establishes all 84 criteria or production-scale acceptance.
+
+Owner browser checks cover current builder/save/run, automatic internal snapshot, documents/revisions/download, normalized migration/replay, fiscal override/reset, household, analytics source drill-through, major/planned/matching tracking, staff event operations and produced correspondence/receipt preparation, tribute review/export marked Not sent, and grant exact-evidence completion/download/reopen with retained source facts. Grant phone cards were verified at 390 pixels without page overflow. These checks used synthetic records, not buyer conversion, provider sending, physical signatures or hosted recovery.
+
+Release **0.5.0** identifies current local source. This source is captured in the local 0.5.0 release commit and clean review package; the external handover note records its commit and checksum. Older release ZIPs/commits are historical. No actual new cloud deployment is verified. A production-mode health response only describes configuration. [README.md](README.md), [RENDER-SETUP.md](RENDER-SETUP.md) and [PLATFORM-AND-INTELLIGENCE-STATUS.md](PLATFORM-AND-INTELLIGENCE-STATUS.md) describe actual configuration and boundaries.
+
+Sources: supplied base RFP (31 pages), Attachment C, Attachment E/DPA, supplied Addenda and the release owner's recorded official Q&A reads; no fresh final-portal notice audit is claimed by this documentation update. Current code/tests are evidence anchors; [REQUIREMENTS-FIRST-CLOSURE.md](REQUIREMENTS-FIRST-CLOSURE.md) governs the requirements-first sequence. This report changes documentation only.

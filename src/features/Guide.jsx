@@ -2,14 +2,14 @@ import React from 'react';
 import { BookOpen, CheckCircle2, ShieldCheck, Map } from 'lucide-react';
 
 const workflows = [
-  ['Constituents and stewardship', 'Create people and organizations, household labels, parent relationships, additional contacts, segments and preferences. Open a constituent to review its recorded gifts and interactions.'],
+  ['Constituents and stewardship', 'Create people and organizations, managed household membership, parent relationships, additional contacts, segments and preferences. Open a constituent to review its recorded gifts and interactions.'],
   ['Gifts and designations', 'Record a gift, split its value across school or classroom funds, link a campaign, and track tribute or soft-credit information. Void a gift with a reason while preserving its record. Monetary and in-kind value are distinguished.'],
   ['Pledge schedules and fulfillment', 'Create monthly, quarterly or annual installments. Link actual monetary gifts to the pledge and review received, balance and overdue amounts. Receipts apply to the oldest installments; voids release fulfillment. Commitments never become received income.'],
   ['CSV imports and reports', 'Download the gift sample, match existing donor emails and designation codes, validate and preview, then confirm the batch. Review donor, designation, ledger, first-time donor, follow-up and pledge-balance reports. Save shared filter views, export CSV or open the print/PDF dialog.'],
-  ['Recognition and rollups', 'Compare direct and soft monetary recognition with noncash value. Organization rollups include descendants; households use shared labels. Each gift counts once per group with direct precedence, but different groups may recognize the same gift. Do not add overlapping recognition as received income.'],
+  ['Recognition and rollups', 'Compare direct and soft monetary recognition with noncash value. Organization rollups include descendants; managed households keep distinct member identities. Each gift counts once per group with direct precedence, but different groups may recognize the same gift. Do not add overlapping recognition as received income.'],
   ['Grants and volunteer time', 'Separate grant requests, recorded awards and linked matching-funder receipts. Inspect award balances and retain unknown legacy awards without inventing a commitment. Link volunteers to constituents/events and clock completed intervals into a dated ledger. Historical hours remain undated and separate. Correct hours with a reason while preserving original hours, dates and an audit trail.'],
   ['Manual completed acknowledgments', 'Use Stewardship to review eligible unacknowledged gifts and record an action already completed by staff. The gift links to a Logged donor interaction. Opt-out, voided gifts, fees and duplicate acknowledgments are blocked. This sends no message and issues no tax receipt.'],
-  ['Events and tasks', 'Manage capacity, register constituents, record seating labels, check guests in and cancel registrations. Assign follow-up tasks, link them to constituents or events, and mark work completed.'],
+  ['Events and tasks', 'Manage capacity, register constituents, manage seating inventory, unique tickets, sponsor benefits, staff-entered auctions, and admission. Assign follow-up tasks, link them to constituents or events, and mark work completed.'],
   ['Drafts and access', 'Save unsent communication drafts or logged conversations, with local name/email/date previews. Administrators manage users, preferences, audit history and review snapshots; staff edit ordinary records and viewers review them.'],
 ];
 
@@ -27,7 +27,7 @@ const reviewSteps = [
 const roadmap = [
   {
     stage: 'Core nonprofit operations',
-    capabilities: 'Provider-backed recurring collection, controlled constituent merges, volunteer shift reservations, approved real acknowledgment delivery/receipts, and arbitrary custom or scheduled reports beyond shared saved filters.',
+    capabilities: 'Provider-backed recurring collection, protected historical identity consolidation, public volunteer self-service, and approved real acknowledgment delivery/receipt operations.',
     evidence: 'Failed charges do not become gifts. Merges preserve history. Grant values stay distinct. External delivery uses authorized providers and consent, while approved receipt policy remains separate from manual activity records.',
   },
   {
@@ -37,31 +37,33 @@ const roadmap = [
   },
   {
     stage: 'Public participation and fundraising',
-    capabilities: 'Donor and volunteer self-service, shift capacity and waitlists, online card/ACH giving, recurring collection, event ticketing, seating plans, auctions, peer-to-peer campaigns, and matching-gift workflows.',
+    capabilities: 'Donor and volunteer self-service, shift capacity and waitlists, online card/ACH giving, recurring collection, public event checkout/bidding, and peer-to-peer campaigns. Staff-managed tickets, seats, auctions and matching claims are already available.',
     evidence: 'Capacity is enforced across simultaneous signups. Failed charges do not become gifts. Payment events are processed once, refunds reconcile, and fees, purchases, sponsorships and donations remain distinguishable.',
   },
   {
     stage: 'Production and institutional acceptance',
-    capabilities: 'SSO/MFA, approved hosting and encryption, managed backups and recovery, security assessment, district privacy review, support ownership, training, accessibility and performance acceptance.',
+    capabilities: 'Preferred SSO, operational MFA configuration/policy, approved hosting and encryption, scheduled managed backups and recovery, security assessment, district privacy review, support ownership, training, accessibility and performance acceptance.',
     evidence: 'Test identity and permission boundaries, restore and reconcile a backup, verify hosting geography, obtain required institutional approvals, resolve security findings, and rehearse support and incident response.',
   },
 ];
 
-export default function Guide() {
+export default function Guide({onNavigate}) {
   return <div className="guide-page">
     <div className="page-header">
-      <div><h1>Kinflect evaluator guide</h1><p className="subtle">Review working foundation workflows and the evidence needed before real use.</p></div>
+      <div><h1>Wimblo evaluator guide</h1><p className="subtle">Review working foundation workflows and the evidence needed before real use.</p></div>
       <a className="btn btn-secondary" href="#guide-review"><BookOpen size={16} aria-hidden="true" /> Start the review</a>
     </div>
 
     <section className="panel" aria-labelledby="guide-scope">
       <h2 className="section-title" id="guide-scope"><CheckCircle2 size={18} aria-hidden="true" /> Working local workflows</h2>
-      <p>Kinflect is Kode Kinetics’ functional synthetic evaluator pilot tailored to Jordan Education Foundation. It is not an official district product or endorsement. Use fictional donors and amounts while reviewing; local changes persist.</p>
+      <p>Wimblo is an independently developed CRM by Kode Kinetics. This local testing workspace uses synthetic data. Use fictional donors and amounts while reviewing; local changes persist.</p>
       <dl>{workflows.map(([title, detail]) => <div key={title}>
         <dt><strong>{title}</strong></dt><dd className="subtle">{detail}</dd>
       </div>)}</dl>
       <p className="subtle">Pledge schedules and linked receipt reconciliation are working records, not payment instructions. Recurring gift categories still do not trigger collection. Recognition overlap does not create income. Dated volunteer intervals are separated from historical hours with unknown dates.</p>
     </section>
+
+    <section className="panel" aria-labelledby="guide-connected"><h2 id="guide-connected">Explore connected workflows</h2><p>Open a workflow, follow its quick guide, and inspect the supporting records. Use synthetic examples for testing.</p><div className="form-grid">{[['grant-operations','Grant milestones and evidence'],['tributes','Tributes and memorials'],['identity','Households and identity'],['fundraising','Major, planned and matching gifts'],['event-operations','Tickets, seating, sponsors and auctions'],['correspondence','Personal letters and statements'],['receipt-register','Receipt review and retained history'],['documents','Linked files and revisions'],['migration','Mapped CSV conversion'],['custom-reports','Report builder'],['report-schedules','Internal scheduled results'],['fundraising-analytics','Giving insights'],['account-security','Authenticator and recovery']].map(([route,label])=><button className="btn btn-secondary" key={route} onClick={()=>onNavigate?.(route)}>{label}</button>)}</div></section>
 
     <section className="panel" aria-labelledby="guide-review">
       <h2 className="section-title" id="guide-review"><BookOpen size={18} aria-hidden="true" /> A practical review</h2>

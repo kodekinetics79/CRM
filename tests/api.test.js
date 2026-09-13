@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
 import { createApp } from '../server/app.js';
+import { DatabaseSync } from 'node:sqlite';
 
 const password = 'FoundationDemo!2026';
 
@@ -56,6 +57,116 @@ async function fixture(t) {
   }
   return { app, request, login, admin, create, workspace };
 }
+
+test('account access changes require administrator, CSRF and a current version', async t => {
+  const f = await fixture(t);
+  const staff = await f.login('staff@foundation.example');
+  const viewer = await f.login('board@foundation.example');
+  const path = `/api/users/${staff.user.id}`;
+  const body = { version: 1, role: 'viewer', active: true };
+  for (const session of [staff, viewer]) assert.equal((await f.request(path, { method: 'PATCH', session, body })).status, 403);
+  assert.equal((await f.request(path, { method: 'PATCH', session: f.admin, csrf: false, body })).status, 403);
+  assert.equal((await f.request(path, { method: 'PATCH', session: f.admin, body: { ...body, version: 99 } })).status, 409);
+  assert.equal((await f.request(path, { method: 'PATCH', session: f.admin, body: { ...body, role: 'owner' } })).status, 400);
+  assert.equal((await f.request(path, { method: 'PATCH', session: f.admin, body: { ...body, password_hash: 'injected' } })).status, 400);
+  assert.equal((await f.request('/api/auth/me', { session: staff })).status, 200);
+  assert.equal(f.app.locals.db.prepare("SELECT COUNT(*) AS count FROM audit WHERE action='change_access'").get().count, 0);
+});
+
+test('suspension ends every session, blocks login and preserves account and records', async t => {
+  const f = await fixture(t);
+  const first = await f.login('staff@foundation.example');
+  const second = await f.login('staff@foundation.example');
+  const before = (await f.workspace()).data;
+  const response = await f.request(`/api/users/${first.user.id}`, { method: 'PATCH', session: f.admin, body: { version: 1, role: 'staff', active: false } });
+  assert.equal(response.status, 200);
+  assert.equal(response.json.user.active, false);
+  assert.equal(response.json.user.version, 2);
+  assert.equal(response.json.sessionsRevoked, 2);
+  for (const session of [first, second]) assert.equal((await f.request('/api/workspace', { session })).status, 401);
+  assert.equal((await f.request('/api/auth/login', { method: 'POST', body: { email: first.user.email, password } })).status, 401);
+  assert.deepEqual((await f.workspace()).data, before);
+  const history = f.app.locals.db.prepare("SELECT details FROM audit WHERE action='change_access'").get();
+  assert.equal(JSON.parse(history.details).previousActive, true);
+  assert.equal(JSON.parse(history.details).active, false);
+  const restore = await f.request(`/api/users/${first.user.id}`, { method: 'PATCH', session: f.admin, body: { version: 2, role: 'staff', active: true } });
+  assert.equal(restore.status, 200);
+  assert.equal((await f.request('/api/auth/me', { session: first })).status, 401);
+  assert.equal((await f.login(first.user.email)).user.role, 'staff');
+});
+
+test('role downgrade revokes sessions and new login cannot mutate records', async t => {
+  const f = await fixture(t);
+  const staff = await f.login('staff@foundation.example');
+  const path = `/api/users/${staff.user.id}`;
+  assert.equal((await f.request(path, { method: 'PATCH', session: f.admin, body: { version: 1, role: 'viewer', active: true } })).status, 200);
+  assert.equal((await f.request('/api/auth/me', { session: staff })).status, 401);
+  const readonly = await f.login(staff.user.email);
+  assert.equal(readonly.user.role, 'viewer');
+  assert.equal((await f.request('/api/records/tasks', { method: 'POST', session: readonly, body: { title: 'Forbidden', dueDate: '2026-09-13', owner: '', status: 'Open' } })).status, 403);
+  assert.equal((await f.request(path, { method: 'PATCH', session: f.admin, body: { version: 1, role: 'admin', active: true } })).status, 409);
+});
+
+test('last active administrator cannot be suspended or demoted; failed changes roll back', async t => {
+  const f = await fixture(t);
+  const path = `/api/users/${f.admin.user.id}`;
+  for (const body of [{ version: 1, role: 'admin', active: false }, { version: 1, role: 'staff', active: true }]) {
+    const response = await f.request(path, { method: 'PATCH', session: f.admin, body });
+    assert.equal(response.status, 409); assert.match(response.json.error, /active administrator/);
+  }
+  assert.equal((await f.request('/api/auth/me', { session: f.admin })).status, 200);
+  assert.equal(f.app.locals.db.prepare("SELECT COUNT(*) AS count FROM audit WHERE action='change_access'").get().count, 0);
+  const created = await f.request('/api/users', { method: 'POST', session: f.admin, body: { name: 'Second administrator', email: 'second@example.test', password, role: 'admin' } });
+  assert.equal(created.status, 201); assert.equal(created.json.user.active, true);
+  const demote = await f.request(path, { method: 'PATCH', session: f.admin, body: { version: 1, role: 'viewer', active: true } });
+  assert.equal(demote.status, 200);
+  assert.equal((await f.request('/api/auth/me', { session: f.admin })).status, 401);
+  const second = await f.login('second@example.test');
+  assert.equal(second.user.role, 'admin');
+  assert.equal((await f.request(path, { method: 'PATCH', session: second, body: { version: 2, role: 'admin', active: true } })).status, 200);
+  const first = await f.login();
+  const concurrent = await Promise.all([
+    f.request(path, { method: 'PATCH', session: first, body: { version: 3, role: 'viewer', active: true } }),
+    f.request(`/api/users/${second.user.id}`, { method: 'PATCH', session: second, body: { version: 1, role: 'viewer', active: true } })
+  ]);
+  assert.deepEqual(concurrent.map(result => result.status).sort(), [200, 409]);
+  assert.equal(f.app.locals.db.prepare("SELECT COUNT(*) AS count FROM users WHERE active=1 AND role='admin'").get().count, 1);
+});
+
+test('unchanged access does not end sessions and unknown account roles fail closed', async t => {
+  const f = await fixture(t);
+  const staff = await f.login('staff@foundation.example');
+  const response = await f.request(`/api/users/${staff.user.id}`, { method: 'PATCH', session: f.admin, body: { version: 1, role: 'staff', active: true } });
+  assert.equal(response.status, 200); assert.equal(response.json.sessionsRevoked, 0); assert.equal(response.json.user.version, 1);
+  assert.equal((await f.request('/api/auth/me', { session: staff })).status, 200);
+  f.app.locals.db.prepare('UPDATE users SET role=? WHERE id=?').run('unexpected-role', staff.user.id);
+  assert.equal((await f.request('/api/workspace', { session: staff })).status, 401);
+  assert.equal((await f.request('/api/auth/login', { method: 'POST', body: { email: staff.user.email, password } })).status, 401);
+});
+
+test('legacy accounts migrate without credential loss and access state survives restart', async t => {
+  const f = await fixture(t);
+  const dir = await mkdtemp(join(tmpdir(), 'foundation-legacy-access-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const path = join(dir, 'legacy.sqlite');
+  const original = f.app.locals.db.prepare('SELECT * FROM users WHERE id=?').get(f.admin.user.id);
+  const old = new DatabaseSync(path);
+  old.exec('CREATE TABLE users(id TEXT PRIMARY KEY,name TEXT NOT NULL,email TEXT UNIQUE NOT NULL,role TEXT NOT NULL,password_hash TEXT NOT NULL)');
+  old.prepare('INSERT INTO users VALUES(?,?,?,?,?)').run(original.id, original.name, original.email, original.role, original.password_hash);
+  old.close();
+  const migrated = createApp({ dbPath: path, seed: false });
+  const account = migrated.locals.db.prepare('SELECT * FROM users').get();
+  assert.equal(account.id, original.id); assert.equal(account.role, original.role);
+  assert.equal(account.active, 1); assert.equal(account.version, 1);
+  assert.ok(account.password_hash === original.password_hash, 'Migration must preserve the credential hash');
+  migrated.locals.db.prepare('UPDATE users SET active=0,version=2').run();
+  migrated.locals.close();
+  const reopened = createApp({ dbPath: path, seed: false });
+  try {
+    const account = reopened.locals.db.prepare('SELECT * FROM users').get();
+    assert.equal(account.active, 0); assert.equal(account.version, 2); assert.ok(account.password_hash === original.password_hash, 'Restart must preserve the credential hash');
+  } finally { reopened.locals.close(); }
+});
 
 const constituent = (name = 'Integration donor') => ({ name, email: 'donor@example.test', phone: '', type: 'Individual', household: '', parentId: null, contacts: [], segments: '', preference: 'Email', notes: '' });
 const designation = name => ({ name, school: 'Synthetic School', parentId: null, accountCode: '', description: '' });
@@ -373,11 +484,12 @@ test('event-linked tasks validate the event and prevent removal while referenced
 });
 
 test('production rejects unsafe origins and HTTP, and trusts TLS forwarding only explicitly', async t => {
-  const keys = ['NODE_ENV', 'APP_ORIGIN', 'ALLOW_DEMO', 'TRUST_PROXY', 'ADMIN_EMAIL', 'ADMIN_NAME', 'ADMIN_PASSWORD'];
+  const keys = ['NODE_ENV', 'APP_ORIGIN', 'ALLOW_DEMO', 'ENABLE_ACCEPTANCE', 'TRUST_PROXY', 'ADMIN_EMAIL', 'ADMIN_NAME', 'ADMIN_PASSWORD'];
   const previous = Object.fromEntries(keys.map(key => [key, process.env[key]]));
   t.after(() => { for (const key of keys) { if (previous[key] === undefined) delete process.env[key]; else process.env[key] = previous[key]; } });
   process.env.NODE_ENV = 'production';
   process.env.ALLOW_DEMO = 'false';
+  process.env.ENABLE_ACCEPTANCE = 'false';
   process.env.ADMIN_EMAIL = 'admin@production.example.test';
   process.env.ADMIN_NAME = 'Production test administrator';
   process.env.ADMIN_PASSWORD = 'ProductionTest!2026';
@@ -388,6 +500,9 @@ test('production rejects unsafe origins and HTTP, and trusts TLS forwarding only
     assert.throws(() => createApp({ dbPath: join(dir, 'test.sqlite'), seed: false }), /HTTPS origin/);
   }
   process.env.APP_ORIGIN = 'https://crm.example.test';
+  process.env.ENABLE_ACCEPTANCE = 'true';
+  assert.throws(() => createApp({ dbPath: join(dir, 'test.sqlite'), seed: false }), /separate synthetic deployment/);
+  process.env.ENABLE_ACCEPTANCE = 'false';
   for (const trusted of [false, true]) {
     process.env.TRUST_PROXY = String(trusted);
     const app = createApp({ dbPath: join(dir, 'test.sqlite'), seed: false });
@@ -410,6 +525,16 @@ test('production rejects unsafe origins and HTTP, and trusts TLS forwarding only
         assert.equal(login.status, 200);
         assert.match(login.headers.get('set-cookie'), /secure/i);
         assert.equal(login.headers.get('access-control-allow-origin'), process.env.APP_ORIGIN);
+        const session = await login.json();
+        const headers = { 'X-Forwarded-Proto': 'https', Origin: process.env.APP_ORIGIN, Cookie: login.headers.get('set-cookie').split(';')[0], 'X-CSRF-Token': session.csrfToken, 'Content-Type': 'application/json' };
+        const config = await fetch(base + '/api/config', { headers: { 'X-Forwarded-Proto': 'https', Origin: process.env.APP_ORIGIN } });
+        assert.deepEqual(await config.json(), { demoAccess: false, acceptanceEnabled: false });
+        const feedback = await fetch(base + '/api/records/evaluations', { method: 'POST', headers, body: '{}' });
+        assert.equal(feedback.status, 404);
+        const workspace = await fetch(base + '/api/workspace', { headers });
+        const result = await workspace.json();
+        assert.equal(result.capabilities.acceptanceEnabled, false);
+        assert.deepEqual(result.data.evaluations, []);
       }
     } finally {
       await new Promise(resolve => server.close(resolve));

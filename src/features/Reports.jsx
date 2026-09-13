@@ -1,6 +1,6 @@
 import { useId, useMemo, useState } from 'react';
 import { Download, Printer, FileBarChart2, Filter, Save, Trash2 } from 'lucide-react';
-import { download, fiscalYear, money, nameOf, postedGifts, reportRows, toCSV, today } from '../lib';
+import { download, effectiveSchoolYear,fiscalYear, money, nameOf, postedGifts, reportRows, toCSV, today } from '../lib';
 import { REPORTS, TYPES } from '../schema';
 import { pledgeSchedule, recognitionReport, volunteerTimeReport } from '../phaseTwo';
 import { grantReconciliation } from '../phaseThree';
@@ -21,7 +21,7 @@ export default function Reports({ data, settings, notify, onSaveView, onDeleteVi
   const giftReport = !['Volunteer hours', 'Grant pipeline', 'Donor follow-up', 'Pledge balances', 'Volunteer time ledger', 'Grant reconciliation'].includes(filters.report);
   const dateReport = giftReport || pledgeReport || timeReport || grantReport;
   const invalidRange = dateReport && !grantReport && filters.start && filters.end && filters.start > filters.end;
-  const years = useMemo(() => [...new Set([...data.gifts.map(g => fiscalYear(g.date, fiscalStartMonth)), ...(data.pledges || []).map(p => fiscalYear(p.startDate, fiscalStartMonth)), ...(data.volunteerTime || []).filter(t => t.startAt).map(t => fiscalYear(t.startAt.slice(0, 10), fiscalStartMonth)), fiscalYear(today(), fiscalStartMonth)])].sort().reverse(), [data, fiscalStartMonth]);
+  const years = useMemo(() => [...new Set([...data.gifts.map(g => effectiveSchoolYear(g, fiscalStartMonth)), ...(data.pledges || []).map(p => fiscalYear(p.startDate, fiscalStartMonth)), ...(data.volunteerTime || []).filter(t => t.startAt).map(t => fiscalYear(t.startAt.slice(0, 10), fiscalStartMonth)), fiscalYear(today(), fiscalStartMonth)])].sort().reverse(), [data, fiscalStartMonth]);
   const config = { ...filters, end: filters.end || '9999-12-31', fiscalStartMonth };
   const result = useMemo(() => {
     const config = { ...filters, end: filters.end || '9999-12-31', fiscalStartMonth };
@@ -41,7 +41,7 @@ export default function Reports({ data, settings, notify, onSaveView, onDeleteVi
     }
     return reportRows(data, config);
   }, [data, filters, fiscalStartMonth]);
-  const selected = giftReport && !invalidRange ? postedGifts(data.gifts).filter(g => (!filters.start || g.date >= filters.start) && (!filters.end || g.date <= filters.end) && (filters.type === 'All' || g.type === filters.type) && (!filters.excludeFees || g.type !== 'Fee payment') && (filters.schoolYear === 'All' || fiscalYear(g.date, fiscalStartMonth) === filters.schoolYear)) : [];
+  const selected = giftReport && !invalidRange ? postedGifts(data.gifts).filter(g => (!filters.start || g.date >= filters.start) && (!filters.end || g.date <= filters.end) && (filters.type === 'All' || g.type === filters.type) && (!filters.excludeFees || g.type !== 'Fee payment') && (filters.schoolYear === 'All' || effectiveSchoolYear(g, fiscalStartMonth) === filters.schoolYear)) : [];
   const cash = selected.filter(g => g.type !== 'In-kind').reduce((sum, g) => sum + g.amount, 0);
   const noncash = selected.filter(g => g.type === 'In-kind').reduce((sum, g) => sum + g.amount, 0);
   const change = (key, value) => { setFilters(previous => ({ ...previous, ...(key === 'report' && value === 'Grant reconciliation' ? { start: '', type: 'All', schoolYear: 'All', excludeFees: true } : {}), [key]: value })); setViewId(''); setViewError(''); };
@@ -116,7 +116,7 @@ export default function Reports({ data, settings, notify, onSaveView, onDeleteVi
     <div className="panel">
       <div className="toolbar"><h2 className="section-title"><FileBarChart2 size={18} aria-hidden="true" /> {filters.report}</h2><span className="badge" role="status">{invalidRange ? 0 : result.rows.length} {result.rows.length === 1 ? 'row' : 'rows'}</span></div>
       {!invalidRange && result.rows.length ? <div className="table-wrap"><table>
-        <caption className="subtle">{settings?.organizationName || 'Foundation'} · {filters.report}{grantReport ? ` · Receipts through ${filters.end || today()}` : dateReport && (config.start || filters.end) ? ` · ${config.start || 'Beginning of history'} to ${filters.end || 'Latest activity'}` : ''}</caption>
+        <caption className="subtle">{settings?.organizationName || 'Wimblo'} · {filters.report}{grantReport ? ` · Receipts through ${filters.end || today()}` : dateReport && (config.start || filters.end) ? ` · ${config.start || 'Beginning of history'} to ${filters.end || 'Latest activity'}` : ''}</caption>
         <thead><tr>{result.headers.map(header => <th key={header} scope="col" className={/monetary|value|commitment|received|balance|overdue|requested|receipts|^recorded award$/i.test(header) ? 'money' : undefined}>{header}</th>)}</tr></thead>
         <tbody>{result.rows.map((row, index) => <tr key={index}>{row.map((cell, column) => <td key={column} className={String(cell).startsWith('$') ? 'money' : undefined}>{cell ?? '—'}</td>)}</tr>)}</tbody>
       </table></div> : <div className="empty-state"><FileBarChart2 size={28} aria-hidden="true" /><h3>{invalidRange ? 'Correct the date range' : 'No matching activity'}</h3><p className="subtle">{invalidRange ? 'Adjust the report filters to view results.' : 'Choose another report or widen the filters to see more records.'}</p></div>}

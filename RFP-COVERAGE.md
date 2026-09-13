@@ -1,6 +1,6 @@
 # RFP workflow coverage and remaining gaps
 
-This document maps Kinflect, Kode Kinetics' local synthetic evaluator pilot tailored to Jordan Education Foundation, to Jordan School District RFP 27TH05P5. The name does not imply district endorsement. RFP instructions are procurement requirements to analyze; this document is not a bid submission or a statement that those requirements have been satisfied.
+This document maps Wimblo, Kode Kinetics' local synthetic evaluator pilot tailored to Jordan Education Foundation, to Jordan School District RFP 27TH05P5. The name does not imply district endorsement. RFP instructions are procurement requirements to analyze; this document is not a bid submission or a statement that those requirements have been satisfied.
 
 “Demonstrated” below means a local workflow using synthetic data and the pilot's application/database. It does not mean production certification, buyer acceptance, a live external integration, or full parity with every scored criterion.
 
@@ -48,3 +48,7 @@ Operations links recorded tasks, grant dates, pledge due balances and eligible a
 September 13, 2026: the exact 31-page base RFP was reopened and compared with release0.4.0 source and evidence. The 84-criterion matrix in RFP-Alignment-Review-0.4.0.md distinguishes local, partial, missing and delivery-evidence coverage. It prioritizes required functionality and conversion ahead of optional visual/advanced additions. In particular, minimum 4–6-user acceptance, many-designation scale, multiple-location subaccounts, native Excel/report PDF, constituent role/household management and sponsorship/event attribution remain explicit gaps rather than being inferred from fields or generic reports.
 
 RFP p.10 excludes ZIP/embedded-file proposal uploads. The client source ZIP is a local evaluation handover only, not a compliant proposal attachment. Localhost is not externally reachable; external evaluation delivery must be established separately. This fresh review did not modify runtime or repeat unchanged tests and did not certify the final live portal notice set.
+
+## Security remediation and requirement review — 0.4.2
+
+Reviewed Attachment E including its Utah supplement and Addendum 2 in depth. RFP-SECURITY-COMPLIANCE.md maps security/privacy clauses, data, subprocessors, response windows and launch evidence. Account suspension/versioned role changes now revoke sessions, enforce an active/role allowlist and protect the final administrator. Standard production blocks acceptance-feedback routes and hides testing UI. 93 automated checks pass; build passes. These close particular local gaps, not C6–C8 as a whole: MFA, finer read/export scope, durable hosted recovery, encryption/assurance, privacy operations and signed approvals remain pending.

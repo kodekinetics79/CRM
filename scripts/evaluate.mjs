@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
-const fail=message=>{console.error('Kinflect evaluator: '+message);process.exit(1);};
+const fail=message=>{console.error('Wimblo evaluator: '+message);process.exit(1);};
 if(Number(process.versions.node.split('.')[0])<24)fail('Node.js 24 or newer is required. Install it, then try again.');
 if(!existsSync(resolve(root,'dist/index.html')))fail('The built app is missing. Run npm run build first, then npm run evaluate.');
 if(process.env.NODE_ENV==='production')fail('This local demo cannot run with NODE_ENV=production. Unset NODE_ENV and try again.');

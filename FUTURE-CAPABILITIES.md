@@ -1,6 +1,6 @@
 # Future capabilities and acceptance roadmap
 
-This is the remaining product roadmap beyond Kinflect's current local synthetic evaluator pilot. The tailored Jordan Education Foundation workspace is not an official district product or endorsement. Stages describe a useful implementation order, not delivery dates, commitments or certification claims. Future capabilities should enter the interface only when they work; the pilot should not display inactive buttons implying these services exist.
+This is the remaining product roadmap beyond Wimblo's current local synthetic evaluator pilot. Wimblo is the sole product identity; procurement documents remain requirements sources. Stages describe a useful implementation order, not delivery dates, commitments or certification claims. Future capabilities should enter the interface only when they work; the pilot should not display inactive buttons implying these services exist.
 
 ## Delivered in the local pilot
 
@@ -66,3 +66,8 @@ The roadmap does not satisfy procurement eligibility: the required relevant expe
 ## Current expansion delivery
 
 Release0.4.0 delivers Operations source-record work queues, staff-managed volunteer shift reservations/capacity/waitlists/cancellation/conflict checks, exact shared-email identity review and administrator-run read-only local workspace checks. These are working local capabilities, not external connectivity. CTO-PROJECT-PLAN.md defines subsequent migration, provider, public participation and institutional production gates.
+
+
+## Intelligence expansion
+
+[AI-STRATEGY.md](./AI-STRATEGY.md) defines the proposed layers: explainable application rules, permission-filtered Ollama assistance and reviewed action proposals. Existing rule-based queues are delivered; Ollama integration and model-backed assistance remain unimplemented. Start with synthetic-data contextual help, record summaries and editable drafts; institutionally restricted data requires complete read-scope controls and approved processing terms/residency.

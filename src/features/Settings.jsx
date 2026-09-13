@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import WorkspaceChecks from '../components/WorkspaceChecks';
 import { Download, Plus, Settings2, Shield, Users, X } from 'lucide-react';
 import { dateLabel, download, today } from '../lib.js';
@@ -6,7 +6,7 @@ import { dateLabel, download, today } from '../lib.js';
 const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const blankUser = () => ({ name: '', email: '', password: '', role: 'staff' });
 
-export default function Settings({ settings, audit = [], onSave, api, notify, user }) {
+export default function Settings({ settings, audit = [], onSave, onAccessChanged, api, notify, user }) {
   const [draft, setDraft] = useState({ organizationName: settings?.organizationName || '', fiscalStartMonth: settings?.fiscalStartMonth || 7 });
   const [users, setUsers] = useState([]);
   const [usersLoading, setUsersLoading] = useState(true);
@@ -16,6 +16,11 @@ export default function Settings({ settings, audit = [], onSave, api, notify, us
   const [error, setError] = useState('');
   const [usersError, setUsersError] = useState('');
   const [success, setSuccess] = useState('');
+  const [accessDraft, setAccessDraft] = useState(null);
+  const accessField = useRef(null);
+  const accessTrigger = useRef(null);
+  useEffect(() => { if (accessDraft) accessField.current?.focus(); }, [accessDraft?.id]);
+  const closeAccess = () => { setAccessDraft(null); accessTrigger.current?.focus(); };
 
   useEffect(() => { setDraft({ organizationName: settings?.organizationName || '', fiscalStartMonth: settings?.fiscalStartMonth || 7 }); }, [settings?.organizationName, settings?.fiscalStartMonth]);
   useEffect(() => {
@@ -48,6 +53,19 @@ export default function Settings({ settings, audit = [], onSave, api, notify, us
     catch (err) { setError(err.message || 'Unable to export snapshot.'); }
     finally { setBusy(''); }
   }
+  async function saveAccess(event) {
+    event.preventDefault(); setBusy('access'); setError(''); setSuccess('');
+    try {
+      const result = await api(`/users/${accessDraft.id}`, { method: 'PATCH', body: { version: accessDraft.version, role: accessDraft.role, active: accessDraft.active } });
+      setUsers(current => current.map(account => account.id === result.user.id ? result.user : account));
+      closeAccess(); announce('Access saved. Changed accounts must sign in again.');
+      if (result.user.id === user.id) await api('/auth/me');
+      else await onAccessChanged?.();
+    } catch (err) {
+      setError(err.message || 'Unable to update access.');
+      try { const result = await api('/users'); setUsers(result.users); setAccessDraft(null); } catch { /* Authentication expiry is handled by the application. */ }
+    } finally { setBusy(''); }
+  }
 
   if (user?.role !== 'admin') return <section className="panel"><h2 className="section-title">Administrator access required</h2><p className="subtle">Workspace administration is available to administrators.</p></section>;
 
@@ -69,7 +87,16 @@ export default function Settings({ settings, audit = [], onSave, api, notify, us
 
     <section className="panel">
       <div className="toolbar"><h2 className="section-title"><Users size={18} aria-hidden="true" /> People with access</h2><button className="btn btn-secondary" type="button" aria-expanded={editingUser} aria-controls="create-user-form" disabled={!!busy} onClick={() => { setEditingUser(!editingUser); setError(''); }}>{editingUser ? <X size={16} aria-hidden="true" /> : <Plus size={16} aria-hidden="true" />}{editingUser ? 'Close form' : 'Add user'}</button></div>
-      <p className="subtle">Administrators manage settings and users. Staff can edit records. Viewers have read-only access.</p>
+      <p className="subtle">Administrators manage settings and users. Staff can edit records. Viewers can read workspace records. Use Manage access to change a role or suspend an account; changes end its existing sessions.</p>
+      {accessDraft && <form className="inline-editor" onSubmit={saveAccess} aria-labelledby="access-editor-title">
+        <h3 id="access-editor-title">Manage access · {accessDraft.name}</h3>
+        <div className="form-grid">
+          <label className="field">New access role<select ref={accessField} value={accessDraft.role} disabled={!!busy} onChange={event => setAccessDraft(current => ({ ...current, role: event.target.value }))}><option value="viewer">Viewer · read workspace records</option><option value="staff">Staff · edit records</option><option value="admin">Administrator · manage workspace and accounts</option></select></label>
+          <label className="field">Account status<select value={accessDraft.active ? 'active' : 'suspended'} disabled={!!busy} onChange={event => setAccessDraft(current => ({ ...current, active: event.target.value === 'active' }))}><option value="active">Active · can sign in</option><option value="suspended">Suspended · sign-in blocked</option></select></label>
+        </div>
+        <p className="subtle">Saving a change signs this person out on every device. Suspending preserves their records and activity history. At least one active administrator must remain.</p>
+        <div className="form-actions"><button className="btn btn-primary" type="submit" disabled={!!busy}>{busy === 'access' ? 'Saving…' : 'Save access change'}</button><button className="btn btn-secondary" type="button" disabled={!!busy} onClick={closeAccess}>Cancel access change</button></div>
+      </form>}
       {editingUser && <form id="create-user-form" className="inline-editor" onSubmit={createUser}>
         <h3>Create user</h3>
         <div className="form-grid">
@@ -81,7 +108,7 @@ export default function Settings({ settings, audit = [], onSave, api, notify, us
         <div className="form-actions"><button className="btn btn-primary" disabled={!!busy} type="submit">{busy === 'user' ? 'Creating…' : 'Create user'}</button><button className="btn btn-secondary" type="button" disabled={!!busy} onClick={() => { setEditingUser(false); setNewUser(blankUser()); }}>Cancel</button></div>
       </form>}
       {usersError && <div className="error-banner" role="alert">{usersError}</div>}
-      {usersLoading ? <p className="subtle" role="status">Loading users…</p> : <div className="table-wrap"><table><caption className="subtle" style={{ textAlign: 'left', paddingBottom: 12 }}>Workspace accounts · {users.length}</caption><thead><tr><th scope="col">Name</th><th scope="col">Email</th><th scope="col">Role</th></tr></thead><tbody>{users.map(account => <tr key={account.id}><td>{account.name}{account.id === user.id && <span className="subtle"> · You</span>}</td><td>{account.email}</td><td><span className="badge">{account.role === 'admin' ? 'Administrator' : account.role === 'staff' ? 'Staff' : 'Viewer'}</span></td></tr>)}</tbody></table></div>}
+      {usersLoading ? <p className="subtle" role="status">Loading users…</p> : <div className="table-wrap"><table><caption className="subtle" style={{ textAlign: 'left', paddingBottom: 12 }}>Workspace accounts · {users.length}</caption><thead><tr><th scope="col">Name</th><th scope="col">Email</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col">Access</th></tr></thead><tbody>{users.map(account => <tr key={account.id}><td>{account.name}{account.id === user.id && <span className="subtle"> · You</span>}</td><td>{account.email}</td><td><span className="badge">{account.role === 'admin' ? 'Administrator' : account.role === 'staff' ? 'Staff' : 'Viewer'}</span></td><td>{account.active ? 'Active' : 'Suspended'}</td><td><button className="btn btn-secondary" type="button" disabled={!!busy} aria-label={`Manage access for ${account.name}`} onClick={event => { accessTrigger.current = event.currentTarget; setAccessDraft({ ...account }); setError(''); }}>Manage access</button></td></tr>)}</tbody></table></div>}
     </section>
 
     <section className="panel">

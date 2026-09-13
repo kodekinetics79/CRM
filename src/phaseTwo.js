@@ -1,10 +1,10 @@
-import { fiscalYear, money, nameOf, today } from './lib.js';
+import { effectiveSchoolYear,fiscalYear, money, nameOf, today } from './lib.js';
 
 const monetary = gift => !['In-kind', 'Fee payment'].includes(gift.type);
 const posted = gift => gift.status !== 'Voided';
 function selectedGifts(data, config = {}) {
   const { start = '', end = '9999-12-31', type = 'All', schoolYear = 'All', excludeFees = true, fiscalStartMonth = 7 } = config;
-  return (data.gifts || []).filter(gift => posted(gift) && gift.date >= start && gift.date <= (end || '9999-12-31') && (type === 'All' || gift.type === type) && (!excludeFees || gift.type !== 'Fee payment') && (schoolYear === 'All' || fiscalYear(gift.date, fiscalStartMonth) === schoolYear));
+  return (data.gifts || []).filter(gift => posted(gift) && gift.date >= start && gift.date <= (end || '9999-12-31') && (type === 'All' || gift.type === type) && (!excludeFees || gift.type !== 'Fee payment') && (schoolYear === 'All' || effectiveSchoolYear(gift, fiscalStartMonth) === schoolYear));
 }
 
 // Each installment uses the original day, so a January 31 pledge returns to March 31.

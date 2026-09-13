@@ -15,11 +15,19 @@ export function fiscalYear(date, startMonth = 7) {
   const start = m >= startMonth ? y : y - 1;
   return `${start}–${start + 1}`;
 }
+export function effectiveSchoolYear(gift, startMonth = 7) {
+  const override = gift.schoolYearOverride;
+  if (typeof override === 'string' && /^\d{4}(?:[–-]\d{4})?$/.test(override)) {
+    const start = Number(override.slice(0, 4));
+    return startMonth === 1 ? String(start).padStart(4, '0') : `${String(start).padStart(4, '0')}–${String(start + 1).padStart(4, '0')}`;
+  }
+  return fiscalYear(gift.date, startMonth);
+}
 export const postedGifts = gifts => gifts.filter(g => g.status !== 'Voided');
 export const contributedGifts = gifts => postedGifts(gifts).filter(g => !['Fee payment', 'In-kind'].includes(g.type));
 export const sum = (rows, key = 'amount') => rows.reduce((n, row) => n + (Number(row[key]) || 0), 0);
 export const byId = (data, collection, id) => data[collection]?.find(r => r.id === id);
-export const nameOf = (data, collection, id) => byId(data, collection, id)?.name || (id ? 'Unavailable record' : '—');
+export const nameOf = (data, collection, id) => (byId(data, collection, id)||(collection==='constituents'?data.retainedConstituents?.find(r=>r.id===id):null))?.name || (id ? 'Unavailable record' : '—');
 export const match = (row, query) => !query || JSON.stringify(row).toLocaleLowerCase().includes(query.trim().toLocaleLowerCase());
 export function designationPath(data, id) {
   const names = []; const seen = new Set(); let record = byId(data, 'designations', id);
@@ -67,7 +75,7 @@ export function parseCSV(text) {
 export function reportRows(data, config) {
   const { start = '', end = '9999-12-31', type = 'All', schoolYear = 'All', report = 'Contributions by donor', excludeFees = true, inactiveDays = 90, fiscalStartMonth = 7 } = config;
   const allPosted = postedGifts(data.gifts);
-  const gifts = allPosted.filter(g => g.date >= start && g.date <= end && (type === 'All' || g.type === type) && (!excludeFees || g.type !== 'Fee payment') && (schoolYear === 'All' || fiscalYear(g.date, fiscalStartMonth) === schoolYear));
+  const gifts = allPosted.filter(g => g.date >= start && g.date <= end && (type === 'All' || g.type === type) && (!excludeFees || g.type !== 'Fee payment') && (schoolYear === 'All' || effectiveSchoolYear(g, fiscalStartMonth) === schoolYear));
   if (report === 'Gifts by designation') {
     const grouped = new Map();
     for (const gift of gifts) for (const a of gift.allocations) {
@@ -77,7 +85,7 @@ export function reportRows(data, config) {
     }
     return { headers: ['Designation', 'Revenue type', 'Gifts', 'Value'], rows: [...grouped.values()].sort((a,b) => b.amount-a.amount).map(r => [r.designation, r.type, r.count, money(r.amount)]) };
   }
-  if (report === 'Gift ledger') return { headers: ['Date', 'Donor', 'Revenue type', 'School year', 'Designation', 'Value'], rows: gifts.sort((a,b) => b.date.localeCompare(a.date)).map(g => [g.date,nameOf(data,'constituents',g.constituentId),g.type,fiscalYear(g.date,fiscalStartMonth),g.allocations.map(a => `${designationPath(data,a.designationId)} (${money(a.amount)})`).join('; '),money(g.amount)]) };
+  if (report === 'Gift ledger') return { headers: ['Date', 'Donor', 'Revenue type', 'School year', 'Designation', 'Value'], rows: gifts.sort((a,b) => b.date.localeCompare(a.date)).map(g => [g.date,nameOf(data,'constituents',g.constituentId),g.type,effectiveSchoolYear(g,fiscalStartMonth),g.allocations.map(a => `${designationPath(data,a.designationId)} (${money(a.amount)})`).join('; '),money(g.amount)]) };
   if (report === 'Volunteer hours') return { headers: ['Volunteer', 'Skills', 'Shift', 'Hours'], rows: data.volunteers.map(v => [nameOf(data,'constituents',v.constituentId),v.skills,v.shift,Number(v.hours || 0).toFixed(2)]) };
   if (report === 'Grant pipeline') return { headers: ['Grant', 'Stage', 'Funder', 'Deadline', 'Report due', 'Requested amount'], rows: data.grants.map(g => [g.name,g.stage,nameOf(data,'constituents',g.funderId),g.deadline,g.reportDue || '—',money(g.amount)]) };
   const grouped = data.constituents.map(c => {
