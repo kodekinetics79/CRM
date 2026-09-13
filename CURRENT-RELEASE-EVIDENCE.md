@@ -1,3 +1,5 @@
+> Latest peer-fundraising pass: **678/678 tests pass** (35.60s), build passes (1.26s). Reviewed ownership/goals, exact existing-gift attribution, reasoned unlink/retirement, private reports, transactional source/merge guards and recovery are verified. The corrected uninterrupted built journey and ranked mobile register passed. See [PEER-FUNDRAISING-RELEASE.md](PEER-FUNDRAISING-RELEASE.md). A2.6 is Partial; public pages, payments, production operations and buyer acceptance remain open. Current inventory: 46 local basic / 27 partial / 8 missing / 3 external evidence. Earlier checkpoints below are historical.
+
 > Latest communications-workflow pass: **644/644 tests pass** (29.93s), build passes (1.24s). Prospective reviewed audience-entry draft production, full saved-record verification, durable retry/duplicate protection, retained source-aware UI/reporting and restore-boundary suppression are verified. Synthetic activation→new entry→one draft→retirement and mobile journeys passed. See [COMMUNICATION-WORKFLOWS-RELEASE.md](COMMUNICATION-WORKFLOWS-RELEASE.md). A7.3 is Partial; no provider sending or buyer acceptance is claimed. Current inventory:46 local basic /26 partial /9 missing /3 external evidence. Earlier checkpoints below are historical.
 
 > Latest contract-conversion pass: **612/612 tests pass** (28.30s), build passes (1.26s). Signed exact original revision import/replay, immutable custody/lineage, administrator-only reports and encrypted recovery are verified. Synthetic browser save/replay and mobile journeys passed. See [CONTRACT-REVISION-CONVERSION.md](CONTRACT-REVISION-CONVERSION.md). C2 is Partial; actual exports and buyer acceptance remain open. Current inventory:46 local basic /25 partial /10 missing /3 external evidence. Earlier checkpoints below are historical.
@@ -28,8 +30,8 @@ September 13, 2026. Kode Kinetics LLC. This is a local implementation and review
 | Classification | Supplied baseline | Current reviewed source |
 |---|---:|---:|
 | Implemented locally | 25 | 46 |
-| Partial | 39 | 26 |
-| Missing | 17 | 9 |
+| Partial | 39 | 27 |
+| Missing | 17 | 8 |
 | External evidence required | 3 | 3 |
 | Total | 84 | 84 |
 

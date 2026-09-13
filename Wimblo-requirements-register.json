@@ -177,11 +177,11 @@
     "capability": "Peer-to-peer fundraising",
     "points": 40,
     "sourcePages": "15 / 23",
-    "basicLocalDisposition": "Missing",
+    "basicLocalDisposition": "Partial",
     "evidenceModules": "F",
-    "currentBehaviorAndGap": "Peer-to-peer is only a campaign type; fundraiser ownership/public pages and attribution are missing.",
-    "acceptanceToClose": "Public fundraiser donation credits the correct campaign/person once, with cancellation/refund history.",
-    "reviewedAgainst": "Final RFP; supplied addenda; source baseline 94c8498 plus bounded September 13 Staff/dashboard/schedule corrections",
+    "currentBehaviorAndGap": "Internal peer fundraiser ownership, separate aspiration goals and reasoned attribution of existing same-campaign Posted One-time Cash gifts now exist. Donor, soft credit, issued receipts and native income remain unchanged. Versioned terminal unlink/retire, current authority, private-history scope, native financial/identity guards, administrator-only reports and encrypted new-path recovery are locally tested. Public fundraiser pages, team operations and checkout are broader product targets not implemented by this slice, not additional literal A2.6 clauses.",
+    "acceptanceToClose": "Provide the requested peer-to-peer narrative (final RFP p15) and demonstrate the offered workflow (Attachment G p3); buyer accepts fundraiser/donor distinction, eligible existing gifts, once-only totals, private history, correction/unlink/retire and void semantics. Agree the offered broader public/team/payment scope and demonstrate it if promised. No provider refund or buyer acceptance is claimed.",
+    "reviewedAgainst": "Final RFP p15/scoring p23 and Attachment G p3; bounded September 13 internal peer ownership/existing-gift attribution source and focused integrity/recovery verification",
     "acceptedByBuyer": false,
     "workstreams": [
       "Hosted giving and external compatibility"

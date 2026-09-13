@@ -20,7 +20,7 @@ const fields={
 const editable=(collection,r)=>Object.fromEntries((fields[collection]||[]).filter(k=>Object.hasOwn(r,k)).map(k=>[k,r[k]]));
 const digest=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
-export function installIdentityRoutes(app,{db,list,get,put,validate,audit,csrf,admin,transaction,collections}) {
+export function installIdentityRoutes(app,{db,list,get,put,validate,audit,csrf,admin,transaction,collections,hasProtectedConstituentHistory=()=>false}) {
  db.exec(`CREATE TABLE IF NOT EXISTS identity_aliases(source_id TEXT PRIMARY KEY,target_id TEXT NOT NULL,source_snapshot TEXT NOT NULL,reason TEXT NOT NULL,actor TEXT NOT NULL,at TEXT NOT NULL);
  CREATE TRIGGER IF NOT EXISTS identity_alias_no_update BEFORE UPDATE ON identity_aliases BEGIN SELECT RAISE(ABORT,'Identity merge history is immutable'); END;
  CREATE TRIGGER IF NOT EXISTS identity_alias_no_delete BEFORE DELETE ON identity_aliases BEGIN SELECT RAISE(ABORT,'Identity merge history is retained'); END;
@@ -52,6 +52,7 @@ export function installIdentityRoutes(app,{db,list,get,put,validate,audit,csrf,a
  app.delete('/api/households/:id',csrf,admin,(req,res)=>{findHousehold(req.params.id);fail(403,'Households are retained; remove memberships through a versioned household update');});
  app.get('/api/identity/aliases',admin,(req,res)=>res.json({aliases:db.prepare('SELECT source_id AS sourceId,target_id AS targetId,reason,actor,at FROM identity_aliases ORDER BY at').all()}));
  function plan(p){
+  if(hasProtectedConstituentHistory(p.sourceId))fail(409,'This source identity has retained protected fundraising history; historical consolidation requires a reviewed alias workflow');
   if(p.targetId===p.sourceId)fail(400,'Choose two different constituents');const target=active(p.targetId),source=active(p.sourceId);version(target,p.targetVersion);version(source,p.sourceVersion);
   const all=Object.fromEntries(collections.map(c=>[c,list(c)])),blockers=[],changes=[];
   const block=(collection,recordId,reason)=>blockers.push({collection,recordId,reason});
@@ -107,6 +108,7 @@ export function installIdentityRoutes(app,{db,list,get,put,validate,audit,csrf,a
    db.prepare('INSERT INTO identity_aliases VALUES(?,?,?,?,?,?)').run(p.sourceId,p.targetId,JSON.stringify(preview.source),p.reason,req.user.id,at);
    if(preview.householdId){db.prepare('DELETE FROM household_members WHERE constituent_id=?').run(p.sourceId);if(!membership(p.targetId))db.prepare('INSERT INTO household_members VALUES(?,?)').run(preview.householdId,p.targetId);db.prepare('UPDATE households SET version=version+1,updated_at=? WHERE id=?').run(at,preview.householdId);audit(req.user,'merge_household_member',null,preview.householdId,{sourceId:p.sourceId,targetId:p.targetId,reason:p.reason});}
    audit(req.user,'merge_identity','constituents',p.targetId,{sourceId:p.sourceId,targetId:p.targetId,reason:p.reason,previewDigest,rewired:preview.changes.map(c=>({collection:c.collection,recordId:c.recordId})),policy:'Keep target name and contact choices; fill empty email/phone; union contacts/segments; preserve Do not contact; retain original source snapshot'});
+   if(hasProtectedConstituentHistory(p.sourceId))fail(409,'Protected fundraising identity history changed before merge commit');
    return {target:get('constituents',p.targetId),source:get('constituents',p.sourceId),rewired:preview.changes.length-1};});res.json(result);
  });
  // These guards run before generic mutations and dedicated identity-reference routes.
