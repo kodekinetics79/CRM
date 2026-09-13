@@ -4,6 +4,7 @@ import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {once} from 'node:events';
+import {randomUUID} from 'node:crypto';
 import {createApp} from '../server/app.js';
 
 const HOUR=3600000;
@@ -99,7 +100,62 @@ test('retained administrator document reports cannot bypass live document visibi
  const doc=await f.request('/api/documents',{method:'POST',session:f.admin,body:{collection:'constituents',recordId:f.donor.id,title:'Restricted board evidence',category:'Agreement',visibility:'Administrators',status:'Draft',evidenceDate:null,filename:'restricted.txt',contentBase64:Buffer.from('Fictional restricted evidence').toString('base64')}});assert.equal(doc.status,201,JSON.stringify(doc.json));
  const report=await f.request('/api/custom-reports',{method:'POST',session:f.admin,body:{name:'Private document names',entity:'documents',columns:['title']}});assert.equal(report.status,201,JSON.stringify(report.json));
  const schedule=await f.schedule(f.admin,{reportId:report.json.report.id});f.app.locals.runDueReports(f.first);const metadata=(await f.deliveries()).find(x=>x.scheduleId===schedule.id);assert.ok(metadata);
+ const retirement=await f.request(`/api/report-schedules/${schedule.id}`,{method:'PATCH',session:f.admin,body:{version:2,status:'Retired',reason:'Board report replaced'}});assert.equal(retirement.status,200);assert.equal(retirement.json.schedule.status,'Retired');
  const retained=await f.delivery(metadata.id);assert.equal(retained.result.requiredRole,'admin');assert.deepEqual(retained.result.rows,[['Restricted board evidence']]);
  for(const session of [f.staff,f.viewer]){const denied=await f.request(`/api/report-deliveries/${metadata.id}`,{session});assert.equal(denied.status,403);assert.ok(!JSON.stringify(denied.json).includes('Restricted board evidence'));const live=await f.request(`/api/custom-reports/${report.json.report.id}/run`,{session});assert.equal(live.status,200);assert.deepEqual(live.json.rows,[]);}
  await f.restart();assert.equal((await f.request(`/api/report-deliveries/${metadata.id}`,{session:f.viewer})).status,403);assert.deepEqual((await f.delivery(metadata.id)).result.rows,[['Restricted board evidence']]);
+});
+
+test('retirement releases capacity at the 100 active-or-paused limit without removing retained schedules',async t=>{
+ const f=await fixture(t),s=await f.schedule();
+ for(let i=0;i<99;i++)await f.schedule(f.staff,{name:`Capacity schedule ${i}`,startAt:new Date(f.first+2*HOUR).toISOString()});
+ const pause=await f.request(`/api/report-schedules/${s.id}`,{method:'PATCH',session:f.staff,body:{version:1,status:'Paused'}});assert.equal(pause.status,200);
+ const createBody={reportId:f.report.id,name:'Replacement schedule',cadence:'Hourly',startAt:new Date(f.first+2*HOUR).toISOString()};
+ const full=await f.request('/api/report-schedules',{method:'POST',session:f.staff,body:createBody});assert.equal(full.status,409);assert.match(full.json.error,/Retire/);assert.equal(f.db.prepare('SELECT count(*) n FROM report_schedules').get().n,100);
+ const retire=await f.request(`/api/report-schedules/${s.id}`,{method:'PATCH',session:f.staff,body:{version:2,status:'Retired',reason:'  Replace the obsolete delivery schedule  '}});assert.equal(retire.status,200);assert.equal(retire.json.schedule.version,3);
+ assert.equal((await f.request('/api/report-schedules',{method:'POST',session:f.staff,body:createBody})).status,201);assert.equal(f.db.prepare('SELECT count(*) n FROM report_schedules').get().n,101);assert.equal(f.db.prepare("SELECT count(*) n FROM report_schedules WHERE status IN ('Active','Paused')").get().n,100);
+ assert.equal((await f.request('/api/report-schedules',{method:'POST',session:f.staff,body:createBody})).status,409);
+ const listed=(await f.request('/api/report-schedules',{session:f.staff})).json.schedules;assert.equal(listed.find(x=>x.id===s.id).status,'Retired');assert.deepEqual(f.app.locals.runDueReports(f.first),{produced:0,failed:0});
+ const audit=f.db.prepare("SELECT details FROM audit WHERE action='retire_report_schedule' AND record_id=?").all(s.id);assert.equal(audit.length,1);assert.deepEqual(JSON.parse(audit[0].details),{previousStatus:'Paused',status:'Retired',reason:'Replace the obsolete delivery schedule'});
+});
+
+test('bounded schedule list keeps current controls visible ahead of accumulated retired history',async t=>{
+ const f=await fixture(t),s=await f.schedule();
+ // Accumulated durable history exceeds the existing 200-record response bound.
+ const old=new Date(f.first-365*86400000).toISOString(),at=new Date().toISOString(),insert=f.db.prepare('INSERT INTO report_schedules VALUES(?,?,?,?,?,?,?,?,?,?)');
+ for(let i=0;i<201;i++)insert.run(randomUUID(),f.report.id,`Historical retired schedule ${i}`,f.staff.user.id,'Hourly',old,'Retired',2,old,at);
+ const list=(await f.request('/api/report-schedules',{session:f.staff})).json.schedules;assert.equal(list.length,200);assert.equal(list[0].id,s.id);assert.equal(list[0].status,'Active');assert.equal(list.filter(x=>x.status==='Retired').length,199);assert.equal(f.db.prepare('SELECT count(*) n FROM report_schedules').get().n,202);
+});
+
+test('retirement is irreversible, never runs again and retains immutable delivery history across restart',async t=>{
+ const f=await fixture(t),s=await f.schedule();assert.deepEqual(f.app.locals.runDueReports(f.first),{produced:1,failed:0});const original=await f.delivery((await f.deliveries())[0].id,f.viewer);
+ const retire=await f.request(`/api/report-schedules/${s.id}`,{method:'PATCH',session:f.staff,body:{version:2,status:'Retired',reason:'Reporting period concluded'}});assert.equal(retire.status,200);assert.equal(retire.json.schedule.status,'Retired');assert.equal(retire.json.schedule.version,3);
+ for(const body of [{version:3,status:'Active'},{version:3,status:'Paused'},{version:3,status:'Retired',reason:'Attempted edit'},{version:2,status:'Active'}]){const r=await f.request(`/api/report-schedules/${s.id}`,{method:'PATCH',session:f.admin,body});assert.equal(r.status,409);assert.match(r.json.error,/Create a new schedule/);}
+ assert.deepEqual(f.app.locals.runDueReports(f.first+4*HOUR),{produced:0,failed:0});assert.equal((await f.deliveries()).length,1);assert.deepEqual(await f.delivery(original.id,f.viewer),original);
+ assert.throws(()=>f.db.prepare('DELETE FROM report_deliveries WHERE id=?').run(original.id),/retained/);assert.equal((await f.request(`/api/report-schedules/${s.id}`,{method:'DELETE',session:f.admin})).status,404);assert.equal(f.db.prepare('SELECT status FROM report_schedules WHERE id=?').get(s.id).status,'Retired');
+ await f.restart();assert.equal((await f.request('/api/report-schedules',{session:f.staff})).json.schedules.find(x=>x.id===s.id).status,'Retired');assert.deepEqual(f.app.locals.runDueReports(f.first+5*HOUR),{produced:0,failed:0});assert.deepEqual(await f.delivery(original.id,f.viewer),original);assert.equal(f.db.prepare("SELECT count(*) n FROM audit WHERE action='retire_report_schedule'").get().n,1);
+});
+
+test('retirement requires strict reason/version, owner or admin, writable role and valid CSRF',async t=>{
+ const f=await fixture(t),s=await f.schedule(f.admin),path=`/api/report-schedules/${s.id}`,body={version:1,status:'Retired',reason:'No longer used'};
+ for(const [options,status] of [[{body},401],[{body,session:f.staff},403],[{body,session:f.viewer},403],[{body,session:f.admin,csrf:false},403],[{body,session:f.admin,csrf:'wrong'},403],[{body:{version:1,status:'Retired'},session:f.admin},400],[{body:{...body,reason:'   '},session:f.admin},400],[{body:{...body,reason:'x'.repeat(501)},session:f.admin},400],[{body:{status:'Retired',reason:'Missing version'},session:f.admin},400],[{body:{...body,ownerId:f.staff.user.id},session:f.admin},400],[{body:{...body,status:'Paused'},session:f.admin},400]])assert.equal((await f.request(path,{method:'PATCH',...options})).status,status);
+ assert.equal(f.db.prepare('SELECT version FROM report_schedules WHERE id=?').get(s.id).version,1);assert.equal(f.db.prepare("SELECT count(*) n FROM audit WHERE action='retire_report_schedule'").get().n,0);
+ assert.equal((await f.request(path,{method:'PATCH',session:f.admin,body:{version:1,status:'Paused'}})).status,200);assert.equal((await f.request(path,{method:'PATCH',session:f.admin,body})).status,409);assert.equal((await f.request(path,{method:'PATCH',session:f.admin,body:{...body,version:2}})).status,200);
+ const own=await f.schedule(f.staff);assert.equal((await f.request(`/api/report-schedules/${own.id}`,{method:'PATCH',session:f.admin,body:{...body,reason:'Administrator-approved replacement'}})).status,200);
+});
+
+test('retirement and retained deliveries still enforce current report access after its source becomes administrator-only',async t=>{
+ const f=await fixture(t),s=await f.schedule();f.app.locals.runDueReports(f.first);const original=(await f.deliveries())[0];
+ const change=await f.request(`/api/custom-reports/${f.report.id}`,{method:'PATCH',session:f.admin,body:{name:'Privileged user report',entity:'workspaceUsers',columns:['name'],version:1}});assert.equal(change.status,200,JSON.stringify(change.json));
+ const before=f.db.prepare('SELECT * FROM report_schedules WHERE id=?').get(s.id);const denied=await f.request(`/api/report-schedules/${s.id}`,{method:'PATCH',session:f.staff,body:{version:2,status:'Retired',reason:'Former owner request'}});assert.equal(denied.status,403);assert.deepEqual(f.db.prepare('SELECT * FROM report_schedules WHERE id=?').get(s.id),before);
+ const retired=await f.request(`/api/report-schedules/${s.id}`,{method:'PATCH',session:f.admin,body:{version:2,status:'Retired',reason:'Privileged source retired'}});assert.equal(retired.status,200);
+ for(const session of [f.staff,f.viewer])assert.equal((await f.request(`/api/report-deliveries/${original.id}`,{session})).status,403);
+ assert.deepEqual((await f.delivery(original.id,f.admin)).result.rows,[[10205,2]]);assert.deepEqual(f.app.locals.runDueReports(f.first+HOUR),{produced:0,failed:0});
+});
+
+test('retirement rolls back status, version and capacity release when the atomic audit fails',async t=>{
+ const f=await fixture(t),s=await f.schedule(),before=f.db.prepare('SELECT * FROM report_schedules WHERE id=?').get(s.id);
+ f.db.exec("CREATE TRIGGER retirement_audit_fault BEFORE INSERT ON audit WHEN NEW.action='retire_report_schedule' BEGIN SELECT RAISE(ABORT,'Injected retirement audit failure'); END");
+ const failed=await f.request(`/api/report-schedules/${s.id}`,{method:'PATCH',session:f.staff,body:{version:1,status:'Retired',reason:'Audit must commit'}});assert.equal(failed.status,500);assert.deepEqual(f.db.prepare('SELECT * FROM report_schedules WHERE id=?').get(s.id),before);assert.equal(f.db.prepare("SELECT count(*) n FROM report_schedules WHERE status IN ('Active','Paused')").get().n,1);assert.equal(f.db.prepare("SELECT count(*) n FROM audit WHERE action='retire_report_schedule'").get().n,0);
+ f.db.exec('DROP TRIGGER retirement_audit_fault');assert.equal((await f.request(`/api/report-schedules/${s.id}`,{method:'PATCH',session:f.staff,body:{version:1,status:'Retired',reason:'Audit must commit'}})).status,200);assert.equal(f.db.prepare("SELECT count(*) n FROM audit WHERE action='retire_report_schedule'").get().n,1);
 });

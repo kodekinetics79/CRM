@@ -1,3 +1,5 @@
+> Latest requirements-depth integration: **477/477 tests pass**, zero failures/skips (22.80 seconds); build passes (2.50 seconds), main bundle 482.26 kB. Explicit Staff journeys, terminal retained report-schedule retirement and accurate dashboard workspace wording are implemented. Desktop/mobile synthetic schedule retirement passed on the restarted built isolated evaluator. See [REQUIREMENTS-DEPTH-AUDIT.md](REQUIREMENTS-DEPTH-AUDIT.md) and the 84-row register for limits and closure priorities. Earlier checkpoints below are historical. No production deployment or buyer acceptance is claimed.
+
 > Latest reliability-depth pass: **468/468 tests pass**, build passes (1.34 seconds), and the restarted built application completed synthetic invalid→corrected→reconciled import and source-record navigation on desktop/mobile. See COMPETITIVE-READINESS-DEPTH.md for current evidence and remaining limits. Earlier counts below describe their recorded release snapshots.
 
 # Wimblo 0.5.0 — verified local release

@@ -1,3 +1,5 @@
+> Requirements-depth checkpoint: all 84 scored criteria reviewed; 46 local basic / 24 partial / 11 missing / 3 external evidence. Latest integrated verification: 477/477 tests and build pass. See [REQUIREMENTS-DEPTH-AUDIT.md](REQUIREMENTS-DEPTH-AUDIT.md) for accurate scope, limits and closure order. Local basic coverage is not production or buyer acceptance.
+
 # Wimblo 0.5.0 local release
 
 Wimblo is an independently branded nonprofit CRM by Kode Kinetics, currently available as a functional local evaluator pilot built using Node.js 24, React, Vite, Express, and SQLite. It demonstrates connected workflows with synthetic records and persistent local data. Wimblo is the product identity throughout the application.

@@ -1,0 +1,178 @@
+[
+  {
+    "priority": "P0",
+    "workstream": "Conversion and source custody",
+    "criteria": [
+      "C1",
+      "C2",
+      "A8.2"
+    ],
+    "owner": "Data-conversion SME + CTO",
+    "codeWork": "Source-specific mapping contracts, retained entity/history/file coverage, replay and governed delta/correction behavior, capacity-aware conversion/recovery",
+    "inputNeeded": "Approved source exports, contract/file inventory and source-ID/delta semantics",
+    "doneWhen": "Every accepted source entity/file/history has provenance and reconciles by counts, exact amounts/classifications, links and bytes; trial/delta/final restore rehearsals pass"
+  },
+  {
+    "priority": "P0",
+    "workstream": "One constituent across business roles",
+    "criteria": [
+      "A1.1",
+      "A1.2"
+    ],
+    "owner": "Constituent-management SME",
+    "codeWork": "Explicit Staff coverage and a documented overlap model; safe aliases/resolution for identities protected by retained history",
+    "inputNeeded": "Representative buyer duplicate/category cases",
+    "doneWhen": "One staff/employee donor who volunteers retains one identity, every activity and exact once-only giving/time rollups; protected-history conflicts have an accepted safe resolution"
+  },
+  {
+    "priority": "P0",
+    "workstream": "Recurring revenue entry and receipt operations",
+    "criteria": [
+      "A8.2",
+      "A3.4",
+      "A2.10",
+      "A7.7"
+    ],
+    "owner": "Financial + communications SMEs",
+    "codeWork": "Maintain all-revenue upload/report controls and approved individual/annual receipt and selective acknowledgment paths",
+    "inputNeeded": "Source mappings, receipt organization/wording and delivery/signature/opt-out policy",
+    "doneWhen": "Approved payroll/card/cash/noncash/grant/fee samples import once; exact fiscal/report totals and accepted receipt/acknowledgment states reconcile; email success/failure is real when offered"
+  },
+  {
+    "priority": "P0",
+    "workstream": "Ordinary and helper access",
+    "criteria": [
+      "A8.3",
+      "C6",
+      "C7"
+    ],
+    "owner": "Solution-architecture + security SMEs",
+    "codeWork": "Approved module/action/export helper controls across server APIs and role changes; no school restriction invented",
+    "inputNeeded": "Four full-user and two optional nonadmin-helper responsibility matrix",
+    "doneWhen": "Allowed/denied record, document, report and export journeys plus concurrent stale-write/suspension tests pass for the approved roles"
+  },
+  {
+    "priority": "P0",
+    "workstream": "Core reporting and staff comfort",
+    "criteria": [
+      "B1",
+      "B2",
+      "B5",
+      "B6",
+      "B8",
+      "B9",
+      "B10"
+    ],
+    "owner": "Reporting + product-journey SMEs",
+    "codeWork": "Field/definition inventory, source drill-through and clear correct product states; maintain July\u2013June override-aware totals",
+    "inputNeeded": "Buyer report examples and accepted Excel/PDF path",
+    "doneWhen": "All six B10 cases, revenue exclusions, current data/custom output and board pack match buyer examples and migrated history; staff complete without coaching"
+  },
+  {
+    "priority": "P0",
+    "workstream": "Durable service and recovery",
+    "criteria": [
+      "C3",
+      "C6",
+      "C7",
+      "C8"
+    ],
+    "owner": "CTO + operations/security owners",
+    "codeWork": "Operate existing durable-runtime/private storage/readiness/recovery controls and provider/proxy tests",
+    "inputNeeded": "Render deferred by Zack; approved providers, private credentials, key custody and alert/retention owners",
+    "doneWhen": "Actual persistent restart, private exact-version reads, scheduled off-host copies, timed complete new-root restore, tested alerts and adopted incident/privacy procedures have evidence"
+  },
+  {
+    "priority": "P0",
+    "workstream": "Controlled privacy rights and disposition",
+    "criteria": [
+      "C6",
+      "C7",
+      "C8"
+    ],
+    "owner": "Privacy/security + solution architecture",
+    "codeWork": "Approved category/hold-aware access/copy/correction, transfer and disposal spanning files, derived histories, backups and restore suppression",
+    "inputNeeded": "LEA direction, approved retention categories/legal exceptions, verified subprocessors and restore lifecycle",
+    "doneWhen": "Authorized rights/transfer/disposal rehearsal accounts for every retained copy without unauthorized removal or restoration of disposed data"
+  },
+  {
+    "priority": "P1",
+    "workstream": "Marketing, delivery and response tracking",
+    "criteria": [
+      "A7.1",
+      "A7.2",
+      "A7.3",
+      "A7.6",
+      "A7.7",
+      "A7.8",
+      "A7.9",
+      "A8.5"
+    ],
+    "owner": "Communications + integration SMEs",
+    "codeWork": "Queryable consent-filtered audiences, executing trigger/action/outbox with idempotency/retries/unknown states, authorized provider delivery/events and Mailchimp synchronization",
+    "inputNeeded": "Provider choice, scopes and approved contact/consent/history exports",
+    "doneWhen": "Selective approved sends, opt-out changes during processing, failed/ambiguous delivery, replayed callbacks and source/provider reconciliation work without duplicate sends or invented delivery"
+  },
+  {
+    "priority": "P1",
+    "workstream": "Programs and event workflow completeness",
+    "criteria": [
+      "A4.2",
+      "A4.3",
+      "A4.5",
+      "A5.5",
+      "A5.6",
+      "A6.2",
+      "A6.6",
+      "A6.8",
+      "A6.9"
+    ],
+    "owner": "Grants/events/volunteer SMEs",
+    "codeWork": "Accepted documentary milestones, event responsibility checklists, supported commitment corrections, optional volunteer self-service and actual reminders",
+    "inputNeeded": "Buyer community-grant and event source cases; accepted signup option and correction policy",
+    "doneWhen": "Program journeys retain documents/history/capacity/owners and reconcile committed-versus-received amounts; actual promised reminder/self-service/payment capabilities are separately evidenced"
+  },
+  {
+    "priority": "P1",
+    "workstream": "Hosted giving and external compatibility",
+    "criteria": [
+      "A2.6",
+      "A2.7",
+      "A2.8",
+      "A3.1",
+      "A3.2",
+      "A6.8",
+      "A8.7",
+      "A8.9"
+    ],
+    "owner": "Payments + integration SMEs",
+    "codeWork": "Vendor-controlled hosted giving/peer attribution, recurring payment lifecycle, signed idempotent provider events and truthful offered connector support",
+    "inputNeeded": "Approved vendor-controlled providers/sandbox; no district payment account connection",
+    "doneWhen": "Donation/recurrence/refund/failed event paths reconcile authorized provider facts exactly once; each offered connector has mapping/scope/revocation/failure evidence; SSO remains a separate preferred option"
+  },
+  {
+    "priority": "External",
+    "workstream": "Bid and service evidence",
+    "criteria": [
+      "C3",
+      "C4",
+      "C5",
+      "C6",
+      "C7",
+      "C8"
+    ],
+    "owner": "Kode Kinetics authorized commercial/service owners",
+    "codeWork": "Truthful narrative/evidence package and delivered training/support procedures",
+    "inputNeeded": "Qualifying product/provider references, company/personnel and stored-copy evidence, signed forms/DPA and staffed commitments",
+    "doneWhen": "Mandatory qualifications/submission and buyer acceptance have real authorized evidence; no code screen or agent role substitutes for it"
+  },
+  {
+    "priority": "P2",
+    "workstream": "Additional intelligence and expansion",
+    "criteria": [],
+    "owner": "Product + AI SMEs",
+    "codeWork": "Explainable source-backed priorities, approved reviewed assistance, platform expansion and consistent Wimblo UX",
+    "inputNeeded": "Core closure and approved real-data processor/residency/purpose policy",
+    "doneWhen": "Useful traceable suggestions preserve permissions/consent and human authority; optional features do not mask unclosed RFP work"
+  }
+]

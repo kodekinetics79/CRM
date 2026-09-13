@@ -35,7 +35,7 @@ const time=z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/,'Use a 24-hour HH:mm tim
 const schemas={
  volunteerShifts:z.object({name,date,startTime:time,endTime:time,location:short,capacity:z.number().int().min(1).max(100000),eventId:fk,status:z.enum(['Open','Closed']).default('Open'),notes:str}).strict(),
  shiftReservations:z.object({shiftId:id,constituentId:id,status:z.enum(['Reserved','Waitlisted','Cancelled']),notes:str}).strict(),
- constituents:z.object({name,email,phone:short,type:z.enum(['Individual','Business','Foundation','Alumni','Employee','Community partner']),household:short,parentId:fk,contacts:z.array(z.object({name,email,role:short}).strict()).max(50).default([]),segments:short,preference:z.enum(['Email','Phone','Post','Do not contact']).default('Email'),notes:str}).strict(),
+ constituents:z.object({name,email,phone:short,type:z.enum(['Individual','Business','Foundation','Alumni','Employee','Staff','Community partner']),household:short,parentId:fk,contacts:z.array(z.object({name,email,role:short}).strict()).max(50).default([]),segments:short,preference:z.enum(['Email','Phone','Post','Do not contact']).default('Email'),notes:str}).strict(),
  designations:z.object({name,school:short,parentId:fk,accountCode:short,description:str}).strict(),
  campaigns:z.object({name,type:z.enum(['Annual','Capital','Major gifts','Planned giving','Matching gifts','Peer-to-peer']),goal:cents,startDate:date,endDate:date,status:z.enum(['Active','Planned','Completed']),description:str}).strict(),
  gifts:z.object({constituentId:id,amount:cents.min(1),type:z.enum(['Cash','In-kind','Grant','Fee payment','Employee giving','Sponsorship']),method:z.enum(['Check','Cash','Credit card','ACH','Payroll','In-kind']),date,campaignId:fk,allocations:z.array(z.object({designationId:id,amount:cents.min(1)}).strict()).min(1).max(100),externalRef:short,notes:str,tribute:short,softCreditId:fk,pledge:short,pledgeId:fk,grantId:fk,giftKind:z.enum(['One-time','Recurring','Pledge fulfillment','Matching gift','Planned gift']).default('One-time')}).strict(),
@@ -126,7 +126,7 @@ export function createApp({dbPath=':memory:',seed=true,tenantId=null,tenantInfo=
   if(c==='shiftReservations'){
    if(old&&(parsed.shiftId!==old.shiftId||parsed.constituentId!==old.constituentId))fail(409,'Reservation identity cannot change; cancel and create a new reservation');
    const shift=get('volunteerShifts',parsed.shiftId);
-   if(!['Individual','Alumni','Employee'].includes(get('constituents',parsed.constituentId).type))fail(400,'Reserve volunteer places for an individual, alumni or employee constituent');
+   if(!['Individual','Alumni','Employee','Staff'].includes(get('constituents',parsed.constituentId).type))fail(400,'Reserve volunteer places for an individual, alumni, employee or staff constituent');
    if(parsed.status!=='Cancelled'){
     if((!old||old.status!==parsed.status)&&shift.status!=='Open')fail(409,'Closed shifts cannot accept reservations or waitlist changes');
     const active=list('shiftReservations').filter(r=>r.id!==recordId&&r.status!=='Cancelled');
@@ -137,7 +137,7 @@ export function createApp({dbPath=':memory:',seed=true,tenantId=null,tenantInfo=
     }
    }
   }
-  if(c==='constituents'&&recordId&&!['Individual','Alumni','Employee'].includes(parsed.type)&&list('shiftReservations').some(r=>r.constituentId===recordId))fail(409,'Constituent type is protected by volunteer reservation history');
+  if(c==='constituents'&&recordId&&!['Individual','Alumni','Employee','Staff'].includes(parsed.type)&&list('shiftReservations').some(r=>r.constituentId===recordId))fail(409,'Constituent type is protected by volunteer reservation history');
   if(c==='constituents'||c==='designations'){let parent=parsed.parentId;const seen=new Set(recordId?[recordId]:[]);while(parent){if(seen.has(parent))fail(400,'Hierarchy cycle');seen.add(parent);parent=get(c,parent).parentId;}}
   if(c==='gifts'&&old?.acknowledgment&&(parsed.constituentId!==old.constituentId||parsed.type!==old.type))fail(409,'Acknowledged gift donor and revenue type cannot change');
   if(c==='communications'&&old&&(old.giftId||list('gifts').some(g=>g.acknowledgment?.communicationId===old.id))&&['constituentId','status','date','channel'].some(key=>parsed[key]!==old[key]))fail(409,'Linked acknowledgment identity, status, date and channel cannot change');

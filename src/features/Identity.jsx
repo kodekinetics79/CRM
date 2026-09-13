@@ -7,7 +7,7 @@ const emptyMerge={targetId:'',sourceId:'',reason:'',parentChoice:'keep'};
 export default function Identity({api,user,data,onCommitted,onOpen,notify,onDirty}){
  const [households,setHouseholds]=useState([]),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState(''),[editor,setEditor]=useState(null),[household,setHousehold]=useState(emptyHousehold),[search,setSearch]=useState(''),[merge,setMerge]=useState(emptyMerge),[preview,setPreview]=useState(null),[confirmed,setConfirmed]=useState(false),[result,setResult]=useState(null);
  const firstInput=useRef(null),canAdmin=user.role==='admin';
- const active=(data.constituents||[]).filter(c=>!c.mergedInto),people=active.filter(c=>['Individual','Alumni','Employee'].includes(c.type));
+ const active=(data.constituents||[]).filter(c=>!c.mergedInto),people=active.filter(c=>['Individual','Alumni','Employee','Staff'].includes(c.type));
  async function load(){const r=await api('/households');setHouseholds(r.households);}
  useEffect(()=>{let live=true;load().catch(e=>live&&setError(e.message)).finally(()=>live&&setLoading(false));return()=>{live=false;};},[api]);
  useEffect(()=>{if(editor)firstInput.current?.focus();},[editor?.id]);

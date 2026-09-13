@@ -39,7 +39,7 @@ const name = z.string().trim().min(1).max(250);
 const email = z.union([z.literal(''), z.email().max(254)]);
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v => Number.isFinite(Date.parse(v)) && new Date(v + 'T00:00:00Z').toISOString().slice(0, 10) === v, 'Invalid source calendar date');
 const sourceSchemas = {
-  constituents: z.object({ sourceId, name, email, phone: short, type: z.enum(['Individual', 'Business', 'Foundation', 'Alumni', 'Employee', 'Community partner']), household: short, parentSourceId: z.string().max(100), segments: short, preference: z.enum(['Email', 'Phone', 'Post', 'Do not contact']), notes: text }).strict(),
+  constituents: z.object({ sourceId, name, email, phone: short, type: z.enum(['Individual', 'Business', 'Foundation', 'Alumni', 'Employee', 'Staff', 'Community partner']), household: short, parentSourceId: z.string().max(100), segments: short, preference: z.enum(['Email', 'Phone', 'Post', 'Do not contact']), notes: text }).strict(),
   designations: z.object({ sourceId, name, school: short, parentSourceId: z.string().max(100), accountCode: short.min(1), description: text }).strict(),
   gifts: z.object({ sourceId, donorSourceId: sourceId, designationSourceId: z.string().max(100), allocations: text, amount: z.string(), type: z.enum(['Cash', 'In-kind', 'Grant', 'Fee payment', 'Employee giving', 'Sponsorship']), method: z.enum(['Check', 'Cash', 'Credit card', 'ACH', 'Payroll', 'In-kind']), date, externalRef: short, notes: text, tribute: short, softCreditSourceId: z.string().max(100), giftKind: z.enum(['One-time', 'Recurring', 'Pledge fulfillment', 'Matching gift', 'Planned gift']) }).strict(),
 };

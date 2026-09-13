@@ -6,7 +6,7 @@ const key=z.string().min(1).max(100);
 const mergeShape={targetId:key,sourceId:key,targetVersion:z.number().int().min(1),sourceVersion:z.number().int().min(1),reason:z.string().trim().min(1).max(2000),parentId:key.nullable().optional()};
 const mergeSchema=z.object(mergeShape).strict();
 const householdShape={name:z.string().trim().min(1).max(250),address:z.string().trim().max(2000),memberIds:z.array(key).max(250).refine(ids=>new Set(ids).size===ids.length,'Each household member must be unique')};
-const personTypes=new Set(['Individual','Alumni','Employee']);
+const personTypes=new Set(['Individual','Alumni','Employee','Staff']);
 const fields={
  constituents:['name','email','phone','type','household','parentId','contacts','segments','preference','notes'],
  gifts:['constituentId','amount','type','method','date','campaignId','allocations','externalRef','notes','tribute','softCreditId','pledge','pledgeId','grantId','giftKind'],
@@ -36,7 +36,7 @@ export function installIdentityRoutes(app,{db,list,get,put,validate,audit,csrf,a
  function checkMembers(p,ownId=null){
   if(db.prepare('SELECT id FROM households WHERE name=? AND id<>?').get(p.name,ownId||''))fail(409,'A household with this name already exists');
   if(list('constituents').some(c=>c.household?.trim().toLocaleLowerCase()===p.name.toLocaleLowerCase()&&!p.memberIds.includes(c.id)&&!c.mergedInto&&membership(c.id)!==ownId))fail(409,'This name is already used by other legacy household members; include or reconcile them first');
-  for(const id of p.memberIds){const c=active(id);if(!personTypes.has(c.type))fail(400,'Only individuals, alumni and employees can belong to a household');const owner=membership(id);if(owner&&owner!==ownId)fail(409,'A person can belong to only one managed household');if(c.household?.trim()&&owner!==ownId&&c.household.trim().toLocaleLowerCase()!==p.name.toLocaleLowerCase())fail(409,'Reconcile this person’s existing household before assigning another');}
+  for(const id of p.memberIds){const c=active(id);if(!personTypes.has(c.type))fail(400,'Only individuals, alumni, employees and staff can belong to a household');const owner=membership(id);if(owner&&owner!==ownId)fail(409,'A person can belong to only one managed household');if(c.household?.trim()&&owner!==ownId&&c.household.trim().toLocaleLowerCase()!==p.name.toLocaleLowerCase())fail(409,'Reconcile this person’s existing household before assigning another');}
  }
  function saveHousehold(p,user,old=null){
   checkMembers(p,old?.id);const at=new Date().toISOString(),id=old?.id||randomUUID(),previous=old?householdView(old):null;
@@ -111,7 +111,7 @@ export function installIdentityRoutes(app,{db,list,get,put,validate,audit,csrf,a
  });
  // These guards run before generic mutations and dedicated identity-reference routes.
  app.use('/api',(req,res,next)=>{if(['GET','HEAD','OPTIONS'].includes(req.method))return next();
-  const match=/^\/records\/constituents\/([^/]+)$/.exec(req.path);if(match){const id=decodeURIComponent(match[1]);if(alias(id))return res.status(409).json({error:'Merged identity is retained; update the surviving constituent'});if(req.method==='DELETE'&&db.prepare('SELECT 1 FROM identity_aliases WHERE target_id=?').get(id))return res.status(409).json({error:'This surviving constituent has retained merged identities and cannot be deleted'});const owner=membership(id);if(owner&&req.method==='DELETE')return res.status(409).json({error:'Remove managed household membership before deleting this constituent'});if(owner&&req.body){const r=get('constituents',id);if(Object.hasOwn(req.body,'household')&&req.body.household!==r.household)return res.status(409).json({error:'Change household membership through its managed household record'});if(req.body.type&&!personTypes.has(req.body.type))return res.status(409).json({error:'Managed household members must remain individuals, alumni or employees'});}}
+  const match=/^\/records\/constituents\/([^/]+)$/.exec(req.path);if(match){const id=decodeURIComponent(match[1]);if(alias(id))return res.status(409).json({error:'Merged identity is retained; update the surviving constituent'});if(req.method==='DELETE'&&db.prepare('SELECT 1 FROM identity_aliases WHERE target_id=?').get(id))return res.status(409).json({error:'This surviving constituent has retained merged identities and cannot be deleted'});const owner=membership(id);if(owner&&req.method==='DELETE')return res.status(409).json({error:'Remove managed household membership before deleting this constituent'});if(owner&&req.body){const r=get('constituents',id);if(Object.hasOwn(req.body,'household')&&req.body.household!==r.household)return res.status(409).json({error:'Change household membership through its managed household record'});if(req.body.type&&!personTypes.has(req.body.type))return res.status(409).json({error:'Managed household members must remain individuals, alumni, employees or staff'});}}
   function inspect(value){if(!value||typeof value!=='object')return false;return Object.entries(value).some(([k,v])=>['constituentId','softCreditId','funderId','parentId'].includes(k)&&typeof v==='string'&&alias(v)||typeof v==='object'&&inspect(v));}
   if(inspect(req.body))return res.status(409).json({error:'A referenced identity has been merged; select the surviving constituent'});next();
  });

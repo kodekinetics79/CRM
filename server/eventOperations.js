@@ -7,7 +7,7 @@ const reason=z.string().trim().min(1).max(2000);
 const day=z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v=>Number.isFinite(Date.parse(v))&&new Date(v+'T00:00:00Z').toISOString().slice(0,10)===v,'Use a valid calendar date');
 const benefits=z.array(z.object({name,completed:z.boolean()}).strict()).max(50).refine(items=>new Set(items.map(b=>b.name.toLocaleLowerCase())).size===items.length,'Benefits must be distinct');
 const utcDay=()=>new Date().toISOString().slice(0,10),now=()=>new Date().toISOString();
-const personTypes=new Set(['Individual','Alumni','Employee']),organizationTypes=new Set(['Business','Foundation','Community partner']);
+const personTypes=new Set(['Individual','Alumni','Employee','Staff']),organizationTypes=new Set(['Business','Foundation','Community partner']);
 
 export function installEventOperationsRoutes(app,{db,list,get,put,audit,csrf,write,admin,transaction,validateReceiptPaymentLink}){
  db.exec(`CREATE TABLE IF NOT EXISTS event_seating(id TEXT PRIMARY KEY,event_id TEXT NOT NULL,name TEXT NOT NULL COLLATE NOCASE,seats INTEGER NOT NULL,version INTEGER NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,UNIQUE(event_id,name));
