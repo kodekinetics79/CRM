@@ -1,0 +1,76 @@
+# Wimblo — Render blueprint for the current React/Express/SQLite application.
+#
+# This encodes the settings already documented in RENDER-SETUP.md so a deployment is
+# reproducible rather than hand-entered. Secrets are declared with `sync: false`: they
+# are never stored in Git and must be set in Render by the operator (or by an authorized
+# automated step) before the first boot succeeds.
+#
+# The server serves the built frontend and the API from one process. Do not configure a
+# Static Site and do not run the Vite dev/preview server. A disk-backed service runs one
+# instance and cannot use zero-downtime deploys; that is the intended trade for SQLite
+# persistence at this stage. Data residency: the region below is in the United States,
+# per supplied Addendum 2 §1(a)(iv), which restricts stored data to the US or Canada.
+services:
+  - type: web
+    name: wimblo
+    runtime: node
+    region: oregon
+    plan: starter
+    branch: main
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /healthz
+    numInstances: 1
+    disk:
+      name: wimblo-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: 24.15.0
+      - key: NODE_ENV
+        value: production
+      - key: APP_HOST
+        value: 0.0.0.0
+      # Exact browser origin, no trailing slash, path, query or fragment. Set it to the
+      # service's real HTTPS URL after the service exists, or to the custom domain.
+      - key: APP_ORIGIN
+        sync: false
+      - key: TRUST_PROXY
+        value: "true"
+      - key: DB_PATH
+        value: /var/data/wimblo.sqlite
+      - key: PERSISTENT_DATA_DIR
+        value: /var/data
+      # Only set true once the operator has confirmed the disk is actually mounted.
+      - key: PERSISTENT_STORAGE_CONFIRMED
+        value: "true"
+      - key: PLATFORM_DATA_DIR
+        value: /var/data/wimblo-platform
+      - key: ENABLE_ACCEPTANCE
+        value: "false"
+      - key: ALLOW_DEMO
+        value: "false"
+      - key: EVALUATOR_MODE
+        value: "false"
+      # Initial workspace administrator. Required only while the database has no users.
+      - key: ADMIN_NAME
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      # Separate initial platform (control-plane) administrator.
+      - key: PLATFORM_ADMIN_NAME
+        sync: false
+      - key: PLATFORM_ADMIN_EMAIL
+        sync: false
+      - key: PLATFORM_ADMIN_PASSWORD
+        sync: false
+      # 32-byte keys, hex or padded base64, generated independently of each other and of
+      # any archive. Replacing MFA_ENCRYPTION_KEY without a reviewed re-enrollment plan
+      # locks out enrolled users; BACKUP_ENCRYPTION_KEY is required for production start.
+      - key: MFA_ENCRYPTION_KEY
+        sync: false
+      - key: BACKUP_ENCRYPTION_KEY
+        sync: false

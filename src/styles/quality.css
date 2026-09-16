@@ -1,0 +1,411 @@
+/* Namespaced styles for this workstream. Keep the 4px grid, compact type and the single accent. */
+/* Data quality and bounded assistance review. One restrained accent, no
+   gradients, no colored status pills, no decorative motion. Severity is carried
+   by words and a single rule, never by colour alone. Every size is a multiple
+   of 4px. */
+
+.data-quality {
+  /* Roles only: the product has one accent and one hairline, owned by wimblo.css. */
+  --quality-accent: var(--accent);
+  --quality-line: var(--line);
+  --quality-muted: var(--muted);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.data-quality .page-header p {
+  color: var(--quality-muted);
+}
+
+.quality-notice {
+  margin: 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--quality-accent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.quality-status {
+  margin: 0;
+  min-height: 20px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--quality-muted);
+}
+
+.quality-note {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--quality-muted);
+}
+
+/* View navigation --------------------------------------------------------- */
+.quality-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  border-bottom: 1px solid var(--quality-line);
+  padding-bottom: 4px;
+}
+
+.quality-tab {
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--quality-muted);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.quality-tab:hover {
+  color: var(--quality-accent);
+}
+
+.quality-tab.is-active {
+  color: var(--quality-accent);
+  border-color: var(--quality-line);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  font-weight: 600;
+}
+
+.quality-tab:focus-visible,
+.data-quality .text-btn:focus-visible,
+.data-quality summary:focus-visible {
+  outline: 2px solid var(--quality-accent);
+  outline-offset: 2px;
+}
+
+.quality-count {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Findings ---------------------------------------------------------------- */
+.quality-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.quality-item {
+  border: 1px solid var(--quality-line);
+  border-left: 3px solid var(--quality-accent);
+  border-radius: 4px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.quality-item.is-blocked {
+  border-left-style: dashed;
+}
+
+.quality-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.quality-item-head h3 {
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.quality-meta {
+  margin: 0;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--quality-muted);
+  text-transform: none;
+}
+
+.quality-subhead {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 20px;
+  font-weight: 600;
+}
+
+.quality-detail,
+.quality-next,
+.quality-review {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.quality-next {
+  padding: 8px;
+  border: 1px solid var(--quality-line);
+  border-radius: 4px;
+}
+
+.quality-review {
+  color: var(--quality-muted);
+  font-size: 12px;
+}
+
+.quality-pair,
+.quality-figures {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 8px;
+}
+
+.quality-pair > div,
+.quality-figures > div {
+  border: 1px solid var(--quality-line);
+  border-radius: 4px;
+  padding: 8px;
+}
+
+.quality-figures-note {
+  grid-column: 1 / -1;
+}
+
+.quality-pair dt,
+.quality-figures dt {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--quality-muted);
+}
+
+.quality-pair dd,
+.quality-figures dd {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.quality-signals,
+.quality-blockers {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.quality-signals .quality-normalized,
+.quality-signals .quality-raw {
+  display: block;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--quality-muted);
+  overflow-wrap: anywhere;
+}
+
+/* Evidence ---------------------------------------------------------------- */
+.quality-sources {
+  border: 1px solid var(--quality-line);
+  border-radius: 4px;
+  padding: 8px;
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.quality-sources summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.quality-sources ul {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.quality-sources li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.quality-source-kind {
+  min-width: 112px;
+  font-weight: 600;
+}
+
+.quality-source-version {
+  color: var(--quality-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Decisions --------------------------------------------------------------- */
+.quality-decide {
+  align-self: flex-start;
+}
+
+.quality-decision fieldset {
+  border: 1px solid var(--quality-line);
+  border-radius: 4px;
+  padding: 12px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.quality-decision legend {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+  padding: 0 4px;
+}
+
+.quality-decision-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* Narrative --------------------------------------------------------------- */
+.quality-narrative {
+  margin-top: 16px;
+  border: 1px solid var(--quality-line);
+  border-left: 3px solid var(--quality-accent);
+  border-radius: 4px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.quality-narrative-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 24px;
+}
+
+.quality-table-scroll {
+  overflow-x: auto;
+}
+
+.quality-figures-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.quality-figures-table th,
+.quality-figures-table td {
+  border-bottom: 1px solid var(--quality-line);
+  padding: 8px;
+  text-align: left;
+  vertical-align: top;
+  font-variant-numeric: tabular-nums;
+}
+
+.quality-figures-table thead th {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--quality-muted);
+  font-weight: 600;
+}
+
+/* Narrow widths ----------------------------------------------------------- */
+@media (max-width: 700px) {
+  .quality-tabs {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .quality-tab {
+    text-align: left;
+  }
+
+  .quality-pair,
+  .quality-figures {
+    grid-template-columns: 1fr;
+  }
+
+  .quality-item-head {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .quality-source-kind {
+    min-width: 0;
+  }
+
+  .quality-decision-actions .btn {
+    width: 100%;
+  }
+
+  /* The figures table restructures instead of scrolling sideways. */
+  .quality-table-scroll {
+    overflow-x: visible;
+  }
+
+  .quality-figures-table,
+  .quality-figures-table tbody,
+  .quality-figures-table tr,
+  .quality-figures-table td,
+  .quality-figures-table tbody th[scope='row'] {
+    display: block;
+    width: auto;
+  }
+
+  .quality-figures-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .quality-figures-table tbody tr {
+    border: 1px solid var(--quality-line);
+    border-radius: 4px;
+    padding: 8px;
+    margin-bottom: 8px;
+  }
+
+  .quality-figures-table tbody td,
+  .quality-figures-table tbody th[scope='row'] {
+    border-bottom: 0;
+    padding: 4px 0;
+  }
+
+  .quality-figures-table tbody td::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 11px;
+    line-height: 16px;
+    color: var(--quality-muted);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .data-quality * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

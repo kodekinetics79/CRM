@@ -1,0 +1,51 @@
+/* Namespaced styles for this workstream. Keep the 4px grid, compact type and the single accent. */
+/* Reporting packs. Compact enterprise density, one restrained accent, no
+   gradients, no colored status pills and no decorative motion. Dense tables
+   restructure into labelled stacks on narrow screens instead of scrolling away. */
+.board-pack {display:flex; flex-direction:column; gap:16px}
+.board-pack .panel {padding:16px}
+
+.board-pack-period fieldset {border:0; margin:0; padding:0; min-width:0}
+.board-pack-period legend {font-weight:600; font-size:13px; padding:0; margin-bottom:8px}
+.board-pack-fields {display:flex; flex-wrap:wrap; gap:12px}
+.board-pack-fields label {display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--secondary-ink); font-weight:500}
+.board-pack-fields input {min-height:32px; padding:4px 8px; font-size:13px; border-width:1px; border-style:solid}
+.board-pack-hint,.board-pack-note {margin:8px 0 0; font-size:12px; line-height:1.5; color:var(--muted); max-width:76ch}
+.board-pack-actions {display:flex; flex-wrap:wrap; gap:8px; margin-top:12px}
+.board-pack-actions .btn {min-height:32px; padding:4px 12px; font-size:12px}
+.board-pack-exports {margin-top:12px; padding-top:12px; border-top:1px solid var(--line)}
+.board-pack fieldset[disabled] .btn,.board-pack .btn:disabled {opacity:.6; cursor:not-allowed}
+
+/* Status and failure read as text, never as a colored badge. */
+.board-pack-status {margin:0; font-size:12px; line-height:1.5; color:var(--secondary-ink); min-height:16px}
+.board-pack-status:empty {display:none}
+.board-pack-error {margin:0; padding:8px 12px; font-size:12px; line-height:1.5;
+ color:var(--danger); background:var(--danger-surface); border:1px solid var(--danger-border); border-radius:6px}
+
+.board-pack-summary {display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin:12px 0 0}
+.board-pack-summary > div {display:flex; flex-direction:column; gap:4px; padding-left:8px; border-left:2px solid var(--accent)}
+.board-pack-summary dt {font-size:11px; letter-spacing:.02em; text-transform:uppercase; color:var(--muted)}
+.board-pack-summary dd {margin:0; font-size:16px; font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums}
+
+.board-pack-table {overflow-x:auto; margin-top:12px}
+.board-pack-table table {width:100%; border-collapse:collapse; font-size:12px}
+.board-pack-table caption {caption-side:top; text-align:left; padding:0 0 8px; font-size:12px; color:var(--muted)}
+.board-pack-table th,.board-pack-table td {padding:4px 8px; text-align:left; border-bottom:1px solid var(--line); vertical-align:top}
+.board-pack-table thead th {position:sticky; top:0; background:var(--table-header); font-weight:600; color:var(--secondary-ink); white-space:nowrap}
+.board-pack-table td.numeric,.board-pack-table th.numeric {text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap}
+.board-pack-table tbody tr:last-child td {border-bottom:0}
+.board-pack-table tbody tr:hover td {background:var(--surface-hover)}
+
+/* Below 700px a wide grid of numbers stops being a table and becomes one
+   labelled stack per row, so nothing depends on horizontal scrolling. */
+@media (max-width:700px){
+ .board-pack-table {overflow-x:visible}
+ .board-pack-table thead {position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap}
+ .board-pack-table tbody tr {display:block; padding:8px 0; border-bottom:1px solid var(--line)}
+ .board-pack-table td,.board-pack-table td.numeric {display:flex; justify-content:space-between; gap:12px; text-align:right; border-bottom:0; padding:2px 0}
+ .board-pack-table td::before {content:attr(data-label); font-weight:500; color:var(--muted); text-align:left}
+ .board-pack-fields label,.board-pack-actions .btn {width:100%}
+ .board-pack-actions .btn {justify-content:center; min-height:36px}
+}
+@media (prefers-reduced-motion:reduce){.board-pack *{transition:none!important}}
+@media (forced-colors:active){.board-pack-summary > div{border-left-color:CanvasText}.board-pack-table th,.board-pack-table td{border-color:CanvasText}}

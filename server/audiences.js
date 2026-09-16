@@ -1,9 +1,10 @@
+import {CONSTITUENT_TYPES,getConstituentTypes} from '../shared/constituentTypes.js';
 import {randomUUID,createHash} from 'node:crypto';
 import {z} from 'zod';
 
 const fail=(status,message)=>{const e=new Error(message);e.status=status;throw e;};
 const version=z.number().int().min(1),id=z.uuid(),channel=z.enum(['Print','Email draft']);
-const types=['Individual','Business','Foundation','Alumni','Employee','Staff','Community partner'];
+const types=CONSTITUENT_TYPES;
 const preferences=['Email','Phone','Post','Do not contact'];
 const distinct=(schema,max)=>z.array(schema).max(max).refine(values=>new Set(values).size===values.length,'Choose each value only once');
 const filters=z.object({segmentTokens:distinct(z.string().trim().min(1).max(300).refine(value=>!value.includes(','),'Use one comma-free segment token'),25),segmentMatch:z.enum(['Any','All']),types:distinct(z.enum(types),7),preferences:distinct(z.enum(preferences),4)}).strict();
@@ -12,7 +13,7 @@ export const audienceReferenceSchema=z.object({id,version,sourceDigest:z.string(
 const canonical=value=>Array.isArray(value)?'['+value.map(canonical).join(',')+']':value&&typeof value==='object'?'{'+Object.keys(value).sort().map(key=>JSON.stringify(key)+':'+canonical(value[key])).join(',')+'}':JSON.stringify(value);
 const hash=value=>createHash('sha256').update(canonical(value)).digest('hex');
 const reasons=['Merged identity','Outside saved criteria','Do not contact','Email preference required','Invalid primary email'];
-const matches=(p,f)=>{const tokens=new Set(String(p.segments||'').split(',').map(value=>value.trim()).filter(Boolean));return (!f.types.length||f.types.includes(p.type))&&(!f.preferences.length||f.preferences.includes(p.preference))&&(!f.segmentTokens.length||(f.segmentMatch==='All'?f.segmentTokens.every(token=>tokens.has(token)):f.segmentTokens.some(token=>tokens.has(token))));};
+const matches=(p,f)=>{const tokens=new Set(String(p.segments||'').split(',').map(value=>value.trim()).filter(Boolean));return (!f.types.length||f.types.some(type=>getConstituentTypes(p).includes(type)))&&(!f.preferences.length||f.preferences.includes(p.preference))&&(!f.segmentTokens.length||(f.segmentMatch==='All'?f.segmentTokens.every(token=>tokens.has(token)):f.segmentTokens.some(token=>tokens.has(token))));};
 const recipientView=p=>({id:p.id,name:p.name,version:p.version,preference:p.preference});
 
 // Saved criteria construct candidates only. Existing contact preferences still
@@ -31,7 +32,7 @@ export function installAudienceRoutes(app,{db,list,audit,csrf,write,transaction,
  function find(key){const row=db.prepare('SELECT * FROM audience_definitions WHERE id=?').get(key);if(!row)fail(404,'Saved audience not found');return present(row);}
  const definitionDigest=a=>hash({name:a.name,filters:a.filters,status:a.status});
  function currentPreview(key,expectedVersion,requestedChannel,internal=false){if(!isTenantActive())fail(403,'Workspace is suspended');const a=find(key);if(a.version!==expectedVersion)fail(409,'Saved audience changed. Reload its current version');if(a.status!=='Active')fail(409,'This audience is retired. Create a new audience');const validated=definitionSchema.parse({name:a.name,filters:a.filters}),profiles=list('constituents').sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0),eligible=[],reasonCounts=Object.fromEntries(reasons.map(reason=>[reason,0]));let matchedCount=0;
-  for(const p of profiles){let reason;if(p.mergedInto)reason=reasons[0];else if(!matches(p,validated.filters))reason=reasons[1];else{matchedCount++;if(p.preference==='Do not contact')reason=reasons[2];else if(requestedChannel==='Email draft'&&p.preference!=='Email')reason=reasons[3];else if(requestedChannel==='Email draft'&&!z.email().safeParse(p.email).success)reason=reasons[4];}if(reason)reasonCounts[reason]++;else eligible.push(p);}
+  for(const p of profiles){getConstituentTypes(p);let reason;if(p.mergedInto)reason=reasons[0];else if(!matches(p,validated.filters))reason=reasons[1];else{matchedCount++;if(p.preference==='Do not contact')reason=reasons[2];else if(requestedChannel==='Email draft'&&p.preference!=='Email')reason=reasons[3];else if(requestedChannel==='Email draft'&&!z.email().safeParse(p.email).success)reason=reasons[4];}if(reason)reasonCounts[reason]++;else eligible.push(p);}
   const digest=definitionDigest(a),sourceDigest=hash({audience:{id:a.id,version:a.version,definitionDigest:digest},channel:requestedChannel,constituents:profiles.map(p=>({id:p.id,version:p.version,recordDigest:hash(p)}))});
   return {audience:{id:a.id,version:a.version,name:a.name,definitionDigest:digest},channel:requestedChannel,sourceDigest,totalCount:profiles.length,matchedCount,eligibleCount:eligible.length,excludedCount:profiles.length-eligible.length,reasonCounts,eligible,...(internal?{profileIds:profiles.map(p=>p.id)}:{})};
  }

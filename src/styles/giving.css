@@ -1,0 +1,86 @@
+/* Namespaced styles for this workstream. Keep the 4px grid, compact type and the single accent. */
+/* Recurring giving (staff) and the public giving page (/give).
+   One restrained accent (var(--accent)); no gradients; no colored status pills.
+   Status is read as text so it survives greyscale, high contrast and screen readers.
+   Financially meaningful controls are never hidden behind animation or hover. */
+
+.recurring-giving{display:flex;flex-direction:column;gap:16px;min-width:0}
+.recurring-giving .header-actions{display:flex;flex-wrap:wrap;gap:8px}
+.recurring-giving .scope-banner{margin:0;padding:12px;border:1px solid var(--border,#d9d6d0);border-left:3px solid var(--accent);border-radius:4px;background:var(--white,#fffdfa);font-size:13px;line-height:1.45}
+.recurring-giving .conflict-banner{margin:0;padding:12px;border:1px solid var(--danger-border,#c99194);border-radius:4px;background:var(--danger-surface,#fff0ef);display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+.recurring-giving .conflict-banner p{margin:0;font-size:13px;line-height:1.45}
+.recurring-giving .section-title{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start;justify-content:space-between}
+.recurring-giving .section-title p{margin:4px 0 0;font-size:13px}
+.recurring-giving .form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(224px,1fr));gap:12px;margin:12px 0}
+.recurring-giving .field-wide{grid-column:1/-1}
+.recurring-giving .form-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.recurring-giving .cell-detail{display:block;font-size:12px;color:var(--muted,#6b6660);margin-top:2px}
+.recurring-giving .money{text-align:right;font-variant-numeric:tabular-nums}
+.recurring-giving td.money,.recurring-giving th.money{white-space:nowrap}
+
+.recurring-review,.recurring-link{margin:12px 0;padding:12px;border:1px solid var(--border,#d9d6d0);border-radius:4px;background:var(--table-header,#f0ede8)}
+.recurring-review h3,.recurring-link h3{margin:0 0 8px;font-size:14px}
+.recurring-review p{margin:0 0 8px;font-size:13px;line-height:1.5}
+.recurring-confirm{display:flex;gap:8px;align-items:flex-start;margin-top:12px;font-size:13px;line-height:1.45}
+.recurring-confirm input{width:16px;height:16px;margin-top:2px;flex:none;accent-color:var(--accent)}
+.recurring-token{display:block;overflow-wrap:anywhere;padding:8px;border:1px solid var(--border,#d9d6d0);border-radius:4px;background:var(--white,#fffdfa);font-size:12px;line-height:1.5}
+
+.recurring-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(196px,1fr));gap:12px;margin:12px 0 0}
+.recurring-facts div{min-width:0}
+.recurring-facts dt{font-size:12px;color:var(--muted,#6b6660);margin-bottom:2px}
+.recurring-facts dd{margin:0;font-size:13px;overflow-wrap:anywhere}
+
+.recurring-history{list-style:none;margin:12px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
+.recurring-history li{padding:8px 12px;border:1px solid var(--border,#d9d6d0);border-left:3px solid var(--accent);border-radius:4px}
+.recurring-history strong{display:block;font-size:13px}
+.recurring-history p{margin:4px 0;font-size:13px;line-height:1.45}
+.recurring-history small{font-size:12px;color:var(--muted,#6b6660)}
+
+.recurring-register td,.recurring-collections td{vertical-align:top}
+.recurring-collections td .btn{margin:0 4px 4px 0}
+
+/* Public page at /give. Deliberately plain: it must read as the foundation's own
+   page, never as a payment terminal, and must state that it takes no payment. */
+.public-giving{max-width:672px;margin:0 auto;padding:24px 16px 48px;display:flex;flex-direction:column;gap:16px;min-width:0}
+.public-giving h1{margin:0;font-size:24px;line-height:1.25}
+.public-giving h2{margin:0 0 8px;font-size:17px}
+.public-scope{margin:0;padding:12px;border:1px solid var(--border,#d9d6d0);border-left:3px solid var(--accent);border-radius:4px;font-size:13px;line-height:1.5}
+.public-panel{padding:16px;border:1px solid var(--border,#d9d6d0);border-radius:4px;background:var(--white,#fffdfa)}
+.public-notice{margin:0 0 12px;padding:12px;border:1px solid var(--border,#d9d6d0);border-left:3px solid var(--accent);border-radius:4px;font-size:13px;line-height:1.5}
+.public-note{margin:12px 0 0;font-size:13px;line-height:1.5;color:var(--muted,#6b6660)}
+.public-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(224px,1fr));gap:12px}
+.public-field{display:flex;flex-direction:column;gap:4px;font-size:13px;min-width:0}
+.public-field-wide{grid-column:1/-1}
+.public-field input,.public-field select,.public-field textarea{width:100%;min-height:36px;padding:8px;border:1px solid var(--field-border,#c9c4bc);border-radius:4px;font:inherit;font-size:14px;background:var(--white,#fffdfa)}
+.public-field textarea{min-height:72px;resize:vertical}
+.public-confirm{display:flex;gap:8px;align-items:flex-start;margin-top:16px;font-size:13px;line-height:1.45}
+.public-confirm input{width:16px;height:16px;margin-top:2px;flex:none;accent-color:var(--accent)}
+.public-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+.public-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:0 0 12px}
+.public-facts dt{font-size:12px;color:var(--muted,#6b6660);margin-bottom:2px}
+.public-facts dd{margin:0;font-size:14px;overflow-wrap:anywhere}
+.public-giving fieldset{border:0;margin:0;padding:0;min-width:0}
+.public-giving fieldset:disabled{opacity:.72}
+
+.recurring-giving :is(button,input,select,textarea,a):focus-visible,
+.public-giving :is(button,input,select,textarea,a):focus-visible{outline:2px solid var(--focus,var(--accent));outline-offset:2px}
+
+@media (max-width:700px){
+ .recurring-giving .section-title{flex-direction:column;align-items:stretch}
+ .recurring-giving .header-actions .btn,.recurring-giving .form-actions .btn,.public-actions .btn{flex:1 1 auto;min-height:44px}
+ .recurring-giving .form-grid,.public-grid,.recurring-facts,.public-facts{grid-template-columns:1fr}
+ /* The register and the collections both restructure into stacked labelled rows
+    rather than a pinched table. Money keeps its exact value and stops being
+    right-aligned once it is no longer in a column. */
+ .recurring-register,.recurring-register tbody,.recurring-register tr,.recurring-register td,
+ .recurring-collections,.recurring-collections tbody,.recurring-collections tr,.recurring-collections td{display:block;width:auto;min-width:0}
+ .recurring-register thead,.recurring-collections thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+ .recurring-register tr,.recurring-collections tr{border:1px solid var(--border,#d9d6d0);border-radius:4px;margin-bottom:8px;padding:8px}
+ .recurring-register td,.recurring-collections td{border:0;padding:4px 0;text-align:left;position:static;height:auto}
+ .recurring-register td::before,.recurring-collections td::before{content:attr(data-label);display:block;font-size:12px;color:var(--muted,#6b6660)}
+ .recurring-register td.money,.recurring-collections td.money{text-align:left;white-space:normal}
+ .public-giving{padding:16px 16px 40px}
+}
+@media (prefers-reduced-motion:reduce){
+ .recurring-giving *,.public-giving *{animation:none!important;transition:none!important}
+}

@@ -79,8 +79,8 @@ export default function Reports({ data, settings, notify, onSaveView, onDeleteVi
     <div className="page-header">
       <div><h1 id={id('title')}>Reports</h1><p className="subtle">Review foundation activity and prepare a shareable record.</p></div>
       <div className="toolbar">
-        <button className="btn btn-secondary" onClick={exportCSV} disabled={!!invalidRange || (!result.rows.length && !(timeReport && result.historicalRows.length))}><Download size={16} aria-hidden="true" /> Export CSV</button>
-        <button className="btn btn-secondary" onClick={() => window.print()} disabled={!!invalidRange}><Printer size={16} aria-hidden="true" /> Print / save PDF</button>
+        <button type="button" className="btn btn-secondary" onClick={exportCSV} disabled={!!invalidRange || (!result.rows.length && !(timeReport && result.historicalRows.length))}><Download size={16} aria-hidden="true" /> Export CSV</button>
+        <button type="button" className="btn btn-secondary" onClick={() => window.print()} disabled={!!invalidRange}><Printer size={16} aria-hidden="true" /> Print / save PDF</button>
       </div>
     </div>
 

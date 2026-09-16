@@ -1,14 +1,15 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { z } from 'zod';
+import { PERSON_TYPES, getConstituentTypes, isPersonConstituent, normalizeAdditionalTypes } from '../shared/constituentTypes.js';
 
 const fail=(status,message)=>{const e=new Error(message);e.status=status;throw e;};
 const key=z.string().min(1).max(100);
 const mergeShape={targetId:key,sourceId:key,targetVersion:z.number().int().min(1),sourceVersion:z.number().int().min(1),reason:z.string().trim().min(1).max(2000),parentId:key.nullable().optional()};
 const mergeSchema=z.object(mergeShape).strict();
 const householdShape={name:z.string().trim().min(1).max(250),address:z.string().trim().max(2000),memberIds:z.array(key).max(250).refine(ids=>new Set(ids).size===ids.length,'Each household member must be unique')};
-const personTypes=new Set(['Individual','Alumni','Employee','Staff']);
+const personTypes=new Set(PERSON_TYPES);
 const fields={
- constituents:['name','email','phone','type','household','parentId','contacts','segments','preference','notes'],
+ constituents:['name','email','phone','type','additionalTypes','household','parentId','contacts','segments','preference','notes'],
  gifts:['constituentId','amount','type','method','date','campaignId','allocations','externalRef','notes','tribute','softCreditId','pledge','pledgeId','grantId','giftKind'],
  grants:['name','funderId','amount','awardedAmount','awardDate','stage','deadline','reportDue','notes'],
  volunteers:['constituentId','skills','shift','eventId','hours','capacity','notes'],
@@ -36,7 +37,7 @@ export function installIdentityRoutes(app,{db,list,get,put,validate,audit,csrf,a
  function checkMembers(p,ownId=null){
   if(db.prepare('SELECT id FROM households WHERE name=? AND id<>?').get(p.name,ownId||''))fail(409,'A household with this name already exists');
   if(list('constituents').some(c=>c.household?.trim().toLocaleLowerCase()===p.name.toLocaleLowerCase()&&!p.memberIds.includes(c.id)&&!c.mergedInto&&membership(c.id)!==ownId))fail(409,'This name is already used by other legacy household members; include or reconcile them first');
-  for(const id of p.memberIds){const c=active(id);if(!personTypes.has(c.type))fail(400,'Only individuals, alumni, employees and staff can belong to a household');const owner=membership(id);if(owner&&owner!==ownId)fail(409,'A person can belong to only one managed household');if(c.household?.trim()&&owner!==ownId&&c.household.trim().toLocaleLowerCase()!==p.name.toLocaleLowerCase())fail(409,'Reconcile this person’s existing household before assigning another');}
+  for(const id of p.memberIds){const c=active(id);if(!isPersonConstituent(c))fail(400,'Only individuals, alumni, employees and staff can belong to a household');const owner=membership(id);if(owner&&owner!==ownId)fail(409,'A person can belong to only one managed household');if(c.household?.trim()&&owner!==ownId&&c.household.trim().toLocaleLowerCase()!==p.name.toLocaleLowerCase())fail(409,'Reconcile this person’s existing household before assigning another');}
  }
  function saveHousehold(p,user,old=null){
   checkMembers(p,old?.id);const at=new Date().toISOString(),id=old?.id||randomUUID(),previous=old?householdView(old):null;
@@ -57,7 +58,9 @@ export function installIdentityRoutes(app,{db,list,get,put,validate,audit,csrf,a
   const all=Object.fromEntries(collections.map(c=>[c,list(c)])),blockers=[],changes=[];
   const block=(collection,recordId,reason)=>blockers.push({collection,recordId,reason});
   if(db.prepare('SELECT 1 FROM identity_aliases WHERE target_id=?').get(source.id))block('constituents',source.id,'This surviving identity already has retained aliases; a history-aware alias workflow is required before merging it into another');
-  if(target.type!==source.type)block('constituents',source.id,'Different constituent types require reconciliation before merging');
+  const targetTypes=getConstituentTypes(target),sourceTypes=getConstituentTypes(source),sameKind=isPersonConstituent(target)===isPersonConstituent(source);
+  if(!sameKind)block('constituents',source.id,'Different constituent types cannot cross person and organization families when merging');
+  const additionalTypes=normalizeAdditionalTypes(target.type,sameKind?[...new Set([...targetTypes,...sourceTypes].filter(type=>type!==target.type))]:target.additionalTypes||[]);
   let parentId=Object.hasOwn(p,'parentId')?p.parentId:target.parentId;
   if(!Object.hasOwn(p,'parentId')&&source.parentId&&source.parentId!==target.parentId)block('constituents',source.id,'Choose an explicit parentId to resolve different organization parents');
   if(parentId===source.id)parentId=target.id;
@@ -70,7 +73,7 @@ export function installIdentityRoutes(app,{db,list,get,put,validate,audit,csrf,a
   for(const c of source.contacts||[]){const k=JSON.stringify([c.name,c.email,c.role]).toLocaleLowerCase();if(!contactKeys.has(k)){contacts.push(c);contactKeys.add(k);}}
   const segments=[...new Set([target.segments,source.segments].flatMap(s=>(s||'').split(',').map(v=>v.trim()).filter(Boolean)))].join(',');
   if(contacts.length>50||segments.length>300)block('constituents',target.id,'Combined contacts or segments exceed supported limits; reconcile them first');
-  const mergedTarget={...target,email:target.email||source.email,phone:target.phone||source.phone,contacts,segments,parentId,household:target.household||source.household,preference:target.preference==='Do not contact'||source.preference==='Do not contact'?'Do not contact':target.preference};
+  const mergedTarget={...target,additionalTypes,email:target.email||source.email,phone:target.phone||source.phone,contacts,segments,parentId,household:target.household||source.household,preference:target.preference==='Do not contact'||source.preference==='Do not contact'?'Do not contact':target.preference};
   const sourceVolunteers=new Set((all.volunteers||[]).filter(v=>v.constituentId===source.id).map(v=>v.id));
   for(const t of all.volunteerTime||[])if(t.constituentId===source.id||sourceVolunteers.has(t.volunteerId))block('volunteerTime',t.id,'Recorded volunteer identity is retained; a history-aware alias workflow is required');
   for(const v of all.volunteers||[])if(v.constituentId===source.id&&v.clockIn)block('volunteers',v.id,'Clock out and reconcile volunteer history before merging');
@@ -107,7 +110,7 @@ export function installIdentityRoutes(app,{db,list,get,put,validate,audit,csrf,a
    put('constituents',{...preview.source,mergedInto:p.targetId,version:preview.source.version+1,updatedAt:at});
    db.prepare('INSERT INTO identity_aliases VALUES(?,?,?,?,?,?)').run(p.sourceId,p.targetId,JSON.stringify(preview.source),p.reason,req.user.id,at);
    if(preview.householdId){db.prepare('DELETE FROM household_members WHERE constituent_id=?').run(p.sourceId);if(!membership(p.targetId))db.prepare('INSERT INTO household_members VALUES(?,?)').run(preview.householdId,p.targetId);db.prepare('UPDATE households SET version=version+1,updated_at=? WHERE id=?').run(at,preview.householdId);audit(req.user,'merge_household_member',null,preview.householdId,{sourceId:p.sourceId,targetId:p.targetId,reason:p.reason});}
-   audit(req.user,'merge_identity','constituents',p.targetId,{sourceId:p.sourceId,targetId:p.targetId,reason:p.reason,previewDigest,rewired:preview.changes.map(c=>({collection:c.collection,recordId:c.recordId})),policy:'Keep target name and contact choices; fill empty email/phone; union contacts/segments; preserve Do not contact; retain original source snapshot'});
+   audit(req.user,'merge_identity','constituents',p.targetId,{sourceId:p.sourceId,targetId:p.targetId,reason:p.reason,previewDigest,rewired:preview.changes.map(c=>({collection:c.collection,recordId:c.recordId})),policy:'Keep target primary type, name and contact choices; union categories only within the same physical family; fill empty email/phone; union contacts/segments; preserve Do not contact; retain original source snapshot'});
    if(hasProtectedConstituentHistory(p.sourceId))fail(409,'Protected fundraising identity history changed before merge commit');
    return {target:get('constituents',p.targetId),source:get('constituents',p.sourceId),rewired:preview.changes.length-1};});res.json(result);
  });

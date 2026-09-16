@@ -10,6 +10,9 @@ const today=new Date().toISOString().slice(0,10);
 const person={id:personId,name:'Taylor Example',type:'Individual',preference:'Email',email:'private@example.test',phone:'555-123-1234',notes:'PRIVATE NOTE MUST NOT LEAVE',contacts:[{name:'Private additional contact'}]};
 const gift={id:giftId,constituentId:personId,amount:12500,type:'Cash',date:today,status:'Posted',notes:'PRIVATE GIFT NOTE',externalRef:'PRIVATE REF'};
 const dataset=()=>({constituents:[{...person}],gifts:[{...gift}],tasks:[{id:randomUUID(),title:'Review support',status:'Open',dueDate:today}],grants:[],volunteers:[]});
+// Remote and cloud-routed egress requires its own recorded approval reference,
+// independent of the workspace data mode and of who supplies the transport.
+const CLOUD_APPROVAL='SEC-2026-09-15/cloud-inference-approved';
 async function fixture(t,{provider={},policy={enabled:true,dataMode:'synthetic'},data=dataset(),fetchImpl,recheckAccess=()=>true,getGrantMilestones,getFundraisingNextActions,limitNow}={}){
  const calls=[],audits=[],scopes=[];const other=dataset();other.constituents[0]={...person,id:otherId,name:'Other tenant person'};other.gifts=[];
  const app=express();app.use(express.json());
@@ -82,8 +85,40 @@ test('draft receipt claims and tool-call-only model responses are refused withou
 });
 
 test('cloud credentials stay server-only and configured cloud models reached locally report cloud processing',async t=>{
- const f=await fixture(t,{provider:{model:'gpt-oss:120b-cloud',baseUrl:'https://ollama.com',apiKey:'SERVER-SECRET'}});const r=await f.request('/api/intelligence',{method:'GET'});assert.equal(r.json.provider.processing,'cloud');assert.doesNotMatch(JSON.stringify(r.json),/SERVER-SECRET|https:\/\/ollama|120b/);assert.equal((await f.request()).status,200);assert.equal(f.calls[0].url,'https://ollama.com/api/chat');assert.equal(f.calls[0].options.headers.Authorization,'Bearer SERVER-SECRET');assert.equal(f.calls[0].options.redirect,'error');assert.doesNotMatch(JSON.stringify(f.audits),/SERVER-SECRET/);
- const proxy=await fixture(t,{provider:{model:'gpt-oss:120b-cloud'}});assert.equal((await proxy.request('/api/intelligence',{method:'GET'})).json.provider.processing,'cloud');await proxy.request();assert.equal(proxy.calls[0].options.headers.Authorization,undefined);
+ const f=await fixture(t,{provider:{model:'gpt-oss:120b-cloud',baseUrl:'https://ollama.com',apiKey:'SERVER-SECRET',remoteAuthorization:CLOUD_APPROVAL}});const r=await f.request('/api/intelligence',{method:'GET'});assert.equal(r.json.provider.processing,'cloud');assert.doesNotMatch(JSON.stringify(r.json),/SERVER-SECRET|https:\/\/ollama|120b/);assert.equal((await f.request()).status,200);assert.equal(f.calls[0].url,'https://ollama.com/api/chat');assert.equal(f.calls[0].options.headers.Authorization,'Bearer SERVER-SECRET');assert.equal(f.calls[0].options.redirect,'error');assert.doesNotMatch(JSON.stringify(f.audits),/SERVER-SECRET/);
+ const proxy=await fixture(t,{provider:{model:'gpt-oss:120b-cloud',remoteAuthorization:CLOUD_APPROVAL}});assert.equal((await proxy.request('/api/intelligence',{method:'GET'})).json.provider.processing,'cloud');await proxy.request();assert.equal(proxy.calls[0].options.headers.Authorization,undefined);
+});
+
+test('remote and cloud-routed egress is refused without a recorded approval, whoever supplies the transport',async t=>{
+ // The fixture always injects its own fetch implementation. Supplying a
+ // transport is not permission to send workspace records off this host, so each
+ // of these is refused with nothing attempted.
+ for(const provider of [{model:'gpt-oss:120b-cloud',baseUrl:'https://ollama.com',apiKey:'SERVER-SECRET'},{model:'gpt-oss:120b-cloud'},{model:'llama3.1',baseUrl:'https://inference.example.test'}]){
+  const f=await fixture(t,{provider});
+  const overview=await f.request('/api/intelligence',{method:'GET'});
+  assert.equal(overview.json.provider.processing,'cloud');
+  assert.equal(overview.json.provider.configured,false);
+  assert.equal(overview.json.provider.egress.authorizationRequired,true);
+  assert.equal(overview.json.provider.egress.authorizationRecorded,false);
+  assert.equal(overview.json.tasks.every(task=>!task.enabled),true);
+  const r=await f.request();
+  assert.equal(r.status,503,JSON.stringify(provider));
+  assert.match(r.json.error,/OLLAMA_REMOTE_AUTHORIZATION/);
+  assert.equal(r.json.generated,undefined);
+  assert.equal(f.calls.length,0,'a request was attempted without a recorded approval');
+ }
+ // A recorded approval is what opens it, and it is recorded with the generation.
+ const approved=await fixture(t,{provider:{model:'llama3.1',baseUrl:'https://inference.example.test',remoteAuthorization:CLOUD_APPROVAL}});
+ assert.equal((await approved.request()).status,200);
+ assert.equal(approved.calls.length,1);
+ assert.equal(approved.audits.at(-1)[4].remoteApproval,CLOUD_APPROVAL);
+ assert.equal(approved.audits.at(-1)[4].egressTransport,'caller-supplied');
+ // A boolean-looking value is not an approval reference.
+ for(const value of ['1','true','yes']){
+  const flagged=await fixture(t,{provider:{model:'llama3.1',baseUrl:'https://inference.example.test',remoteAuthorization:value}});
+  assert.equal((await flagged.request()).status,503,value);
+  assert.equal(flagged.calls.length,0,value);
+ }
 });
 
 test('invalid remote HTTP configuration and missing direct-cloud credentials are unavailable',async t=>{

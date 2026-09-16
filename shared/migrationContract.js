@@ -2,7 +2,7 @@
 // This is not a parser for an arbitrary provider export.
 export const MIGRATION_COLLECTIONS = Object.freeze(['constituents', 'designations', 'campaigns', 'gifts', 'communications']);
 export const MIGRATION_FIELDS = Object.freeze({
- constituents:Object.freeze(['sourceId','name','type','email','phone','household','parentSourceId','segments','preference','notes','contacts']),
+ constituents:Object.freeze(['sourceId','name','type','email','phone','household','parentSourceId','segments','preference','notes','contacts','additionalTypes']),
  designations:Object.freeze(['sourceId','name','accountCode','school','parentSourceId','description']),
  campaigns:Object.freeze(['sourceId','name','type','goal','startDate','endDate','status','description']),
  gifts:Object.freeze(['sourceId','donorSourceId','amount','type','method','date','designationSourceId','allocations','externalRef','notes','tribute','softCreditSourceId','giftKind','campaignSourceId']),

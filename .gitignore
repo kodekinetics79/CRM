@@ -15,3 +15,7 @@ dist/
 .DS_Store
 .impeccable/*
 !.impeccable/design.json
+
+# Internal security working notes: threat model with file/line detail and incident
+# templates. This repository is public, so these stay local and are shared privately.
+work/

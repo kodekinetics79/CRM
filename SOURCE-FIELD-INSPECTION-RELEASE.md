@@ -1,0 +1,21 @@
+# Wimblo — explicit source field review
+
+September 13, 2026. Continued local option-2 implementation. Eligibility and Render remain deferred. No real buyer conversion, provider execution or institutional acceptance.
+
+The custom-report field picker now offers **Review all source fields**. The initial catalog remains a quick sampled metadata view. The explicit review inspects all currently visible projected rows of the chosen source under bounded limits, helping expose optional fields that only occur after the initial metadata sample. It returns field definitions and inspection counts, not source record values or identifiers. It preserves the current report definition and refreshes only the selected source. Previous results are cleared and must be rerun against the reviewed fields.
+
+For gift and allocation field review, authorized voided gifts are included so optional fields available through Include voided reports are discoverable. This is schema discovery, not income calculation: the existing report filters and Include voided selection are unchanged, and native gift status/receipts are never rewritten.
+
+Full inspection does not widen the report allowlist or permissions. Administrator-only sources remain restricted; current and historical private source rules still apply. Source row and clean-fact byte budgets are checked before field discovery. A refused inspection publishes no partial schema. Native source lists are still materialized before processing guards, so this is not streaming archive discovery or proof of production memory/concurrency readiness.
+
+Limits are 100,000 selected projected rows, 64 MB clean projected facts and 1 MB schema response. Nested field discovery retains the existing maximum of four levels and first 100 items per array. “All source fields” concerns this bounded allowed source scope; it does not mean arbitrary file contents, every buyer field or unknown ten-year source structures. Buyer-approved full field/history inventory and reconciliation still require acceptance.
+
+Saved filters whose fields are missing from the sampled catalog retain their original stored values until reviewed. Run/save controls direct the user to source inspection. Newly discovered money fields format preserved cents as exact signed dollars, including arrays; explicit edits are preserved as the entered display units. A local integer-based parser prevents one-cent round-trip drift at safe-range limits and refuses oversize values. UI-only unresolved-value markers never reach the server definition.
+
+Responses arriving after definition/entity changes, account/API changes or leaving the screen cannot replace its schema. A failed inspection leaves the earlier authorized schema and preview usable; complete exports independently recheck current facts. Accepted inspection clears the old preview and download controls without silently editing the definition.
+
+## Verification
+
+**946/946 integrated tests pass**, zero failures, cancellations or skips (76.541318s). Final build passes (3.26s). Eight source-inspection backend cases and 102 related regressions pass. Forty-four focused UI/scale cases pass, including twenty source-inspection UI cases and eight saved-money cases. Built desktop (1440 × 1000) and mobile (390 × 844) native journey reviews source fields, clears old results, reruns and downloads a complete CSV. It also creates one synthetic $100.01 gift, saves the filter as exactly 10,001 native cents, reloads $100.01 and exports the single matching record. Page identity, nonblank content, no framework overlay, signed-in console health, screenshots and interactions pass; initial HTTP 401 is expected. Browser plugin was absent; bundled Playwright was used. Code/evidence source manifest `0daaea48cd7021a3d7637dbee8e921a282f13f7ed00a19b65c326e5315f0279c` is recorded in `SOURCE-FIELD-INSPECTION-VERIFICATION.json`. Existing synthetic preview on port 4346 was restarted against current source while retaining its database; browser testing used isolated port 4348.
+
+The prior 918-test complete-export checkpoint remains separately recorded in `COMPLETE-REPORT-EXPORT-VERIFICATION.json`. Requirements B2/B6 retain their existing dispositions. Overall counts remain 46 Local basic / 33 Partial / 2 Missing / 3 external evidence, zero buyer accepted.

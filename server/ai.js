@@ -19,19 +19,45 @@ const isPosted=g=>g.status!=='Voided'&&g.type!=='Fee payment'&&g.type!=='In-kind
 const error=(status,message)=>Object.assign(new Error(message),{status});
 const localHost=host=>['localhost','127.0.0.1','[::1]'].includes(host);
 
+// Sending workspace records off this host is authorized on its own terms.
+// It is NOT inherited from how the database was initialised: demonstration
+// seed, ALLOW_DEMO, EVALUATOR_MODE and a synthetic aiPolicy.dataMode grant no
+// egress permission, because none of them says anything about what the records
+// actually are. A non-production instance holding converted buyer data can pass
+// the synthetic gate; it cannot pass this one. The approval must name itself,
+// so a boolean-looking flag is refused: the value is recorded in the audit
+// entry of every remote generation as the standing approval reference.
+export const REMOTE_EGRESS_REASON='Sending workspace records to a remote or cloud-routed model requires OLLAMA_REMOTE_AUTHORIZATION: an explicit recorded approval reference of at least 8 characters, and not a boolean flag. Demonstration seed, evaluator mode and synthetic data mode never grant it, because they describe how the database was initialised rather than what it holds.';
+const BOOLEANISH=new Set(['1','0','true','false','yes','no','on','off','y','n','enable','enabled','disable','disabled','allow','allowed','ok']);
+export function recordedRemoteAuthorization(value){
+ const reference=String(value??'').trim();
+ return reference.length>=8&&reference.length<=200&&/^[A-Za-z0-9][A-Za-z0-9 ._:/#-]*$/.test(reference)&&!BOOLEANISH.has(reference.toLowerCase())?reference:'';
+}
+
 function configuration(provider={}){
  const baseUrl=provider.baseUrl??process.env.OLLAMA_BASE_URL??'http://127.0.0.1:11434';
  const model=provider.model??process.env.OLLAMA_MODEL??'';
  const apiKey=provider.apiKey??process.env.OLLAMA_API_KEY??'';
+ // The transport is recorded as evidence, never as permission. A caller that
+ // supplies its own transport is governed exactly like Wimblo's own network
+ // stack: "no current caller does that" is a property of today's code, not a
+ // control, and a gate that lapses when a provider is constructed in source
+ // would be the same silent bypass this gate exists to remove.
+ const ownTransport=typeof provider.fetchImpl!=='function';
+ const authorization=recordedRemoteAuthorization(provider.remoteAuthorization??process.env.OLLAMA_REMOTE_AUTHORIZATION);
  let endpoint,cloud=false,reason='';
  try{
   const u=new URL(baseUrl);cloud=!localHost(u.hostname)||/(?:[-:]cloud)$/.test(model);
   if(!['http:','https:'].includes(u.protocol)||u.username||u.password||u.search||u.hash||!['','/','/api','/api/'].includes(u.pathname)||u.protocol==='http:'&&!localHost(u.hostname))throw new Error();
   endpoint=new URL('/api/chat',u.origin).href;
   if(!model||model.length>160||!/^[-a-zA-Z0-9_.:/]+$/.test(model))reason='A server-configured OLLAMA_MODEL is required.';
+  else if(cloud&&!authorization)reason=REMOTE_EGRESS_REASON;
   else if(u.hostname==='ollama.com'&&(!apiKey||u.protocol!=='https:'))reason='Direct Ollama cloud access requires HTTPS and a server API key.';
  }catch{reason='The server Ollama endpoint configuration is invalid.';}
- return {configured:!reason,reason,endpoint,model,apiKey,cloud,fetchImpl:provider.fetchImpl??globalThis.fetch,timeoutMs:Math.min(TIMEOUT,Math.max(10,provider.timeoutMs??TIMEOUT))};
+ // A cloud-routed model reached through a local client is remote processing,
+ // not local processing, and is gated the same way.
+ const egress={remote:cloud,transport:ownTransport?'wimblo':'caller-supplied',authorizationRequired:cloud,authorizationRecorded:Boolean(authorization),reference:cloud&&authorization?authorization:null,independentOfDataMode:true,independentOfTransport:true};
+ return {configured:!reason,reason,endpoint,model,apiKey,cloud,egress,fetchImpl:provider.fetchImpl??globalThis.fetch,timeoutMs:Math.min(TIMEOUT,Math.max(10,provider.timeoutMs??TIMEOUT))};
 }
 
 export function computePriorities(data,today=new Date().toISOString().slice(0,10)){
@@ -84,6 +110,14 @@ async function generate(config,messages,req,res){
  finally{clearTimeout(timer);res.off('close',onClose);controller.abort();}
 }
 
+// Internal snapshots retain only the source identity, lifecycle and financial
+// facts required to verify the reviewed prompt. They are never sent to a model.
+const pickSource=(record,keys)=>Object.fromEntries(keys.map(key=>[key,record[key]??null]));
+const personSource=record=>pickSource(record,['id','version','name','type','preference','mergedInto']);
+const giftSource=record=>({...pickSource(record,['id','version','constituentId','amount','date','type','method','status','giftKind','campaignId','pledgeId','grantId','softCreditId']),allocations:Array.isArray(record.allocations)?record.allocations.map(a=>pickSource(a,['designationId','amount'])):null,acknowledgment:record.acknowledgment?pickSource(record.acknowledgment,['date','channel']):null});
+const canonical=value=>JSON.stringify(value,function(key,value){return value&&typeof value==='object'&&!Array.isArray(value)?Object.fromEntries(Object.keys(value).sort().map(key=>[key,value[key]])):value;});
+const permissionScope=req=>({tenantId:String(req.tenantId??req.tenant?.id??'workspace'),userId:req.user?.id??null,role:req.user?.role??null});
+
 export function installAiRoutes(app,{list,get,audit,csrf,write,aiPolicy,provider,recheckAccess,getGrantMilestones,getFundraisingNextActions,limitNow=Date.now}={}){
  const config=configuration(provider);
  const generationLimits=new Map();
@@ -112,7 +146,7 @@ export function installAiRoutes(app,{list,get,audit,csrf,write,aiPolicy,provider
    const data=Object.fromEntries(['tasks','constituents','gifts','grants','volunteers'].map(c=>[c,list(c,req)]));
    if(getGrantMilestones!==undefined){try{if(typeof getGrantMilestones!=='function')throw new Error();const milestones=getGrantMilestones(req);if(!Array.isArray(milestones))throw new Error();data.grantMilestones=milestones;}catch{throw error(503,'Grant milestone priorities are unavailable. No priority result was produced.');}}
    if(getFundraisingNextActions!==undefined){try{if(typeof getFundraisingNextActions!=='function')throw new Error();const actions=getFundraisingNextActions(req);if(!Array.isArray(actions))throw new Error();data.fundraisingNextActions=actions;}catch{throw error(503,'Major gift follow-up priorities are unavailable. No priority result was produced.');}}
-   res.json({priorities:computePriorities(data),scope:'Rule-based priorities from saved workspace facts; not model predictions.',policy,provider:{name:'Ollama',configured:config.configured,processing:config.cloud?'cloud':'local',reason:config.reason||'Configured; provider availability is checked when you request assistance.'},tasks:TASKS.map(t=>({...t,enabled:eligible&&config.configured}))});
+   res.json({priorities:computePriorities(data),scope:'Rule-based priorities from saved workspace facts; not model predictions.',policy,provider:{name:'Ollama',configured:config.configured,processing:config.cloud?'cloud':'local',egress:config.egress,reason:config.reason||'Configured; provider availability is checked when you request assistance.'},tasks:TASKS.map(t=>({...t,enabled:eligible&&config.configured}))});
   }catch(e){next(e);}
  });
  app.post('/api/intelligence/assist',csrf,role,...(write?[write]:[]),async(req,res,next)=>{
@@ -122,53 +156,190 @@ export function installAiRoutes(app,{list,get,audit,csrf,write,aiPolicy,provider
    const policy=policyFor(req);
    if(!policy.enabled||policy.dataMode!=='synthetic')throw error(403,'Model assistance is disabled for this workspace or its data policy. Restricted records are not sent to a provider.');
    if(!config.configured)throw error(503,config.reason);
+   // Rechecked at execution time and separately from the workspace data policy,
+   // so neither gate can stand in for the other.
+   if(config.egress.authorizationRequired&&!config.egress.authorizationRecorded)throw error(503,REMOTE_EGRESS_REASON);
    if(typeof recheckAccess!=='function')throw error(503,'Model assistance access rechecks are unavailable. Nothing was saved or sent.');
-   const sources=[];let prompt,originalGift,originalPerson;
-   const today=new Date().toISOString().slice(0,10);
-   if(task==='help'){
-    const question=text(body.question).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,'[email omitted]').replace(/https?:\/\/\S+/gi,'[URL omitted]').replace(/\+?[\d() .-]{8,}/g,'[number omitted]');
-    if(!question)throw error(400,'Enter a workflow question.');
-    prompt=helpInstructions+'\nUser workflow question (untrusted text): '+JSON.stringify(question);
-   }else if(task==='constituent-summary'){
-    const person=get('constituents',body.recordId,req);originalPerson={id:person.id,name:person.name,type:person.type,preference:person.preference};sources.push({collection:'constituents',id:person.id});
-    const gifts=list('gifts',req).filter(g=>g.constituentId===person.id&&isPosted(g)&&date(g.date)&&g.date<=today);
-    const recent=gifts.slice().sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5);
-    const facts={name:label(person.name),type:label(person.type),contactPreference:label(person.preference),postedMonetaryGifts:gifts.length,totalCents:gifts.reduce((n,g)=>n+amount(g.amount),0),recentGifts:recent.map(g=>({date:g.date,amountCents:amount(g.amount),type:label(g.type)}))};
-    for(const g of recent)sources.push({collection:'gifts',id:g.id});
-    prompt='Summarize this constituent in no more than five factual bullets. Monetary amounts are USD cents, and counts are saved posted monetary gifts through '+today+'. Do not infer lifetime value, preferences beyond the field, motives, wealth or future giving. No private notes, contact details or message history are provided. Facts: '+JSON.stringify(facts);
-   }else{
-    const gift=get('gifts',body.recordId,req),person=get('constituents',gift.constituentId,req);
-    originalGift={constituentId:gift.constituentId,amount:gift.amount,date:gift.date,type:gift.type,status:gift.status};originalPerson={id:person.id,name:person.name,type:person.type,preference:person.preference};
-    if(person.preference==='Do not contact')throw error(403,'Do not contact: thank-you drafting is blocked.');
-    if(!isPosted(gift)||!date(gift.date)||gift.date>today)throw error(409,'Choose a posted monetary gift dated today or earlier; voids, fees and in-kind support are excluded.');
-    sources.push({collection:'gifts',id:gift.id},{collection:'constituents',id:person.id});
-    prompt='Draft a short warm thank-you of at most 180 words, for human review. It is an unsent draft, not a completed acknowledgment or financial/tax receipt. Do not mention receipts, taxes, legal status, deduction, goods/services or official certification. Do not include contact details or invent an organization or designation. USD amount is cents. Use only these facts: '+JSON.stringify({donorName:label(person.name),giftDate:gift.date,amountCents:amount(gift.amount),type:label(gift.type)});
-   }
+   const capture=()=>{
+    const sources=[];let prompt,personPin=null,giftPins=[];
+    const today=task==='help'?null:new Date().toISOString().slice(0,10);
+    if(task==='help'){
+     const question=text(body.question).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,'[email omitted]').replace(/https?:\/\/\S+/gi,'[URL omitted]').replace(/\+?[\d() .-]{8,}/g,'[number omitted]');
+     if(!question)throw error(400,'Enter a workflow question.');
+     prompt=helpInstructions+'\nUser workflow question (untrusted text): '+JSON.stringify(question);
+    }else if(task==='constituent-summary'){
+     const person=get('constituents',body.recordId,req);personPin=personSource(person);sources.push({collection:'constituents',id:person.id});
+     const gifts=list('gifts',req).filter(g=>g.constituentId===person.id&&isPosted(g)&&date(g.date)&&g.date<=today);
+     giftPins=gifts.map(giftSource).sort((a,b)=>String(a.id).localeCompare(String(b.id)));
+     const recent=gifts.slice().sort((a,b)=>b.date.localeCompare(a.date)||String(a.id).localeCompare(String(b.id))).slice(0,5);
+     const facts={name:label(person.name),type:label(person.type),contactPreference:label(person.preference),postedMonetaryGifts:gifts.length,totalCents:gifts.reduce((n,g)=>n+amount(g.amount),0),recentGifts:recent.map(g=>({date:g.date,amountCents:amount(g.amount),type:label(g.type)}))};
+     for(const g of recent)sources.push({collection:'gifts',id:g.id});
+     prompt='Summarize this constituent in no more than five factual bullets. Monetary amounts are USD cents, and counts are saved posted monetary gifts through '+today+'. Do not infer lifetime value, preferences beyond the field, motives, wealth or future giving. No private notes, contact details or message history are provided. Facts: '+JSON.stringify(facts);
+    }else{
+     const gift=get('gifts',body.recordId,req),person=get('constituents',gift.constituentId,req);personPin=personSource(person);giftPins=[giftSource(gift)];
+     if(person.preference==='Do not contact')throw error(403,'Do not contact: thank-you drafting is blocked.');
+     if(!isPosted(gift)||!date(gift.date)||gift.date>today)throw error(409,'Choose a posted monetary gift dated today or earlier; voids, fees and in-kind support are excluded.');
+     sources.push({collection:'gifts',id:gift.id},{collection:'constituents',id:person.id});
+     prompt='Draft a short warm thank-you of at most 180 words, for human review. It is an unsent draft, not a completed acknowledgment or financial/tax receipt. Do not mention receipts, taxes, legal status, deduction, goods/services or official certification. Do not include contact details or invent an organization or designation. USD amount is cents. Use only these facts: '+JSON.stringify({donorName:label(person.name),giftDate:gift.date,amountCents:amount(gift.amount),type:label(gift.type)});
+    }
+    return {sources,prompt,pin:canonical({request:body,instructions,prompt,cutoff:today,permission:permissionScope(req),person:personPin,gifts:giftPins})};
+   };
+   const originalScope=canonical(permissionScope(req)),original=capture();
    releaseGeneration=acquireGeneration(req);
-   const output=await generate(config,[{role:'system',content:instructions},{role:'user',content:prompt}],req,res);
+   const output=await generate(config,[{role:'system',content:instructions},{role:'user',content:original.prompt}],req,res);
    await confirmAccess(req);
    const currentPolicy=policyFor(req);
    if(!currentPolicy.enabled||currentPolicy.dataMode!=='synthetic')throw error(403,'Workspace model policy changed while assistance was running. The generated text was withheld.');
-   if(originalPerson){
-    const currentPerson=get('constituents',originalPerson.id,req);
-    if(task==='thank-you-draft'&&currentPerson.preference==='Do not contact')throw error(403,'Do not contact: preference changed while drafting. The generated text was withheld.');
-    if(['name','type','preference'].some(key=>currentPerson[key]!==originalPerson[key]))throw error(409,'The selected record changed while assistance was running. Review its current facts and try again.');
-   }
-   if(originalGift){
-    const currentGift=get('gifts',body.recordId,req);
-    const currentDonor=get('constituents',currentGift.constituentId,req);
-    if(currentDonor.preference==='Do not contact')throw error(403,'Do not contact: the current recipient is opted out. The generated text was withheld.');
-    if(Object.keys(originalGift).some(key=>currentGift[key]!==originalGift[key]))throw error(409,'The selected gift changed while drafting. Review its current facts and try again.');
-   }
+   if(canonical(permissionScope(req))!==originalScope)throw error(403,'Your permission scope changed while assistance was running. The generated text was withheld.');
+   const changedMessage=task==='thank-you-draft'?'The selected gift changed while drafting. Review its current facts and try again.':'The selected record or included gift sources changed while assistance was running. Review current facts and try again.';
+   let current;try{current=capture();}catch(e){if([404,409].includes(e.status))throw error(409,changedMessage);throw e;}
+   if(current.pin!==original.pin)throw error(409,changedMessage);
    if(unsupportedWorkflow(output))throw error(503,'The model suggested an unsupported action or control. Nothing was saved or sent. Use the current screen guide and visible save controls.');
    if(task==='thank-you-draft'&&/\b(receipt|tax|deductib(?:le|ility)|tax[- ]deductible|message (?:has been|was) sent|payment (?:has been|was) processed)\b/i.test(output))throw error(503,'The generated draft included unsupported receipt or completion claims. Nothing was saved or sent; try again.');
-   audit?.(req.user,'ai_assist',null,null,{task,status:'completed',durationMs:Date.now()-started,processing:config.cloud?'cloud':'local'});status='completed';
-   res.json({task,text:output,recordId:body.recordId??null,sources,generated:true,provider:'Ollama',reviewRequired:true});
+   audit?.(req.user,'ai_assist',null,null,{task,status:'completed',durationMs:Date.now()-started,processing:config.cloud?'cloud':'local',...(config.cloud?{remoteApproval:config.egress.reference,egressTransport:config.egress.transport}:{})});status='completed';
+   res.json({task,text:output,recordId:body.recordId??null,sources:original.sources,generated:true,provider:'Ollama',reviewRequired:true});
   }catch(e){
    if(task&&status!=='completed')audit?.(req.user,'ai_assist',null,null,{task,status:'failed',durationMs:Date.now()-started});
    if(e instanceof z.ZodError)return res.status(400).json({error:'Invalid assistance request. Choose a supported task and bounded input.'});
    if(e.status){if(e.retryAfter)res.set('Retry-After',String(e.retryAfter));return res.status(e.status).json({error:e.message});}
    next(e);
   }finally{releaseGeneration?.();}
+ });
+}
+
+// ---------------------------------------------------------------------------
+// Phase 9: provider-neutral assistance boundary.
+//
+// This boundary lets a narrative surface exist without a hosted model and
+// without a network call. It is OFF unless a workspace explicitly configures the
+// deterministic local mode, and the only supported mode is local: an unknown or
+// hosted mode is reported as unavailable rather than attempted. The local
+// provider holds no transport of any kind. It renders fixed sentences from
+// typed, already-verified facts, so constituent-supplied names, notes, messages
+// and documents can never reach it as instructions. It recommends and
+// summarises only; every consequential action stays with an authorized human.
+export const AI_PROVIDER_MODES=Object.freeze(['off','local']);
+export const AI_CONSEQUENTIAL_ACTIONS=Object.freeze(['post_gift','void_gift','send_communication','change_consent','merge_identity','issue_receipt','change_permission','delete_record','export_outside_scope']);
+
+// Patterns are evidence labels for review, never filters that make text safe.
+// Detected text is reported by field and pattern name and is never echoed back,
+// so a flagged record cannot use the finding itself as an exfiltration channel.
+const INJECTION_PATTERNS=Object.freeze([
+ ['instruction-override',/\b(?:ignore|disregard|forget|override)\b[^.]{0,40}\b(?:previous|prior|above|earlier|all)\b[^.]{0,20}\b(?:instruction|instructions|prompt|prompts|rule|rules|direction|directions)\b/i],
+ ['role-reassignment',/\b(?:you\s+are\s+now|act\s+as|pretend\s+to\s+be|from\s+now\s+on\s+you)\b|\b(?:new\s+)?system\s+prompt\b|^\s*system\s*:/im],
+ ['data-exfiltration-request',/\b(?:list|export|dump|send|email|reveal|show|print)\b[^.]{0,30}\b(?:all|every|each)\b[^.]{0,30}\b(?:donor|donors|constituent|constituents|gift|gifts|record|records|amount|amounts|email|emails|address|addresses|password|passwords)\b/i],
+ ['action-request',/\b(?:merge|delete|void|post|issue|approve|send|grant)\b[^.]{0,20}\b(?:gift|gifts|receipt|receipts|identity|identities|record|records|message|messages|communication|communications|permission|permissions|consent)\b/i],
+ ['credential-request',/\b(?:api[_ -]?key|password|secret|token|credential|OLLAMA_API_KEY)\b/i],
+ ['markup-injection',/<\s*\/?\s*(?:script|iframe|object|embed|system|instruction|instructions)\b/i],
+ ['template-injection',/\{\{[\s\S]{0,200}?\}\}|\$\{[\s\S]{0,200}?\}|<%[\s\S]{0,200}?%>/],
+ ['delimiter-injection',/\bBEGIN\s+(?:SYSTEM|PROMPT|INSTRUCTIONS)\b|\[\[[\s\S]{0,200}?\]\]|```/i],
+ ['external-link',/\bhttps?:\/\/\S+|\bdata:[a-z]+\/[a-z0-9.+-]+;base64,/i]
+]);
+
+// Returns the pattern labels a value matched. Never returns the matched text.
+export function detectInjection(value){
+ const raw=typeof value==='string'?value:'';
+ if(!raw)return [];
+ const capped=raw.slice(0,20000);
+ return INJECTION_PATTERNS.filter(([,pattern])=>pattern.test(capped)).map(([name])=>name);
+}
+
+// Untrusted record text reduced to inert display characters. Delimiters, markup
+// and template syntax are removed so the value cannot frame an instruction.
+export function sanitizeUntrustedText(value,limit=250){
+ return text(value).replace(/[`{}<>[\]\\|$%^~]/g,' ').replace(/\s+/g,' ').trim().slice(0,Math.max(1,Math.min(1000,limit)));
+}
+
+export const containsUnsupportedAction=output=>unsupportedWorkflow(String(output??''));
+
+const exactCents=value=>{if(!Number.isSafeInteger(value)||value<0)throw error(503,'A narrative figure is not an exact non-negative integer cent value. Nothing was stated.');return '$'+String(Math.floor(value/100)).replace(/\B(?=(\d{3})+(?!\d))/g,',')+'.'+String(value%100).padStart(2,'0');};
+const countText=value=>{if(!Number.isSafeInteger(value)||value<0)throw error(503,'A narrative count is not an exact non-negative integer. Nothing was stated.');return String(value);};
+
+const safeLabel=z.string().trim().min(1).max(120).regex(/^[\p{L}\p{N} .,'’&()/-]+$/u,'Narrative labels accept plain saved record names only.');
+const isoDay=z.string().regex(/^\d{4}-\d{2}-\d{2}$/,'Narrative dates must be saved ISO days.');
+const sourceRef=z.object({collection:z.string().regex(/^[a-zA-Z][a-zA-Z0-9]{0,39}$/),id:z.string().min(1).max(100),version:z.number().int().min(1)}).strict();
+const narrativeFact=z.object({key:z.string().regex(/^[a-z][a-z0-9-]{1,40}$/),kind:z.enum(['cents','count','date','label']),cents:z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),count:z.number().int().min(0).max(1e9).optional(),date:isoDay.optional(),label:safeLabel.optional(),sources:z.array(sourceRef).min(1).max(500)}).strict().superRefine((v,ctx)=>{
+ const present=['cents','count','date','label'].filter(key=>v[key]!==undefined);
+ if(present.length!==1||present[0]!==v.kind)ctx.addIssue({code:'custom',message:'Each narrative fact carries exactly the one typed value its kind declares.'});
+});
+
+// Fixed sentence forms. Every part is either a literal this file owns or one
+// declared fact. There is no free-text channel and no model call.
+const TEMPLATES=Object.freeze({
+ 'scope-period':{facts:['from','to'],parts:['This narrative covers ',['from'],' through ',['to'],' and states only figures taken from the cited saved records.']},
+ 'posted-total':{facts:['count','cents'],parts:['Posted monetary gifts recorded in this period: ',['count'],', totalling ',['cents'],' in exact recorded cents.']},
+ 'designation-total':{facts:['label','count','cents'],parts:[['label'],' — posted allocations recorded in this period: ',['count'],', totalling ',['cents'],'.']},
+ 'donor-total':{facts:['label','count','cents'],parts:[['label'],' — posted monetary gifts recorded in this period: ',['count'],', totalling ',['cents'],'.']},
+ 'acknowledgment-gap':{facts:['count','cents'],parts:['Posted gifts in this period with no acknowledgment recorded: ',['count'],', totalling ',['cents'],'. Recording an acknowledgment is a staff action Wimblo does not perform.']},
+ 'grant-pipeline':{facts:['count','cents'],parts:['Community grants with a saved deadline in this period: ',['count'],', with ',['cents'],' recorded as the requested total. No grant was submitted, and no external outcome is claimed.']},
+ 'grant-awarded':{facts:['count','cents'],parts:['Community grants recorded as awarded in this period: ',['count'],', with ',['cents'],' recorded as the awarded total.']},
+ 'pledge-balance':{facts:['count','committed','received','balance'],parts:['Pledges recorded in scope: ',['count'],'. Recorded commitments total ',['committed'],', posted fulfilment gifts total ',['received'],', and the recorded outstanding balance is ',['balance'],'.']},
+ 'no-inference':{facts:[],parts:['No trend, forecast, comparison or likelihood is stated here; only the recorded figures above.']},
+ 'review-required':{facts:[],parts:['Every figure above is taken from the cited saved records and requires human review before use.']}
+});
+export const AI_NARRATIVE_TEMPLATES=Object.freeze(Object.keys(TEMPLATES));
+
+const narrativeRequest=z.object({
+ kind:z.string().regex(/^[a-z][a-z0-9-]{1,40}$/),
+ facts:z.array(narrativeFact).min(1).max(60),
+ sentences:z.array(z.object({template:z.enum(AI_NARRATIVE_TEMPLATES),facts:z.record(z.string().regex(/^[a-z][a-z0-9-]{1,40}$/),z.string().regex(/^[a-z][a-z0-9-]{1,40}$/)).optional()}).strict()).min(1).max(30)
+}).strict();
+
+const NUMBER_TOKEN=/\d(?:[\d,.-]*\d)?/g;
+
+function renderNarrative(request){
+ const parsed=narrativeRequest.parse(request);
+ const byKey=new Map();
+ for(const fact of parsed.facts){if(byKey.has(fact.key))throw error(400,'Narrative facts must each have one key.');byKey.set(fact.key,fact);}
+ const rendered=new Map([...byKey].map(([key,fact])=>[key,fact.kind==='cents'?exactCents(fact.cents):fact.kind==='count'?countText(fact.count):fact.kind==='date'?fact.date:sanitizeUntrustedText(fact.label,120)]));
+ const segments=[],used=new Set();
+ for(const sentence of parsed.sentences){
+  const template=TEMPLATES[sentence.template],bind=sentence.facts||{};
+  for(const slot of template.facts)if(!bind[slot])throw error(400,'Sentence '+sentence.template+' requires the fact slot '+slot+'.');
+  for(const slot of Object.keys(bind))if(!template.facts.includes(slot))throw error(400,'Sentence '+sentence.template+' does not accept the fact slot '+slot+'.');
+  for(const part of template.parts){
+   if(typeof part==='string'){segments.push({text:part,verify:true});continue;}
+   const fact=byKey.get(bind[part[0]]);
+   if(!fact)throw error(400,'Sentence '+sentence.template+' cites an undeclared fact.');
+   used.add(fact.key);
+   segments.push({text:rendered.get(fact.key),verify:fact.kind!=='label'});
+  }
+  segments.push({text:' ',verify:true});
+ }
+ const output=segments.map(s=>s.text).join('').replace(/\s+/g,' ').trim();
+ if(!output)throw error(503,'The local narrative produced no text. Nothing was stated.');
+ if(containsUnsupportedAction(output))throw error(503,'The narrative described an unsupported action or control. Nothing was stated, saved or sent.');
+ // Every numeric token outside a saved record name must be one declared figure.
+ const allowed=new Set();
+ for(const [key,fact] of byKey)if(fact.kind!=='label')for(const token of String(rendered.get(key)).match(NUMBER_TOKEN)||[])allowed.add(token);
+ for(const segment of segments){
+  if(!segment.verify)continue;
+  for(const token of String(segment.text).match(NUMBER_TOKEN)||[])if(!allowed.has(token))throw error(503,'A narrative figure could not be verified against the cited records. The narrative was refused rather than approximated.');
+ }
+ const citedFacts=[...byKey.values()].filter(fact=>used.has(fact.key));
+ const sources=[];const seen=new Set();
+ for(const fact of citedFacts)for(const source of fact.sources){const key=source.collection+':'+source.id+':'+source.version;if(!seen.has(key)){seen.add(key);sources.push(source);}}
+ return {kind:parsed.kind,text:output,provider:'local-deterministic',network:false,hosted:false,generated:false,reviewRequired:true,
+  figures:citedFacts.map(fact=>({key:fact.key,kind:fact.kind,rendered:rendered.get(fact.key),cents:fact.cents??null,count:fact.count??null,date:fact.date??null,sources:fact.sources})),
+  sources:sources.sort((a,b)=>a.collection.localeCompare(b.collection)||String(a.id).localeCompare(String(b.id)))};
+}
+
+// The provider-neutral seam. Default OFF. No mode reachable from here performs
+// a network request, and no hosted model is contacted under any configuration.
+export function createAiProvider(config={}){
+ const requested=typeof config?.mode==='string'?config.mode.trim().toLowerCase():'off';
+ const supported=AI_PROVIDER_MODES.includes(requested);
+ const mode=supported?requested:'off';
+ const available=mode==='local';
+ const reason=!supported?'Only the deterministic local assistance mode is supported here. A hosted or unrecognised provider is never contacted.':mode==='off'?'Assistance is off for this workspace. Deterministic findings remain available without it.':'Deterministic local composition from verified saved records. No network request and no hosted model are used.';
+ return Object.freeze({
+  name:available?'local-deterministic':'none',mode,requestedMode:requested,supported,available,network:false,hosted:false,reason,
+  templates:AI_NARRATIVE_TEMPLATES,
+  neverPerforms:AI_CONSEQUENTIAL_ACTIONS,
+  describe(){return {name:this.name,mode,requestedMode:requested,supported,available,network:false,hosted:false,reason,templates:AI_NARRATIVE_TEMPLATES,neverPerforms:AI_CONSEQUENTIAL_ACTIONS};},
+  compose(request){
+   if(!available)throw error(503,reason);
+   return renderNarrative(request);
+  }
  });
 }

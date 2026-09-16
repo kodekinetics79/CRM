@@ -1,0 +1,961 @@
+{
+  "at": "2026-09-13T23:46:16.263981+00:00",
+  "gitBase": "8dfdc2870539a252819a4eabedd26467cabdffa4",
+  "workingTree": "Local uncommitted source; not deployed",
+  "integratedSuite": {
+    "tests": 982,
+    "passed": 982,
+    "failed": 0,
+    "skipped": 0,
+    "durationSeconds": 73.68845574999999
+  },
+  "buildSeconds": 1.24,
+  "criterion": "A1.2",
+  "localDisposition": "Local; buyer acceptance false",
+  "counts": {
+    "Local": 47,
+    "Partial": 32,
+    "Missing": 2,
+    "Evidence required": 3
+  },
+  "buyerAccepted": 0,
+  "sourceManifestSha256": "80948d48f59f8b365e1b632446b0730b96dcec813ed7f35bc294dee4b76df915",
+  "sourceManifest": [
+    {
+      "path": "scripts/backup.mjs",
+      "sha256": "577c2afd7e0edb0b38c13224c55a92fedd1e467b9734a6b6ce71ffd2bf296231"
+    },
+    {
+      "path": "scripts/evaluate.mjs",
+      "sha256": "e6cfc6f4100f204ec49276392ff0cd1161b406133ceae1d30170545ef522ea92"
+    },
+    {
+      "path": "scripts/production-check.mjs",
+      "sha256": "317a7e2c8cde5cb098cdc7c3266f50f748694f30d0aaf5922440c6a615196bf9"
+    },
+    {
+      "path": "scripts/recovery-schedule.mjs",
+      "sha256": "0810fdebc0498da99e772b82668566e415427186372cac6fbc2a1341913375dc"
+    },
+    {
+      "path": "scripts/recovery.mjs",
+      "sha256": "523df68f927b3e561ea0780454c1578986d330fe1a5b8ce527f37f503dea1c4f"
+    },
+    {
+      "path": "server/ai.js",
+      "sha256": "ffc0752a97c572793433350e91f641b12d1f0f66a7a67e899298160670122e2c"
+    },
+    {
+      "path": "server/app.js",
+      "sha256": "4c0ec6f2b6643d962bb646a05e56d6674696bfde5920dcbf9b81fab1920f9fa2"
+    },
+    {
+      "path": "server/audiences.js",
+      "sha256": "603804498c14a39c448962145c27abd4c3ce8d3e092a790c080fbb765425fd16"
+    },
+    {
+      "path": "server/backup.js",
+      "sha256": "5717dd8fbce7af4c70b911a053e803689a48f793a915f4cad73207f9720489d4"
+    },
+    {
+      "path": "server/backupStorage.js",
+      "sha256": "51de2123d1e87639d35cd5bed94cfbc80d34dcd43ffc403169ab459c851748d9"
+    },
+    {
+      "path": "server/communicationWorkflows.js",
+      "sha256": "9a8a63d0e329db003df4e4cec350d6898dc62bbb67fea439dda63123031e3105"
+    },
+    {
+      "path": "server/communications.js",
+      "sha256": "a6aa76c0308d169e042a7788335a737cb9d3374dab6e970a0dad41f2c5866c15"
+    },
+    {
+      "path": "server/constituentTimeline.js",
+      "sha256": "72cdb22957f7b4f8934694fafc4adef3b9960e9d24d2de6fa1dcde90831a57ec"
+    },
+    {
+      "path": "server/documentMigration.js",
+      "sha256": "70fba03e7345f83f1b99977d3080fc78ea35be0d254eeff23bd44940e4d7d723"
+    },
+    {
+      "path": "server/documentRecovery.js",
+      "sha256": "58945d99fd783ab1d13c594e5ac1acb724f3c9297ef1116b141f831f0a9c7a01"
+    },
+    {
+      "path": "server/documents.js",
+      "sha256": "c8e1f512f1dcc9e9bcd884229c5323cb0e2a8e4338f7003e03f5f36c45ac2666"
+    },
+    {
+      "path": "server/eventHelperAccess.js",
+      "sha256": "9c1e7287fe2a34a60e6077d171fa1a8d308b180d27d332b779a2ba580d900d38"
+    },
+    {
+      "path": "server/eventOperations.js",
+      "sha256": "eed7cc668ef3d347922bab0187b858552e596ccb99d6fb910f4ff49de5ba26da"
+    },
+    {
+      "path": "server/financialCorrections.js",
+      "sha256": "e8a5f6f88f83e049dbcafe10a0d367ac14bfa13d4078136df0f1052af985ad25"
+    },
+    {
+      "path": "server/fundraising.js",
+      "sha256": "77fdaa8755db456051cfaaf03a04533488eeb8d54401d0a552d5b751742359d2"
+    },
+    {
+      "path": "server/grantOperations.js",
+      "sha256": "9c4df4565181f220f285bce21f99fcca3d4e02e534517e89cc4ca47362a4aef3"
+    },
+    {
+      "path": "server/hostedGiving.js",
+      "sha256": "1e836a702a5d76b4c858f61198796ded7497f324520043ba79b468b2dfb524e0"
+    },
+    {
+      "path": "server/identity.js",
+      "sha256": "5ae73113f147db0b9bbf8a683326c87b129bf27621e8dbe7a8bd8a6ea357e310"
+    },
+    {
+      "path": "server/index.js",
+      "sha256": "ae4935fa88af1bd8973f874c05950f4bbfc402bf9fd4cc7701f8a8d1406b5764"
+    },
+    {
+      "path": "server/mailchimp.js",
+      "sha256": "c6d88d98bbd2382c38af0e29ba6c26062ba9b82da128f147d5ee768ccd6a07b2"
+    },
+    {
+      "path": "server/mailchimpContactSync.js",
+      "sha256": "b0d8fc3652aaa3af42aed2eed42af2f3840d42f183cdb35f30682fb2432b682f"
+    },
+    {
+      "path": "server/marketingResponses.js",
+      "sha256": "62836dcc2f30e57b49a6d9b795b2457d2ad0b95c657a4debb6603ba945fdb69a"
+    },
+    {
+      "path": "server/mfa.js",
+      "sha256": "ee9730d7cfb787cee4eeeab7838045fde582adde34d0f4385b1c1948957affa5"
+    },
+    {
+      "path": "server/migration.js",
+      "sha256": "2d5a678d8ec529354e344b86e786a849dd54cafdb5b6fcd602efc989619d4cac"
+    },
+    {
+      "path": "server/objectStorage.js",
+      "sha256": "7cb7a0a8182da1b41fa3f5e8d87e76bd94e14ff50a530280ace7d0c394eb36f6"
+    },
+    {
+      "path": "server/offlineRecoverySchedule.js",
+      "sha256": "7624585a7d5a88a9d93ba7605c2d8a4c538e454b529c1e6b5887b161983b0a55"
+    },
+    {
+      "path": "server/peerFundraising.js",
+      "sha256": "413833cae6dd36996f1d66f1e139c667b208087241bc866c2a7dc54626f74804"
+    },
+    {
+      "path": "server/platform.js",
+      "sha256": "682fa78a90b475dd8b9606d63f279f6fa6a02a5e6e59a0621437f073960c22b0"
+    },
+    {
+      "path": "server/platformRecovery.js",
+      "sha256": "12315908053aaa578b3785658b91c87eebb692ed5effe4864b0d94eae1b0c445"
+    },
+    {
+      "path": "server/productionReadiness.js",
+      "sha256": "52c135b23fc97092b0bf1a4793464c098dc3f6fd2c36a749d5e43f90cd8af987"
+    },
+    {
+      "path": "server/receipts.js",
+      "sha256": "da6be89f1c8d0013a37937f4f584d7908895e11e62030a3feed6a97eae3efe27"
+    },
+    {
+      "path": "server/reportSchedule.js",
+      "sha256": "d3a5eebe620e9e4c20c09a1e0e0db51e2912d05fc45ab9188abf74068b7afae6"
+    },
+    {
+      "path": "server/reporting.js",
+      "sha256": "cf61c9bd600f38bde8434a5d266baf37ec3335c7ab108592f59286b84b9dfe5d"
+    },
+    {
+      "path": "server/runtimeConfig.js",
+      "sha256": "48cd64c6af1db7e4194572d4821dec6a71a2baa9a6ce29afdb90b7e3f0f5951d"
+    },
+    {
+      "path": "server/taskOwnership.js",
+      "sha256": "a47adbea37ac8f07b5c0b39bafee79bf937806a28e14ec054f18ecc71a4e6353"
+    },
+    {
+      "path": "server/taskReminders.js",
+      "sha256": "46df141c1bc36ee04b925fa5e879ec34ffe8b329d0e92d3b215a90e27f8eb5d8"
+    },
+    {
+      "path": "server/tributes.js",
+      "sha256": "e84fad8837f047d54efdc511d84fb5e68b2cc07415d45e4f3b38209252ac6d18"
+    },
+    {
+      "path": "server/workspaceMfaPolicy.js",
+      "sha256": "4bd35681a936c6a096179c9e6998d30d635639c63581f64e2bcb3c3d93ee967f"
+    },
+    {
+      "path": "shared/constituentTypes.js",
+      "sha256": "727e181e2f3aff40876d71febb677f7712c824fdaa813be0cff998c0e21c9b05"
+    },
+    {
+      "path": "shared/migrationContract.js",
+      "sha256": "0f6aff62530cc83d4a841966eb7a6e44286545573a63a0e31a6031a4f2279cbd"
+    },
+    {
+      "path": "shared/migrationQueue.js",
+      "sha256": "d0cd8a130603f3848bef385242429df668f133f1ace39a9a7da1ac77485b2c01"
+    },
+    {
+      "path": "src/App.jsx",
+      "sha256": "ac08287260da1a87ea25a5b556f7056959e6141ec7704bd7e131e1c47d7490dd"
+    },
+    {
+      "path": "src/api.js",
+      "sha256": "412a0233916592745064b84965114c37c46e899ddeb4952f8d02c65365455a68"
+    },
+    {
+      "path": "src/campaignData.js",
+      "sha256": "6b040dfc6fbb7905c7fa68fec84c3bb35ae26a00c900b85a3518695f24a38a7f"
+    },
+    {
+      "path": "src/components/Brand.jsx",
+      "sha256": "57f39c80d5108656d8fe02159f89683a6a94fd255265259f5c3a5e6f98343c0b"
+    },
+    {
+      "path": "src/components/DataTable.jsx",
+      "sha256": "ff13817edc35b8a25824d29e5ab0ecbf95b12e80989a0f6fef071e1fa1d1d755"
+    },
+    {
+      "path": "src/components/Fields.jsx",
+      "sha256": "b7a3a38bb199a2cc97e72f682c1b6581eac89277987d5098bdb782e4cd6319d3"
+    },
+    {
+      "path": "src/components/GiftForm.jsx",
+      "sha256": "82fdd5191183127e0c62652b6d94e4b48c46b0819cb42c91e3fad70a356ad32b"
+    },
+    {
+      "path": "src/components/GivingChart.jsx",
+      "sha256": "8ef410e7c4dc39b5e3bc421c124c02b5dbcdd63f9dae8b17ca070d8048c2e006"
+    },
+    {
+      "path": "src/components/HelpHint.jsx",
+      "sha256": "2bdc43166bb55ef9fc39e464661c62d960cdd9034d4040d2c524ac8f984068ef"
+    },
+    {
+      "path": "src/components/RecordForm.jsx",
+      "sha256": "4e65f641dfc36fd9101da03a1fe45ed1df899d6dae875349d1e2305d15bea970"
+    },
+    {
+      "path": "src/components/ScreenGuide.jsx",
+      "sha256": "5f840cf5266823ca7f51322884cad360beb5b7adedd4884f9d2385332788e4cb"
+    },
+    {
+      "path": "src/components/WorkspaceChecks.jsx",
+      "sha256": "9cf5df729a42640d7999fe092ee0557d60c5240e82031d64b1ce80525c92bd3a"
+    },
+    {
+      "path": "src/dashboardData.js",
+      "sha256": "16d1ba8f8ae8fadd2060d1b84d17d1183e7507374b7c68942fb6c568326cfc5e"
+    },
+    {
+      "path": "src/evaluationScenarios.js",
+      "sha256": "799dc7b0553ae68d8f854ad2a777f4f3039435f3cdfdd222e53e2dc7a2463d72"
+    },
+    {
+      "path": "src/features/About.jsx",
+      "sha256": "5b22292c8640576a90a7f596f11a8629d096077198c965e4a4d5323ded875980"
+    },
+    {
+      "path": "src/features/AccountSecurity.jsx",
+      "sha256": "7e3ea217158f8cb7778bc88717deed10a549dada0325781849b7f58c69403b19"
+    },
+    {
+      "path": "src/features/Audiences.jsx",
+      "sha256": "d0558e0676a3c1a275a25e631f05508c50a52d5e692afd838cdc410871275fce"
+    },
+    {
+      "path": "src/features/CommunicationWorkflows.jsx",
+      "sha256": "4e4e4ba67fb6024cebfcf85fcc4f35ed5b97f436740b0862c5505838d9bf1dcf"
+    },
+    {
+      "path": "src/features/Correspondence.jsx",
+      "sha256": "b7da48f79fa498e694a869b1b54cb8c02251cb58ecaefde5579508da8862baad"
+    },
+    {
+      "path": "src/features/CustomReports.jsx",
+      "sha256": "9e90fda0eb08c2c58f9f8eda9e0a4471d4ccd6ccc57a0dc9181f90b4def940fa"
+    },
+    {
+      "path": "src/features/Dashboard.jsx",
+      "sha256": "efdef1bed813a9820a3a05a22fd792c73f094afd0c42ddb7144352776d009bff"
+    },
+    {
+      "path": "src/features/DocumentMigration.jsx",
+      "sha256": "10c03f2ed6ec066cbc2b8bb15d65be479f5273e98f058b5b77c914057a56a158"
+    },
+    {
+      "path": "src/features/Documents.jsx",
+      "sha256": "d48f9c935722ba1f290ab4b8ec658128370367f6f51986b35b60ef1fa96773f4"
+    },
+    {
+      "path": "src/features/EventCheckin.jsx",
+      "sha256": "c8f20a932f12e8a9ba066f951a140f7e00aa0581231ef86163f609188d644b5d"
+    },
+    {
+      "path": "src/features/EventOperations.jsx",
+      "sha256": "e46b2270644e3d072c9862ec66b902ed79cef6a2f24ca788fda96f95f9cf0cfb"
+    },
+    {
+      "path": "src/features/Fundraising.jsx",
+      "sha256": "31a84400083715148421421544e083cd498c2d8719102aa2a7214f0a6d9fdb43"
+    },
+    {
+      "path": "src/features/FundraisingAnalytics.jsx",
+      "sha256": "c08e4aab6983c7112b8d3a61672254b133c7e430a120cf9a5830935ee03f8b8e"
+    },
+    {
+      "path": "src/features/GrantDetail.jsx",
+      "sha256": "e10a14187c704e91afb5ccb3fe3dc791691a30d8ee8fbba829a15ea61f8fd452"
+    },
+    {
+      "path": "src/features/GrantOperations.jsx",
+      "sha256": "dc914310b450bb1aae20ff07a44996619482d02f826385f36b481fcf429cb772"
+    },
+    {
+      "path": "src/features/GrantWorkspace.jsx",
+      "sha256": "f2a3ec253b91b8bce030b29fc4e0501b124edc35505cfe8426fc297a8e169a9b"
+    },
+    {
+      "path": "src/features/Guide.jsx",
+      "sha256": "c677f5f78e9bb57d57e1d5d35e972f0c85af58002f338832366fb2dfe3e351b5"
+    },
+    {
+      "path": "src/features/HelperEventAccess.jsx",
+      "sha256": "19aeaeafd4f24d22270a7c2cbc1ee3b98cb7478b15a4823dce9f0fcd62f7ed53"
+    },
+    {
+      "path": "src/features/HostedGiving.jsx",
+      "sha256": "ba198241d62d76254255f0a8603d60dd130bd355f53220bf3a315510372744e4"
+    },
+    {
+      "path": "src/features/Identity.jsx",
+      "sha256": "b22a98f1ba9db2d8930725b1e3055872aa54f153cd3b7348057c10c816bc35f2"
+    },
+    {
+      "path": "src/features/ImportGifts.jsx",
+      "sha256": "f7ec04ce731df2822eb0d89fb11a417b9ca4fd1a43ca9524cb47831fc107531e"
+    },
+    {
+      "path": "src/features/Intelligence.jsx",
+      "sha256": "97f9d9b3cb0fbc229e78a90f0413c8f59318c822d1126a56ce357de90cbb100c"
+    },
+    {
+      "path": "src/features/MailchimpContactSync.jsx",
+      "sha256": "66fdf62ca090b72213641cdf4edcf799da679cd14be9b97e7405668dd68fe079"
+    },
+    {
+      "path": "src/features/MarketingConnections.jsx",
+      "sha256": "b52f47f989579438819c9d58b356ef503e379a860fa3cdcd9d4d2d219fdc43e5"
+    },
+    {
+      "path": "src/features/Migration.jsx",
+      "sha256": "4b6763a3283eca39e4270af8deb1fa778d0004254143cadf2ebbe45c0c1168ac"
+    },
+    {
+      "path": "src/features/MigrationReview.jsx",
+      "sha256": "f73c56f4f1f1e5042d7152ed94fef156d3a72bab5c8c8511a2a104d2d19a502c"
+    },
+    {
+      "path": "src/features/Operations.jsx",
+      "sha256": "866c3db961e44488e1c077c0fe03b7ac0a788049b2acd20895a47a97d4365bb5"
+    },
+    {
+      "path": "src/features/PeerFundraising.jsx",
+      "sha256": "2ac72643244d2843c860ee0162fab5edf58688181121a5c7fab687a4135cce68"
+    },
+    {
+      "path": "src/features/PlatformAdmin.jsx",
+      "sha256": "92050cb952a9ca3ac8e1da4eef1ff39e9569a6db77fda831ab66476c19718b23"
+    },
+    {
+      "path": "src/features/Pledges.jsx",
+      "sha256": "b5c493ee6630929d354540d64a49697f0f9d639055d0927c3fcfebd6f6a5133b"
+    },
+    {
+      "path": "src/features/ReceiptRegister.jsx",
+      "sha256": "c8243ca370c387886dcf32d7bd574e3ec581a536d5ae685ff22afea04b5db393"
+    },
+    {
+      "path": "src/features/RecordDetail.jsx",
+      "sha256": "099233666f2b90a32e37aedddeac467ff5947b84f19cbe7df6a57299df7157cb"
+    },
+    {
+      "path": "src/features/Records.jsx",
+      "sha256": "455ac69c4a880ad83db269172c274888dd6ceae60352a574f8c1c59abe4a9646"
+    },
+    {
+      "path": "src/features/Reminders.jsx",
+      "sha256": "d99e670122c1e78617764da31341bbb5be8f6aeb314267805fe8fe303c70150b"
+    },
+    {
+      "path": "src/features/ReportSchedules.jsx",
+      "sha256": "525008ae0d9fe025b081961aff5ee4d43d7d2276b9bcac7d809adf6983979080"
+    },
+    {
+      "path": "src/features/Reports.jsx",
+      "sha256": "be610bf425526929193d0c7770fd7f00abe7c5a1dc73a33eb49ecd2d4325a494"
+    },
+    {
+      "path": "src/features/SchoolYearAssignment.jsx",
+      "sha256": "3ab3e8d0729deef23c1bf87598ba19f48a2a0c2dc166155f811d1904db7601a7"
+    },
+    {
+      "path": "src/features/Settings.jsx",
+      "sha256": "fc949aba4760f340d8503f684111261720679c198e74ecc11c9a5aae3b578745"
+    },
+    {
+      "path": "src/features/Stewardship.jsx",
+      "sha256": "f8c70e2c05fd025901acbf6bb8f8236debba6c1803fcaa6207a4f01aae3aaf4c"
+    },
+    {
+      "path": "src/features/TestingCenter.jsx",
+      "sha256": "8ba2cc261ea08576ecfd672b14f810eaeae182cdde5504e70a750173c1466154"
+    },
+    {
+      "path": "src/features/Tributes.jsx",
+      "sha256": "116cb23842bd00956b5249581bda55e26e560cbdc3fe85f1cc85f737c9e395c4"
+    },
+    {
+      "path": "src/features/VolunteerLedger.jsx",
+      "sha256": "59763cfeffd9978096130f1f843020aef47539f42fc926302962be2620551f61"
+    },
+    {
+      "path": "src/fundraisingAnalytics.js",
+      "sha256": "6851953b763eb942da4af539df907ce359f9396fa557b7215c5308f9e115cae0"
+    },
+    {
+      "path": "src/grantDeadlines.js",
+      "sha256": "e8b55bc28f3bbdf3ade0107af58412ebc2cc76a22c69821454bd33b681036a10"
+    },
+    {
+      "path": "src/lib.js",
+      "sha256": "784cd49714069662906a3f7473add3867d48e8d483dd2e0088404c7bff58d26a"
+    },
+    {
+      "path": "src/main.jsx",
+      "sha256": "bbb90a1b13619c19473fc0030e423698d050b1173ea7d72c691043af280e6b31"
+    },
+    {
+      "path": "src/phaseFour.js",
+      "sha256": "ece674347591bd6362e269b778e52ddf21de34d6877d7c179fd5c6a7602fd042"
+    },
+    {
+      "path": "src/phaseThree.js",
+      "sha256": "1fde5cc363702d172a5cdb4627a91edab3a9941a139217efff69dc577569e605"
+    },
+    {
+      "path": "src/phaseTwo.js",
+      "sha256": "2ed1117b0f99c726715d3f52916dc401244b050345c0ac9c674ef94298a77ad9"
+    },
+    {
+      "path": "src/reminderTime.js",
+      "sha256": "bfef199c8b4891488c1486b3755fa421cdb5ba4a816f4f5441b225cf18147923"
+    },
+    {
+      "path": "src/reportEngine.js",
+      "sha256": "907bbc0e1251d49c4e3d0fb0445865763de7cf7d105244901a5ff39bd9b61b6f"
+    },
+    {
+      "path": "src/schema.js",
+      "sha256": "f0cf88de0513eaf7db35a49853bfdaf09b9df8507de18363e24d1003b5278758"
+    },
+    {
+      "path": "src/styles.css",
+      "sha256": "c3b000966f87ab0ba7b1e02cae839fdada7567ea7c200fcc1e3a53a765b55b28"
+    },
+    {
+      "path": "src/wimblo.css",
+      "sha256": "b2f945d7f05d63853ac92b8b0977f477a7ed5895bff7dbf5bc25e7d28990bf05"
+    },
+    {
+      "path": "src/workspaceSession.js",
+      "sha256": "0ed15854c5193039c436217dc760583a5706c6c58c57661ffd2478aca647c575"
+    },
+    {
+      "path": "tests/ai-source-freshness.test.js",
+      "sha256": "ded276ad2beaa96b0b2b4ebc89321e47fddafa2e41d5cc8acd33d0745097691e"
+    },
+    {
+      "path": "tests/ai-tenant-suspension.test.js",
+      "sha256": "678ec605cc7edda8b17c47fc37d6468fee67a815e20456b0ec8f9aa27ffad4b6"
+    },
+    {
+      "path": "tests/ai.test.js",
+      "sha256": "c33a5a21793e07b338ab18abe310bdc2078e122401316c5c41c7bfd208142b07"
+    },
+    {
+      "path": "tests/all-role-mfa-ui.test.js",
+      "sha256": "5d123ff5b07b49ecc7b29199e92109d52a4f0c2d9d8267951aa044fb56d371e8"
+    },
+    {
+      "path": "tests/all-user-mfa-integrity.test.js",
+      "sha256": "c0b116510b95ea3924a9335a0bf1acfdfd3a10646af6f23ed583349a88cf1525"
+    },
+    {
+      "path": "tests/api.test.js",
+      "sha256": "e63f4045525c35665b20bf68e516fc3a554bcd4ab018763b277fbaf8d5baac91"
+    },
+    {
+      "path": "tests/audience-access-integrity.test.js",
+      "sha256": "0f81757c43c137a1f5369fee2e09ad949ba95e5ac193ced1f053ff1e8f32a7db"
+    },
+    {
+      "path": "tests/audience-reporting.test.js",
+      "sha256": "edd474531bcff6890e1f54425708c89de67e4af33e27f0e568c76ede1096e799"
+    },
+    {
+      "path": "tests/audience-ui.test.js",
+      "sha256": "cb7caad019224b095c3b901103be686b92a25431c4700e7ef03ccf96ff57a978"
+    },
+    {
+      "path": "tests/audiences.test.js",
+      "sha256": "f1e31214fb44d373a8c37985bf3ad1d6dd4005ceedb428457e4c1ee72f6b8507"
+    },
+    {
+      "path": "tests/automation-recovery-marker.test.js",
+      "sha256": "1a99b4c8aaf0c4f12a508e11a8835cf9151b5f365c93577f30204eb197d926d0"
+    },
+    {
+      "path": "tests/backup-storage.test.js",
+      "sha256": "14bc06462ede8261ec3065b914261a66eb607dfd34c6048e5da5f80d1b23f8f0"
+    },
+    {
+      "path": "tests/backup.test.js",
+      "sha256": "7971a4928f02bbc9e51eb6924689441ce9ef507e3dcb6c83b8c53153d73399ad"
+    },
+    {
+      "path": "tests/campaign-progress.test.js",
+      "sha256": "8397ade972a5bddf0d3c883534ed4b377bc895bc9b18c6876393034a2186bee3"
+    },
+    {
+      "path": "tests/communication-workflow-integrity.test.js",
+      "sha256": "11f5db6d8ceae007ae9c2833bef87fee5babe5e5ee0b976e98ff108000ddbe0e"
+    },
+    {
+      "path": "tests/communication-workflow-reporting.test.js",
+      "sha256": "abc9ab37676e6aa8f76e16cb5697dd24d44c2bac162040229dc189c190a6f3f4"
+    },
+    {
+      "path": "tests/communication-workflow-ui.test.js",
+      "sha256": "fb0783a5b59b992cdc4744ca8a8193057bfe6e7dc0f680621d07f8e14d8dc4d6"
+    },
+    {
+      "path": "tests/communication-workflows.test.js",
+      "sha256": "8056099c6f5dff0efc46deaf088224783930873cac9126b0ebb021d2c150f90f"
+    },
+    {
+      "path": "tests/communications.test.js",
+      "sha256": "752dd4a43617846b4683630745bf54397a4f0f4c39010860960a756981b9e187"
+    },
+    {
+      "path": "tests/constituent-categories-ui.test.js",
+      "sha256": "575cc1135182ed774339c23560fed77972de6783b1597e8873d00629babc94f3"
+    },
+    {
+      "path": "tests/constituent-multitype.test.js",
+      "sha256": "868aba3a767b8014c0996908b471f8439efe7ccb73682a7791ca21ffe9551004"
+    },
+    {
+      "path": "tests/constituent-timeline.test.js",
+      "sha256": "176c2ffe7c3f9cd6d0292144c6dabe7dec00ea2d3f0690905d994f529118861f"
+    },
+    {
+      "path": "tests/dashboard-giving.test.js",
+      "sha256": "e2e9088a214be7e659bf1ba1d925f6b3b66f3d8888bb043188ceea5b3433541d"
+    },
+    {
+      "path": "tests/document-migration-integrity.test.js",
+      "sha256": "88df4817457de5304e8cb3730adbbc92a57ec4e1915d34264b8f1ecea2deeec9"
+    },
+    {
+      "path": "tests/document-migration-reporting.test.js",
+      "sha256": "371923e21705f807634b4b1e4b62dfcead83610b4ca29021aa58f242ef58d9a2"
+    },
+    {
+      "path": "tests/document-migration-ui.test.js",
+      "sha256": "5e94e228de372e5b48dcf5bf73cd2d7e1e386d62e390b87a90ecad57b3833401"
+    },
+    {
+      "path": "tests/document-migration.test.js",
+      "sha256": "0a4f8513c24d0089a6e858e4f0a98561faa88b93baf94108b1f94137e274313b"
+    },
+    {
+      "path": "tests/documentRecovery.test.js",
+      "sha256": "000adef34969a787343774464213ed79c26e56b1735c6c503650faa12a2e046e"
+    },
+    {
+      "path": "tests/documents.test.js",
+      "sha256": "fd6566c925e0fd75240418364d0467349e6e54773dbd733e6dabbf4932e1f182"
+    },
+    {
+      "path": "tests/event-helper-access.test.js",
+      "sha256": "fc8ec1bfc3d180cb237fcdf4598a5fa9b346230934c0fcada12466099255c3b1"
+    },
+    {
+      "path": "tests/event-helper-backend.test.js",
+      "sha256": "a437ee4402979fdd604de1e8393124f8619cca46c0fedd0695147bef437b9699"
+    },
+    {
+      "path": "tests/event-helper-ui.test.js",
+      "sha256": "dc8e2a204db6f2ebf795d59bd88519e752d9c4849e2a94ac1d847fd5b1104e8b"
+    },
+    {
+      "path": "tests/event-operations.test.js",
+      "sha256": "fcd022ca48d004c43a61a5ac340503e10c2a2ef2911a25f8e953c8e7c48fd8ed"
+    },
+    {
+      "path": "tests/financialCorrections.test.js",
+      "sha256": "43ae56926416eb4bdf8cb375e435086a100f3991e1786d1d44feeb68fcd134c1"
+    },
+    {
+      "path": "tests/fundraising-analytics.test.js",
+      "sha256": "bc97180621eb634d1b56e15f021e02a2a3dc0e1576a713bb53b93b592ae8faab"
+    },
+    {
+      "path": "tests/fundraising.test.js",
+      "sha256": "de839c6a463837e5d8bee3d5d15b2e99d7725fb9b3d2dd0d0839db3a669b909e"
+    },
+    {
+      "path": "tests/grant-deadlines.test.js",
+      "sha256": "5fd6f3202eb78cab8d0df927bb2c4e44cab7b7c21c262a68579872b584c2d5ce"
+    },
+    {
+      "path": "tests/grant-operations.test.js",
+      "sha256": "90672692e903966e7b3739af8ed4789b7df074e74babea328d08feeb30bfa014"
+    },
+    {
+      "path": "tests/hosted-giving-integrity.test.js",
+      "sha256": "69aeab6ff86838c9af7550ad4f13e622d089c781960c032f7380dd2601a12a6c"
+    },
+    {
+      "path": "tests/hosted-giving-platform.test.js",
+      "sha256": "4d0a19289bd808858ba292a212dce3de1f0ede260d8bf1521d366a84cdf0bdab"
+    },
+    {
+      "path": "tests/hosted-giving-reporting.test.js",
+      "sha256": "d4560108b8028c68fd8fd7b582773f2db029a9b22472196f946b0571422fa3e9"
+    },
+    {
+      "path": "tests/hosted-giving-ui.test.js",
+      "sha256": "c8b2efc5e4702ca77d2073973a300a363d6c93e703a97b912d525eae2c00b58f"
+    },
+    {
+      "path": "tests/hosted-giving.test.js",
+      "sha256": "42be3fdebb5546317be277612b127464999952ef4217ee75997f39651bedd8f6"
+    },
+    {
+      "path": "tests/identity-multitype.test.js",
+      "sha256": "74deecc273569ed3c89105b9475efc8c3474b328ebc437a69c33e9593119825e"
+    },
+    {
+      "path": "tests/identity.test.js",
+      "sha256": "35170163d17fc7e38d192bc333fb3e626dacf3ebd428f663d76c1bda5e0bd3b8"
+    },
+    {
+      "path": "tests/lib.test.js",
+      "sha256": "a88e6948df528b54202d6bd59064852095e89ec99d2937bfb8b8b38c2407d172"
+    },
+    {
+      "path": "tests/mailchimp-contact-sync-api.test.js",
+      "sha256": "6387f0c8b601242d2f51ef1d59e57aa27147f4835eca96b176036e2b21f03c6e"
+    },
+    {
+      "path": "tests/mailchimp-contact-sync-disposition.test.js",
+      "sha256": "818d7aab5aeb63d5f8450809d941a2654f131972d98892eca68a0a1837322a24"
+    },
+    {
+      "path": "tests/mailchimp-contact-sync-ui.test.js",
+      "sha256": "129c366d10b57e432c1ff7c5ad510ddb6b9eb554b37ac81c2c7d0f54ed0c17c8"
+    },
+    {
+      "path": "tests/mailchimp-contact-sync.test.js",
+      "sha256": "978aaa65c8879ff607008ad2ec7b86bf7f34011c9ee1cd796b394054eb68a30e"
+    },
+    {
+      "path": "tests/marketing-binding-scale.test.js",
+      "sha256": "cb9e0700f8a76bfa4e61c9278769d9ab51490d39b08df58b7fca785478df28a9"
+    },
+    {
+      "path": "tests/marketing-responses-integrity.test.js",
+      "sha256": "d2e3ceb315f618e719f99e20d1a162fe43b8aa7974e9aae5f820e76b1a82d267"
+    },
+    {
+      "path": "tests/marketing-responses-platform.test.js",
+      "sha256": "c7c37027c2b78d3d86057b68396a5ed59e378d528f94b8cff41d568623e9b291"
+    },
+    {
+      "path": "tests/marketing-responses-reporting.test.js",
+      "sha256": "fb9b26695f72c7e66b9b25fb1653ae9c2845a0861957ddf25c72d628793d2bb7"
+    },
+    {
+      "path": "tests/marketing-responses-ui.test.js",
+      "sha256": "5b725d03d9ebbfa2dee5edff03e59ed2a50af57bba05ff4f4306040f7bede749"
+    },
+    {
+      "path": "tests/marketing-responses.test.js",
+      "sha256": "82807d7b9abc062fc5f73d22e3ce95a353e921a6619235a4e55d52ee71717b27"
+    },
+    {
+      "path": "tests/mfa-api.test.js",
+      "sha256": "e61a7e4e9cfd3020e46d5f88d25b4f31529c4ae425d323f35a49a08c9b96f05c"
+    },
+    {
+      "path": "tests/mfa-ui.test.js",
+      "sha256": "52f2e0b41b69562d700cf005593f9579ff9c4f41efa62af3358fe15d07157968"
+    },
+    {
+      "path": "tests/mfa.test.js",
+      "sha256": "d17aefc35a472baf5f909809b91866c532a9d14266eecb1e2c6757f3172473ed"
+    },
+    {
+      "path": "tests/migration-campaigns.test.js",
+      "sha256": "3c8efe97e0a1fb43eea584e980d15a28b568474b6b46e8bbc8ceaae488c660ef"
+    },
+    {
+      "path": "tests/migration-contacts.test.js",
+      "sha256": "2dbb1325538506b61d85718eb93f00c6d19b03ddd6f143954572f2ce7843fa23"
+    },
+    {
+      "path": "tests/migration-interactions.test.js",
+      "sha256": "fdfb9ab76baa875edb56528eadfe623552f171fdc7ced77b457daa3cec3451ea"
+    },
+    {
+      "path": "tests/migration-multitype.test.js",
+      "sha256": "f9a486ddb5f5d5a8c3bee6c0437e983d1ccd1653ded07e4364f6111d7572207e"
+    },
+    {
+      "path": "tests/migration-persistence-integrity.test.js",
+      "sha256": "43e4d0e9a02e96d61b5d23838c20dcbd32efd054355e16d7df3def822b8c8fba"
+    },
+    {
+      "path": "tests/migration-queue-ui.test.js",
+      "sha256": "c9ef1b30c63e7f75d807a9ba8fb8f51e70f31a80108f44404b2f1dad75aae2f8"
+    },
+    {
+      "path": "tests/migration-queue.test.js",
+      "sha256": "68a143ec2540d7f3c56fd64df975628ef3d28b35de0f6ca4052d32ec7890674c"
+    },
+    {
+      "path": "tests/migration-representative-scale.test.js",
+      "sha256": "0e8be7fbb9a0f311fb55464cec3982b198aa577a24e6d8177ba6e8ee22c36b30"
+    },
+    {
+      "path": "tests/migration-review-ui.test.js",
+      "sha256": "1fbdfc6e308b3c7d24aceb34252f2893a1878f3e05b80f811e78a2d2700570ee"
+    },
+    {
+      "path": "tests/migration.test.js",
+      "sha256": "2536d8c7daee5f04dd0ba221abdee341ad3c67b5853b241d25b304f3640f6239"
+    },
+    {
+      "path": "tests/object-documents.test.js",
+      "sha256": "f090032d0ec192f212ccdb6fc733723625324a1d590ef02c5f1c725f1a4940a8"
+    },
+    {
+      "path": "tests/object-storage.test.js",
+      "sha256": "928225c7c6b6f2fd87d0be8d950e912c5030f3e24dc259dc9e30cf595dffd396"
+    },
+    {
+      "path": "tests/offline-recovery-schedule.test.js",
+      "sha256": "e79b97d5025a899035e20e9cf1a1f8447de3da41620969a4f099b25087d0aacc"
+    },
+    {
+      "path": "tests/peer-fundraising-integrity.test.js",
+      "sha256": "6c89f257c989495060e3c0666b704f1f7dffc0b122621350e011667e4917465d"
+    },
+    {
+      "path": "tests/peer-fundraising-reporting.test.js",
+      "sha256": "d5a308674914ffcca3ec8ae8cf123eafd9501bdbd5522dd573d3b1b674d31e47"
+    },
+    {
+      "path": "tests/peer-fundraising-ui.test.js",
+      "sha256": "43d049815f69d8682aadcf9bcc512739169b0f9776bf1e872655b3393db55664"
+    },
+    {
+      "path": "tests/peer-fundraising.test.js",
+      "sha256": "b44c426954f5e55530392d1a87a4f19eb3ac044158bbe69ab32fea24051bed32"
+    },
+    {
+      "path": "tests/phase-four-lib.test.js",
+      "sha256": "358b9b67172b205a6c71f3b3dbda548dac5fb0a8cc8c5894a4ba9cb8f1c8198d"
+    },
+    {
+      "path": "tests/phase-four.test.js",
+      "sha256": "78f45fc24955823fbf6a31184a50fae78fae59ef1b04bb9bb1058766c120b5e2"
+    },
+    {
+      "path": "tests/phase-three-lib.test.js",
+      "sha256": "86839aa282dfd7643ee94cf48ba3159605e6e3275a22a93d87d8b759fb3c04dc"
+    },
+    {
+      "path": "tests/phase-three.test.js",
+      "sha256": "0044e61d0c4f462bffefb73bf758b3659f6394966ef750d83c62a4d1b7235403"
+    },
+    {
+      "path": "tests/phase-two-lib.test.js",
+      "sha256": "c166a1b3a22097cbe086915712581aee33883e0f54f551ba07f7f44828b296b0"
+    },
+    {
+      "path": "tests/phase-two.test.js",
+      "sha256": "3eb476730c62748d570459dc6b6c3eb38a9c5c3c1267256ee22204ac2a45f01d"
+    },
+    {
+      "path": "tests/platform.test.js",
+      "sha256": "ffef4085a085ba374f10d94bab28e9ed97276451feba2cea1799cd0784afca08"
+    },
+    {
+      "path": "tests/platformRecovery.test.js",
+      "sha256": "ff745439d6374a70ee109c1e01544552d6481a5b753ab3df3fec09a84d6446ec"
+    },
+    {
+      "path": "tests/privileged-mfa.test.js",
+      "sha256": "14e8580212bf997bb83ad71a20475f533d3aee638c618057277653e1a1c51bff"
+    },
+    {
+      "path": "tests/production-runtime.test.js",
+      "sha256": "7c25a8a44231fef58903bdc261fdb61a31b112f72c27649b3fb0aa426248d146"
+    },
+    {
+      "path": "tests/productionReadiness.test.js",
+      "sha256": "9b29a214aa497ec7da2e33476717881c1fdff8a5639043fb4dfd04ea0fc17082"
+    },
+    {
+      "path": "tests/receipts.test.js",
+      "sha256": "1fcd4bb1b12ee9ba0d4fc7d819f51753f35243366dfff16e39f481f734cf668a"
+    },
+    {
+      "path": "tests/reminder-time.test.js",
+      "sha256": "1facc80065f2a5ff7130bca84189f597f5459035847bdad081cc9c30261285fb"
+    },
+    {
+      "path": "tests/reminder-ui.test.js",
+      "sha256": "5c4b937197ebc4d3895d410f0c8d4b64adc9d1a5f12c11b2c16bd6e63a1f9bee"
+    },
+    {
+      "path": "tests/report-schedules.test.js",
+      "sha256": "d82bddb430fb11ac31f21c4444a42edf8ac33074bdb812b84c3bcf85055c97bc"
+    },
+    {
+      "path": "tests/reporting-complete-export-ui.test.js",
+      "sha256": "ba4906e0ee6e89efe1fad218ddbdde3aab644c30594e1e5a1c58f2965411f478"
+    },
+    {
+      "path": "tests/reporting-complete-export.test.js",
+      "sha256": "a265dc5f50a411bb60c95cb566e330df70f6cf53e96483abe48ebef20069615c"
+    },
+    {
+      "path": "tests/reporting-multitype.test.js",
+      "sha256": "16437e611363274412d028f622050d582a69fe016c082fa257623239386f0df6"
+    },
+    {
+      "path": "tests/reporting-scale-completeness.test.js",
+      "sha256": "4b60e9f37248a17d7d712f76557e911dad389836e6d46518cfea0857585e987a"
+    },
+    {
+      "path": "tests/reporting-source-field-inspection-ui.test.js",
+      "sha256": "b39607894ac81826f35eafab627188f1c713f248dcf2ccd6484493b197a57175"
+    },
+    {
+      "path": "tests/reporting-source-field-inspection.test.js",
+      "sha256": "dc9df08ea45d4551778fe26dc899c95c8121ff2527cb96e9ab66eea67c1ef6c9"
+    },
+    {
+      "path": "tests/reporting.test.js",
+      "sha256": "2b0fa4f8b25d2ec80c6d60d2a7d395ebcc982023f7bef1b0443ca5e47a2b5318"
+    },
+    {
+      "path": "tests/runtime-config.test.js",
+      "sha256": "b1053440c7844a85cab650ffbba486d92d5487f17fd6fdc3a58c32daec4c2f48"
+    },
+    {
+      "path": "tests/school-year.test.js",
+      "sha256": "46db679db812612c757e8da0b0b9b4bb688ca666f2ec2c1f5224524f59403fe6"
+    },
+    {
+      "path": "tests/staff-constituent.test.js",
+      "sha256": "c957a2e6176ecbaa412e4ce35afc31f711ba02f5a0b563149c8e3acf4f05a538"
+    },
+    {
+      "path": "tests/task-ownership.test.js",
+      "sha256": "38c99c0543ad6cc2a35ccfa837b9d35f46fdf79e708ce122608d4aebae55a64a"
+    },
+    {
+      "path": "tests/task-reminder-integrity.test.js",
+      "sha256": "a31343b685212828653fa4b6d4fc04ca91c2a2c56ba4b568ed62cd1face6bf67"
+    },
+    {
+      "path": "tests/task-reminder-reporting.test.js",
+      "sha256": "6faf87d0cd3188a298d60565bc535fcfcf6258d6318706fa6c54d50902b7f659"
+    },
+    {
+      "path": "tests/task-reminders.test.js",
+      "sha256": "cd0cda43cdc5c07001df29b0522435cf24320f2196259608265e7d25adfff2d7"
+    },
+    {
+      "path": "tests/tributes.test.js",
+      "sha256": "f8439d1b801282e721c434772a222eee56a2bd14aae61730576a906f93db6a0c"
+    },
+    {
+      "path": "tests/workspace-mfa-policy.test.js",
+      "sha256": "13c7b7685088a52bbddf9f83b46346e45718208949ff45fbd6413c27f96d49ec"
+    },
+    {
+      "path": "tests/workspace-session.test.js",
+      "sha256": "b80032b66efed42fe36164834107318567a60997686203844a450a58fc4e64f7"
+    },
+    {
+      "path": "package.json",
+      "sha256": "42777cf0857e7544a1cd8d850364b0450867f59e5bd8663111fccc6096a5d27e"
+    },
+    {
+      "path": "package-lock.json",
+      "sha256": "26aa0f1b20e1d112567a5ebde3222def90a74107805369f5914d9c46d431071f"
+    }
+  ],
+  "nativeBrowser": {
+    "at": "2026-09-13T23:44:02.433Z",
+    "environment": "Built local app with synthetic data; no providers",
+    "browser": "Bundled Playwright fallback; browser plugin absent",
+    "recordId": "1ca29484-3ab4-4cd1-88ea-98d57114e9da",
+    "primary": "Individual",
+    "additionalTypes": [
+      "Alumni",
+      "Employee",
+      "Staff"
+    ],
+    "saveReload": true,
+    "directoryAdditionalCategoryFilterSingleRow": true,
+    "oneIdentityReport": [
+      [
+        "1ca29484-3ab4-4cd1-88ea-98d57114e9da",
+        "Synthetic category journey 1789343040615",
+        "Individual",
+        "[\"Individual\",\"Alumni\",\"Employee\",\"Staff\"]",
+        1
+      ]
+    ],
+    "mobile": {
+      "viewport": 390,
+      "document": 390
+    },
+    "pageErrors": []
+  },
+  "review": "Independent identity/financial and backend specialists; root migration/report/UI verification",
+  "scope": "Synthetic native local data only; no real provider calls, buyer data, deployment or production certification",
+  "limitations": [
+    "Universal protected historical consolidation remains A1.1 Partial",
+    "Live email/SMS, public payment lifecycle and recurrence/self-service remain open",
+    "Durable operated hosting, off-host recovery/custody, buyer conversion and institutional service evidence remain open",
+    "Render setup and eligibility discussion deferred"
+  ]
+}

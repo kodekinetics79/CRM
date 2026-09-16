@@ -1,6 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import {z} from 'zod';
-import {today} from '../src/lib.js';
+const today=()=>new Date().toISOString().slice(0,10);
 const fail=(status,message)=>{throw Object.assign(new Error(message),{status});};
 const id=z.string().min(1).max(100),amount=z.number().int().min(1).max(1e12),version=z.number().int().min(1),text=z.string().max(8000).default('');
 const date=z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v=>Number.isFinite(Date.parse(v))&&new Date(v+'T00:00:00Z').toISOString().slice(0,10)===v,'Invalid calendar date');

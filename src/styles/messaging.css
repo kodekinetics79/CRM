@@ -1,0 +1,74 @@
+/* Email & SMS campaigns. Compact enterprise density on the shared 4px grid,
+   one restrained accent, no gradients, no colored status pills and no
+   decorative motion. Consent, suppression and send actions stay visible. */
+.messaging-workspace{min-width:0}
+.messaging-workspace>.panel{margin-bottom:24px}
+.messaging-workspace fieldset{border:0;padding:0;margin:0;min-width:0}
+.messaging-workspace legend.sr-only,.messaging-workspace .sr-only{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.messaging-workspace h2{margin-bottom:8px}
+.messaging-workspace .form-grid{margin-top:16px}
+.messaging-workspace .field-wide{grid-column:1/-1}
+.messaging-denied{max-width:640px}
+.messaging-denied p{color:var(--secondary-ink);margin-top:8px;max-width:60ch}
+
+.messaging-transport p{color:var(--secondary-ink);max-width:76ch}
+.messaging-facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 24px;margin:16px 0 0;border-top:1px solid var(--line)}
+.messaging-facts>div{display:flex;justify-content:space-between;gap:12px;align-items:baseline;padding:12px 0;border-bottom:1px solid var(--line);min-width:0}
+.messaging-facts dt{color:var(--muted);font-size:12px}
+.messaging-facts dd{margin:0;font-weight:600;text-align:right;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+
+.messaging-alert{margin-bottom:24px}
+.messaging-alert .btn{margin-top:12px}
+.messaging-conflict{border:1px solid var(--control-border);background:var(--table-header);border-radius:8px;padding:12px 16px;margin-bottom:24px}
+.messaging-conflict p{margin:0 0 8px;color:var(--ink);max-width:76ch}
+.messaging-notice{margin-bottom:24px}
+
+.messaging-register .numeric,.messaging-recipients .numeric{text-align:right;font-variant-numeric:tabular-nums}
+.messaging-register td,.messaging-recipients td,.messaging-queue td{overflow-wrap:anywhere}
+.messaging-queue td:first-child{min-width:200px}
+.messaging-workspace .cell-detail{display:block;font-size:11px;color:var(--muted);margin-top:4px}
+
+.messaging-selection{list-style:none;margin:16px 0 0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:4px 16px;max-height:320px;overflow-y:auto;border-block:1px solid var(--line);padding-block:8px}
+.messaging-selection label{display:flex;align-items:center;gap:8px;min-height:32px;padding:4px;min-width:0;cursor:pointer}
+.messaging-selection label:hover{background:var(--surface-hover)}
+.messaging-selection input{width:16px;height:16px;flex-shrink:0;accent-color:var(--accent)}
+.messaging-selection span{min-width:0;overflow-wrap:anywhere}
+.messaging-selection small{margin-left:auto;color:var(--muted);font-size:11px;white-space:nowrap}
+
+.messaging-workspace .check-field{display:flex;align-items:flex-start;gap:8px;margin:16px 0;max-width:76ch;line-height:1.5}
+.messaging-workspace .check-field input{width:16px;height:16px;margin-top:2px;flex-shrink:0;accent-color:var(--accent)}
+
+.messaging-suppressions,.messaging-attributions{list-style:none;margin:20px 0 0;padding:0}
+.messaging-suppressions li,.messaging-attributions li{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 16px;padding:12px 0;border-bottom:1px solid var(--line)}
+.messaging-suppressions strong,.messaging-attributions strong{min-width:88px}
+.messaging-suppressions span,.messaging-attributions span{color:var(--secondary-ink);min-width:0;overflow-wrap:anywhere}
+.messaging-suppressions small{margin-left:auto;color:var(--muted);font-size:11px}
+.messaging-attributions .text-btn{margin-left:auto;display:inline-flex;align-items:center;gap:4px;min-height:32px}
+
+.messaging-history{list-style:none;margin:16px 0 0;padding:0}
+.messaging-history li{padding:12px 0;border-bottom:1px solid var(--line);min-width:0}
+.messaging-history li:last-child{border-bottom:0}
+.messaging-history p{margin:4px 0;color:var(--secondary-ink);max-width:76ch;overflow-wrap:anywhere}
+.messaging-history small{color:var(--muted);font-size:11px;overflow-wrap:anywhere}
+
+@media(max-width:900px){.messaging-facts{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:700px){
+ .messaging-workspace>.panel{margin-bottom:16px}
+ .messaging-facts{grid-template-columns:minmax(0,1fr);gap:0}
+ .messaging-selection{grid-template-columns:minmax(0,1fr);max-height:none}
+ .messaging-selection label{min-height:44px}
+ .messaging-workspace .form-actions{flex-wrap:wrap;justify-content:flex-start;gap:8px}
+ .messaging-workspace .form-actions .btn{min-height:44px}
+ .messaging-suppressions small,.messaging-attributions .text-btn{margin-left:0;width:100%}
+}
+@media(max-width:700px){
+ .table-wrap>table.messaging-register,.messaging-register tbody,.table-wrap>table.messaging-recipients,.messaging-recipients tbody,.table-wrap>table.messaging-queue,.messaging-queue tbody{display:block;min-width:0;width:100%}
+ .messaging-register thead,.messaging-recipients thead,.messaging-queue thead{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%)}
+ .messaging-register tbody tr,.messaging-recipients tbody tr,.messaging-queue tbody tr{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px 16px;padding:16px 0;border-bottom:1px solid var(--line)}
+ .messaging-register tbody td,.messaging-recipients tbody td,.messaging-queue tbody td{position:static;display:block;height:auto;padding:0;border:0;min-width:0;white-space:normal;overflow-wrap:anywhere;text-align:left}
+ .messaging-register td::before,.messaging-recipients td::before,.messaging-queue td::before{content:attr(data-label);display:block;font-size:11px;color:var(--muted);margin-bottom:4px}
+ .messaging-register td:first-child,.messaging-recipients td:first-child,.messaging-queue td:first-child{grid-column:1/-1;min-width:0}
+ .messaging-register .numeric,.messaging-recipients .numeric{text-align:left}
+ .messaging-register .record-link{white-space:normal;text-align:left;min-height:44px}
+}
+@media(forced-colors:active){.messaging-conflict{border:1px solid CanvasText;background:Canvas}}

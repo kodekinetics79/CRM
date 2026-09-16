@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { normalizeAdditionalTypes } from '../shared/constituentTypes.js';
 import { MIGRATION_COLLECTIONS, MIGRATION_FIELDS, MIGRATION_REQUIRED, MIGRATION_LIMITS } from '../shared/migrationContract.js';
 
 // Phase one accepts explicitly normalized CSV data, not arbitrary source schemas.
@@ -35,7 +36,7 @@ const email = z.union([z.literal(''), z.email().max(254)]);
 const sourceContacts = z.array(z.object({ name: z.string().min(1).max(250).refine(v => v.trim().length > 0 && v === v.trim(), 'Contact name must be nonblank without surrounding whitespace'), email, role: short }).strict()).max(50);
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v => Number.isFinite(Date.parse(v)) && new Date(v + 'T00:00:00Z').toISOString().slice(0, 10) === v, 'Invalid source calendar date');
 const sourceSchemas = {
-  constituents: z.object({ sourceId, name, email, phone: short, type: z.enum(['Individual', 'Business', 'Foundation', 'Alumni', 'Employee', 'Staff', 'Community partner']), household: short, parentSourceId: z.string().max(100), contacts: text.optional(), segments: short, preference: z.enum(['Email', 'Phone', 'Post', 'Do not contact']), notes: text }).strict(),
+  constituents: z.object({ sourceId, name, email, phone: short, type: z.enum(['Individual', 'Business', 'Foundation', 'Alumni', 'Employee', 'Staff', 'Community partner']), household: short, parentSourceId: z.string().max(100), contacts: text.optional(), additionalTypes: text.optional(), segments: short, preference: z.enum(['Email', 'Phone', 'Post', 'Do not contact']), notes: text }).strict(),
   communications: z.object({ sourceId, constituentSourceId: sourceId, subject: name, channel: z.enum(['Email', 'Phone', 'Meeting', 'Post']), status: z.literal('Logged'), accessScope: z.literal('Workspace'), date, body: text, notes: text }).strict(),
   campaigns: z.object({ sourceId, name, type: z.enum(['Annual', 'Capital', 'Major gifts', 'Planned giving', 'Matching gifts', 'Peer-to-peer']), goal: z.string(), startDate: date, endDate: date, status: z.enum(['Active', 'Planned', 'Completed']), description: text }).strict(),
   designations: z.object({ sourceId, name, school: short, parentSourceId: z.string().max(100), accountCode: short.min(1), description: text }).strict(),
@@ -75,12 +76,16 @@ function normalize(file, row) {
   // Preserve source fingerprints from the prior three-collection contract.
   // An unmapped optional campaign link must not become a new empty source field.
   if (file.collection === 'gifts' && !Object.hasOwn(file.mapping, 'campaignSourceId')) delete raw.campaignSourceId;
-  if (file.collection === 'constituents' && !Object.hasOwn(file.mapping, 'contacts')) delete raw.contacts;
+  if (file.collection === 'constituents') for (const optional of ['contacts','additionalTypes']) if (!Object.hasOwn(file.mapping, optional)) delete raw[optional];
   for (const field of ['sourceId', 'parentSourceId', 'donorSourceId', 'designationSourceId', 'softCreditSourceId', 'campaignSourceId', 'constituentSourceId']) if (Object.hasOwn(raw, field)) raw[field] = raw[field].trim();
   const parsed = sourceSchemas[file.collection].parse(raw);
   if (file.collection === 'constituents' && Object.hasOwn(parsed, 'contacts')) {
     try { parsed.sourceContacts = sourceContacts.parse(JSON.parse(parsed.contacts)); }
     catch { throw failure(400, 'Contacts must be an explicit JSON array of at most 50 rows containing nonblank name, email and role only'); }
+  }
+  if (file.collection === 'constituents' && Object.hasOwn(parsed, 'additionalTypes')) {
+    try { parsed.sourceAdditionalTypes = normalizeAdditionalTypes(parsed.type, JSON.parse(parsed.additionalTypes)); }
+    catch { throw failure(400, 'Additional types must be an explicit JSON array of unique known categories from the same person or organization family, excluding the primary type'); }
   }
   if (file.collection === 'communications' && parsed.date > new Date().toISOString().slice(0, 10)) throw failure(400, 'Historical interaction date must be current or past; future drafts are not converted');
   if (file.collection === 'campaigns') {
@@ -223,7 +228,7 @@ export function installMigrationRoutes(app, { list, get, create, validate, audit
     }
     function payload(node, resolve) {
       const d = node.data;
-      if (node.collection === 'constituents') return { name: d.name, email: d.email, phone: d.phone, type: d.type, household: d.household, parentId: d.parentSourceId ? resolve('constituents', d.parentSourceId) : null, contacts: d.sourceContacts || [], segments: d.segments, preference: d.preference, notes: d.notes };
+      if (node.collection === 'constituents') return { name: d.name, email: d.email, phone: d.phone, type: d.type, ...(Object.hasOwn(d,'sourceAdditionalTypes') ? {additionalTypes:d.sourceAdditionalTypes} : {}), household: d.household, parentId: d.parentSourceId ? resolve('constituents', d.parentSourceId) : null, contacts: d.sourceContacts || [], segments: d.segments, preference: d.preference, notes: d.notes };
       if (node.collection === 'communications') return { constituentId: resolve('constituents', d.constituentSourceId), subject: d.subject, channel: d.channel, status: d.status, date: d.date, body: d.body, notes: d.notes };
       if (node.collection === 'campaigns') return { name: d.name, type: d.type, goal: d.goalCents, startDate: d.startDate, endDate: d.endDate, status: d.status, description: d.description };
       if (node.collection === 'designations') return { name: d.name, school: d.school, parentId: d.parentSourceId ? resolve('designations', d.parentSourceId) : null, accountCode: d.accountCode, description: d.description };
@@ -351,6 +356,70 @@ export function installMigrationRoutes(app, { list, get, create, validate, audit
       return completed;
     });
     res.status(outcome.replayed ? 200 : 201).json(outcome);
+  }));
+  // A continuation receipt covers the entire retained source namespace, not
+  // only the latest part. It never claims that an unprovided export is complete.
+  app.get('/api/migration/source-reconciliation', admin, route((req, res) => {
+    const query = z.object({ source: requestShape.source }).strict().safeParse(req.query);
+    if (!query.success) throw failure(400, 'Provide a valid migration source namespace');
+    const receipt = transaction(() => {
+      const source = query.data.source;
+      const mappings = db.prepare('SELECT * FROM migration_mapping WHERE source=? ORDER BY collection,external_id').all(source);
+      const mappedCounts = Object.fromEntries(supported.map(c => [c, 0]));
+      const currentCounts = Object.fromEntries(supported.map(c => [c, 0]));
+      const records = new Map(supported.map(c => [c, []]));
+      const integrity = { unchanged: 0, changed: 0, missing: 0, duplicateTargets: 0, reconciled: true };
+      const targets = new Set();
+      for (const mapping of mappings) {
+        if (!supported.includes(mapping.collection)) throw failure(503, 'Migration source contains an unsupported retained collection; reconcile the source ledger');
+        mappedCounts[mapping.collection]++;
+        const target = keyOf(mapping.collection, mapping.record_id);
+        if (targets.has(target)) integrity.duplicateTargets++;
+        targets.add(target);
+        let record;
+        try { record = get(mapping.collection, mapping.record_id); }
+        catch { integrity.missing++; continue; }
+        if (record.id !== mapping.record_id) { integrity.missing++; continue; }
+        currentCounts[mapping.collection]++;
+        if (hash(record) === mapping.record_hash) integrity.unchanged++;
+        else integrity.changed++;
+        records.get(mapping.collection).push({ record, mapping });
+      }
+      integrity.reconciled = integrity.changed === 0 && integrity.missing === 0 && integrity.duplicateTargets === 0;
+      const base = { source, scope: 'All retained mappings and current native records for this source namespace. A reconciled receipt proves unchanged mapped rows, not completeness of an unprovided buyer export. Each committed part is atomic; a multi-part import is not one transaction.',
+        batchCount: db.prepare('SELECT count(*) n FROM import_batches WHERE source=?').get(source).n,
+        mappingCount: mappings.length, mappedCounts, currentCounts, integrity };
+      // Do not present totals as exact reconciled source controls when one mapped
+      // record is missing or has subsequently undergone an authorized correction.
+      if (!integrity.reconciled) return { ...base, constituents: null, designations: null, gifts: null, campaigns: null, communications: null };
+      const people = records.get('constituents').map(item => item.record);
+      const grouped = (values, field) => {
+        const groups = new Map();
+        for (const value of values) groups.set(value[field], (groups.get(value[field]) || 0) + 1);
+        return [...groups].map(([key, count]) => ({ key, count })).sort((a, b) => a.key.localeCompare(b.key));
+      };
+      const funds = records.get('designations');
+      const codes = funds.map(({ record, mapping }) => ({ sourceId: mapping.external_id, accountCode: record.accountCode })).sort((a, b) => a.sourceId.localeCompare(b.sourceId));
+      const fundMappings = new Map(funds.map(item => [item.record.id, item.mapping]));
+      const gifts = records.get('gifts').map(item => item.record);
+      const finance = controlTotals(gifts.map(gift => ({ type: gift.type, method: gift.method, amount: gift.amount,
+        allocations: gift.allocations.map(allocation => {
+          const mapping = fundMappings.get(allocation.designationId);
+          if (!mapping) throw failure(409, 'Mapped gift allocation has no retained designation in this source namespace; reconcile source lineage');
+          return { sourceId: mapping.external_id, accountCode: get('designations', allocation.designationId).accountCode, amount: allocation.amount };
+        }) })));
+      const sum = values => values.reduce((n, gift) => n + BigInt(gift.amount), 0n).toString();
+      return { ...base,
+        constituents: { profileCount: people.length, contactCount: people.reduce((n, p) => n + p.contacts.length, 0), profilesWithContacts: people.filter(p => p.contacts.length).length,
+          parentLinkCount: people.filter(p => p.parentId).length, byType: grouped(people, 'type'), byPreference: grouped(people, 'preference') },
+        designations: { recordCount: funds.length, accountCodeCount: new Set(codes.map(row => row.accountCode)).size, parentLinkCount: funds.filter(item => item.record.parentId).length, accountCodeDigest: hash(codes) },
+        gifts: { giftCount: gifts.length, allocationCount: gifts.reduce((n, g) => n + g.allocations.length, 0), totalCents: sum(gifts),
+          allocationTotalCents: gifts.reduce((n, g) => n + g.allocations.reduce((a, row) => a + BigInt(row.amount), 0n), 0n).toString(),
+          monetaryContributionCents: sum(gifts.filter(g => !['In-kind', 'Fee payment'].includes(g.type))), noncashValueCents: sum(gifts.filter(g => g.type === 'In-kind')),
+          feePaymentCents: sum(gifts.filter(g => g.type === 'Fee payment')), byType: finance.byType, byMethod: finance.byMethod, designationControlDigest: hash(finance.byDesignation) },
+        campaigns: { recordCount: currentCounts.campaigns }, communications: { recordCount: currentCounts.communications } };
+    });
+    res.json(receipt);
   }));
   app.get('/api/migration/batches/:id', admin, route((req, res) => {
     if (!z.uuid().safeParse(req.params.id).success) throw failure(400, 'Invalid migration batch identifier');
