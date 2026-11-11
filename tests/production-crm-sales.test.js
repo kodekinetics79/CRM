@@ -89,6 +89,8 @@ test('migration 14 defines pipelines, stages, leads, opportunities and append-on
   assert.match(sql,/FOREIGN KEY \(tenant_id, lead_id\) REFERENCES leads\(tenant_id, lead_id\)/);
   assert.match(sql,/FOREIGN KEY \(tenant_id, converted_opportunity_id\) REFERENCES opportunities\(tenant_id, opportunity_id\)/);
   assert.match(sql,/CHECK \(\(status = 'converted'\) = \(converted_opportunity_id IS NOT NULL\)\)/);
+  assert.match(sql,/UNIQUE \(tenant_id, pipeline_id, opportunity_id\)/);
+  assert.match(sql,/FOREIGN KEY \(tenant_id, pipeline_id, opportunity_id\) REFERENCES opportunities\(tenant_id, pipeline_id, opportunity_id\)/);
   assert.match(sql,/pipeline_id uuid NOT NULL,[\s\S]*FOREIGN KEY \(tenant_id, pipeline_id, from_stage_id\) REFERENCES pipeline_stages/);
   assert.match(sql,/FOREIGN KEY \(tenant_id, pipeline_id, to_stage_id\) REFERENCES pipeline_stages/);
   assert.match(sql,/opportunity_stage_event_no_update/);
@@ -145,9 +147,9 @@ test('repository creates one default pipeline with ordered open, won and lost st
   });
   const repository=createCrmRepository({tenantPool:f.pool,clock});
   const pipeline=await repository.ensureDefaultPipeline({tenantId,pipelineId,name:'Default Sales Pipeline',stages:[
+    {stageId:lostStageId,name:'Lost',kind:'lost',position:3,probability:0},
     {stageId:openStageId,name:'Discovery',kind:'open',position:1,probability:10},
-    {stageId:wonStageId,name:'Won',kind:'won',position:2,probability:100},
-    {stageId:lostStageId,name:'Lost',kind:'lost',position:3,probability:0}
+    {stageId:wonStageId,name:'Won',kind:'won',position:2,probability:100}
   ]});
   assert.equal(pipeline.pipelineId,pipelineId);
   assert.equal(pipeline.isDefault,true);
@@ -158,23 +160,34 @@ test('repository creates one default pipeline with ordered open, won and lost st
 
 test('concurrent default setup serializes and returns the one existing pipeline',async()=>{
   const calls=[];
-  let tail=Promise.resolve(),created=false;
-  const session={async query(sql,values=[]){
-    const text=String(sql).trim();calls.push({sql:text,values});
-    if(['BEGIN','COMMIT','ROLLBACK'].includes(text)||text.includes('/*pipeline:lock*/'))return {rows:[],rowCount:0};
-    if(text.includes('/*pipeline:default*/'))return created?{rows:[pipelineRow],rowCount:1}:{rows:[],rowCount:0};
-    if(text.includes('/*pipeline:insert*/')){created=true;return {rows:[pipelineRow],rowCount:1};}
-    if(text.includes('/*pipeline-stage:insert*/'))return {rows:[stageRows[values[5]-1]],rowCount:1};
-    if(text.includes('/*pipeline-stage:list*/'))return {rows:stageRows,rowCount:stageRows.length};
-    throw new Error(`Unexpected concurrent query: ${text}`);
-  }};
+  let lockTail=Promise.resolve(),created=false;
+  const makeSession=()=>{
+    let releaseLock=()=>{};
+    return {async query(sql,values=[]){
+      const text=String(sql).trim();calls.push({sql:text,values});
+      if(text==='BEGIN')return {rows:[],rowCount:0};
+      if(['COMMIT','ROLLBACK'].includes(text)){releaseLock();return {rows:[],rowCount:0};}
+      if(text.includes('/*pipeline:lock*/')){
+        const prior=lockTail;
+        lockTail=new Promise(resolve=>{releaseLock=resolve;});
+        await prior;
+        return {rows:[],rowCount:0};
+      }
+      if(text.includes('/*pipeline:default*/'))return created?{rows:[pipelineRow],rowCount:1}:{rows:[],rowCount:0};
+      if(text.includes('/*pipeline:insert*/')){created=true;return {rows:[pipelineRow],rowCount:1};}
+      if(text.includes('/*pipeline-stage:insert*/'))return {rows:[stageRows[values[5]-1]],rowCount:1};
+      if(text.includes('/*pipeline-stage:list*/'))return {rows:stageRows,rowCount:stageRows.length};
+      throw new Error(`Unexpected concurrent query: ${text}`);
+    }};
+  };
   const pool={
     async withTenantSession(){throw new Error('not used');},
     async withTransaction(tenant,fn){
       assert.equal(tenant,tenantId);
-      const run=tail.then(async()=>{await session.query('BEGIN');try{const result=await fn(session);await session.query('COMMIT');return result;}catch(error){await session.query('ROLLBACK');throw error;}});
-      tail=run.catch(()=>{});
-      return run;
+      const session=makeSession();
+      await session.query('BEGIN');
+      try{const result=await fn(session);await session.query('COMMIT');return result;}
+      catch(error){await session.query('ROLLBACK');throw error;}
     }
   };
   const repository=createCrmRepository({tenantPool:pool,clock});

@@ -40,3 +40,13 @@
 ## Boundaries
 
 - This is local implementation and verification, not CI, merge, deployment, production observation or customer acceptance.
+
+## Fix round 1
+
+- RED command: `node --test tests/production-crm-sales.test.js`
+- RED output: 14 tests; 12 passed and 2 failed. The failures proved stage history lacked a composite opportunity/pipeline key and shuffled stage input was returned out of order. The revised concurrent test passed only because the modeled advisory lock serialized the critical section; unlike the prior test, `withTransaction` itself is concurrent, so removing the repository lock makes both transactions observe no default and attempt two inserts.
+- Fixes: added `UNIQUE (tenant_id, pipeline_id, opportunity_id)` and a matching composite history foreign key; sorted normalized stages by position before inserts and response construction; replaced the transaction-serialized concurrency double with an advisory-lock-serialized double; added a real PostgreSQL negative for cross-pipeline opportunity history.
+- GREEN command: `node --test tests/production-crm-sales.test.js && npm run verify:postgres-foundation`
+- GREEN output: 14/14 focused tests passed; disposable PostgreSQL applied schema 14 and passed cross-pipeline stage, cross-pipeline history, cross-tenant, unscoped and control-role negatives.
+- Final command: `npm run test:production-foundation`
+- Final output: 105/105 production tests passed; real PostgreSQL verification passed; TDD discipline reported 0 focused and 0 skipped tests.

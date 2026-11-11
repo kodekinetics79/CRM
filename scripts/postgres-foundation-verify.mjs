@@ -208,6 +208,10 @@ async function main(){
       await session.query('INSERT INTO pipelines(tenant_id,pipeline_id,name,is_default) VALUES($1,$2,$3,false)',[tenantA,otherPipelineId,'Secondary pipeline']);
       await session.query("INSERT INTO pipeline_stages(tenant_id,stage_id,pipeline_id,name,kind,position,probability) VALUES($1,$2,$3,'Other open','open',1,10)",[tenantA,otherStageId,otherPipelineId]);
     });
+    await expectFailure(()=>tenantPool.withTransaction(tenantA,session=>session.query(
+      "INSERT INTO opportunity_stage_events(tenant_id,event_id,opportunity_id,pipeline_id,to_stage_id,action) VALUES($1,$2,$3,$4,$5,'invalid.cross_pipeline')",
+      [tenantA,randomUUID(),opportunityId,otherPipelineId,otherStageId]
+    )),PERSISTENCE_CODES.INVALID,'stage history from another opportunity pipeline');
     await expectFailure(()=>tenantPool.withTransaction(tenantA,async session=>{
       await session.query('INSERT INTO leads(tenant_id,lead_id,party_id,pipeline_id,stage_id,source,expected_value_cents,currency,probability,expected_close_date) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[
         tenantA,randomUUID(),salesPartyId,pipelineId,otherStageId,'web',12500,'USD',10,'2026-12-31'
@@ -226,7 +230,7 @@ async function main(){
     assert(own.rowCount===1&&cross.rowCount===0,'sales tenant isolation hid or exposed the wrong opportunity rows');
     await expectFailure(()=>tenantPool.withAdminSession(session=>session.query('SELECT COUNT(*) FROM opportunities')),PERSISTENCE_CODES.ISOLATION,'unscoped sales read');
     await expectFailure(()=>controlPool.withAdminSession(session=>session.query('SELECT COUNT(*) FROM opportunities')),PERSISTENCE_CODES.ISOLATION,'control-role sales read');
-    return 'default-pipeline=unique, cross-pipeline-stage=refused, cross-tenant-read=0, unscoped/control=refused';
+    return 'default-pipeline=unique, cross-pipeline-stage=refused, cross-pipeline-history=refused, cross-tenant-read=0, unscoped/control=refused';
   });
 
   await tenantPool.withTransaction(tenantA,session=>session.query("INSERT INTO wimblo_platform.tenant_modules(tenant_id,module_key,state) VALUES($1,'core','enabled')",[tenantA]));

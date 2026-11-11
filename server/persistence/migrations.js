@@ -636,7 +636,8 @@ export const MIGRATIONS=Object.freeze([
     FOREIGN KEY (tenant_id, pipeline_id, stage_id) REFERENCES pipeline_stages(tenant_id, pipeline_id, stage_id) ON DELETE RESTRICT,
     FOREIGN KEY (tenant_id, lead_id) REFERENCES leads(tenant_id, lead_id) ON DELETE RESTRICT,
     FOREIGN KEY (tenant_id, owner_identity_id) REFERENCES wimblo_platform.memberships(tenant_id, identity_id) ON DELETE RESTRICT,
-    UNIQUE (tenant_id, lead_id)
+    UNIQUE (tenant_id, lead_id),
+    UNIQUE (tenant_id, pipeline_id, opportunity_id)
    )`,
   `ALTER TABLE leads ADD CONSTRAINT leads_converted_opportunity_fk
     FOREIGN KEY (tenant_id, converted_opportunity_id) REFERENCES opportunities(tenant_id, opportunity_id) ON DELETE RESTRICT`,
@@ -654,7 +655,7 @@ export const MIGRATIONS=Object.freeze([
     details jsonb NOT NULL DEFAULT '{}'::jsonb,
     at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (tenant_id, event_id),
-    FOREIGN KEY (tenant_id, opportunity_id) REFERENCES opportunities(tenant_id, opportunity_id) ON DELETE CASCADE,
+    FOREIGN KEY (tenant_id, pipeline_id, opportunity_id) REFERENCES opportunities(tenant_id, pipeline_id, opportunity_id) ON DELETE CASCADE,
     FOREIGN KEY (tenant_id, pipeline_id, from_stage_id) REFERENCES pipeline_stages(tenant_id, pipeline_id, stage_id) ON DELETE RESTRICT,
     FOREIGN KEY (tenant_id, pipeline_id, to_stage_id) REFERENCES pipeline_stages(tenant_id, pipeline_id, stage_id) ON DELETE RESTRICT,
     FOREIGN KEY (tenant_id, actor_identity_id) REFERENCES wimblo_platform.memberships(tenant_id, identity_id) ON DELETE RESTRICT

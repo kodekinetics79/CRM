@@ -368,7 +368,7 @@ export function createCrmRepository({tenantPool,clock=timestamp}={}){
       kind:oneOf(stage.kind,STAGE_KINDS,'Stage kind'),
       position:Number(stage.position),
       probability:probability(stage.probability)
-    }));
+    })).sort((left,right)=>left.position-right.position);
     const open=normalized.filter(stage=>stage.kind==='open'),won=normalized.find(stage=>stage.kind==='won'),lost=normalized.find(stage=>stage.kind==='lost');
     const firstTerminal=Math.min(won.position,lost.position);
     if(open.some(stage=>stage.position>=firstTerminal))fail('Open stages must be ordered before terminal won and lost stages.');
