@@ -14,7 +14,8 @@
     "test": "node --test --test-concurrency=4 tests/*.test.js",
     "test:discipline": "node scripts/tdd-gate.mjs",
     "evaluate": "node scripts/evaluate.mjs",
-    "verify:postgres": "node scripts/postgres-verify.mjs"
+    "verify:postgres": "node scripts/postgres-verify.mjs",
+    "verify:postgres-foundation": "node scripts/postgres-foundation-verify.mjs"
   },
   "engines": {
     "node": ">=24.0.0"

@@ -1,0 +1,168 @@
+#!/usr/bin/env node
+
+// Destructive only inside a uniquely named disposable database and uniquely
+// named runtime roles. This script never accepts a production runtime URL.
+
+import {randomUUID} from 'node:crypto';
+import {
+  MIGRATIONS,
+  SCHEMA_VERSION,
+  applyMigrations,
+  createPostgresPool,
+  applicationRoleGrants,
+  controlPlaneRoleGrants,
+  assertRowLevelSecurityEffective,
+  assertControlPlaneRole,
+  TENANT_TABLES,
+  TENANT_FOUNDATION_TABLES,
+  PERSISTENCE_CODES
+} from '../server/persistence/index.js';
+
+const BASE_URL=process.env.WIMBLO_FOUNDATION_VERIFY_PG_URL||'postgres://wimblo_admin:wimblo-foundation@127.0.0.1:57733/wimblo_foundation';
+const stamp=`${process.pid}_${Date.now().toString(36)}`.toLowerCase();
+const database=`wimblo_foundation_${stamp}`;
+const tenantRole=`wimblo_tenant_${stamp}`;
+const controlRole=`wimblo_control_${stamp}`;
+const tenantPassword='wimblo-local-tenant';
+const controlPassword='wimblo-local-control';
+const tenantA=randomUUID();
+const tenantB=randomUUID();
+const identityId=randomUUID();
+
+const pools=[];
+const line=value=>process.stdout.write(`${value}\n`);
+const assert=(condition,message)=>{if(!condition)throw new Error(message);};
+const identifier=value=>{
+  if(!/^[a-z_][a-z0-9_]{0,62}$/.test(value))throw new Error(`Unsafe generated identifier: ${value}`);
+  return `"${value}"`;
+};
+const databaseUrl=(name,user,password)=>{
+  const url=new URL(BASE_URL);
+  url.pathname=`/${name}`;
+  if(user)url.username=user;
+  if(password)url.password=password;
+  return url.toString();
+};
+async function expectFailure(fn,code,label){
+  let failure;
+  try{await fn();}catch(error){failure=error;}
+  assert(failure,`${label} unexpectedly succeeded`);
+  if(code)assert(failure.code===code,`${label} returned ${failure.code||failure.message}, expected ${code}`);
+  return failure;
+}
+async function runStep(name,fn){
+  const started=Date.now();
+  const evidence=await fn();
+  line(`PASS ${name} (${Date.now()-started}ms)${evidence?` — ${evidence}`:''}`);
+}
+
+const admin=createPostgresPool({connectionString:BASE_URL,acquireAttempts:1,connectionTimeoutMs:3000,applicationName:'wimblo-foundation-verify-admin'});
+pools.push(admin);
+
+async function cleanup(){
+  for(const pool of pools.slice(1).reverse())await pool.end().catch(()=>{});
+  await admin.withAdminSession(async session=>{
+    await session.query('SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname=$1 AND pid <> pg_backend_pid()',[database]).catch(()=>{});
+    await session.query(`DROP DATABASE IF EXISTS ${identifier(database)}`).catch(()=>{});
+    await session.query(`DROP ROLE IF EXISTS ${identifier(tenantRole)}`).catch(()=>{});
+    await session.query(`DROP ROLE IF EXISTS ${identifier(controlRole)}`).catch(()=>{});
+  }).catch(()=>{});
+  await admin.end().catch(()=>{});
+}
+
+async function main(){
+  const parsed=new URL(BASE_URL);
+  if(!['127.0.0.1','localhost','::1'].includes(parsed.hostname))throw new Error('Foundation verification refuses non-loopback PostgreSQL targets. Use a dedicated disposable local database.');
+
+  await admin.withAdminSession(async session=>{
+    await session.query(`CREATE ROLE ${identifier(tenantRole)} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS PASSWORD '${tenantPassword}'`);
+    await session.query(`CREATE ROLE ${identifier(controlRole)} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS PASSWORD '${controlPassword}'`);
+    await session.query(`CREATE DATABASE ${identifier(database)}`);
+  });
+
+  const owner=createPostgresPool({connectionString:databaseUrl(database),max:2,applicationName:'wimblo-foundation-owner'});
+  const tenantPool=createPostgresPool({connectionString:databaseUrl(database,tenantRole,tenantPassword),max:2,applicationName:'wimblo-foundation-tenant'});
+  const controlPool=createPostgresPool({connectionString:databaseUrl(database,controlRole,controlPassword),max:2,applicationName:'wimblo-foundation-control'});
+  pools.push(owner,tenantPool,controlPool);
+
+  await runStep('explicit migrations apply versions 1 through 9',async()=>{
+    const result=await owner.withAdminSession(session=>applyMigrations(session));
+    assert(result.currentVersion===9&&SCHEMA_VERSION===9,'schema did not reach version 9');
+    assert(result.applied.map(entry=>entry.version).join(',')===MIGRATIONS.map(entry=>entry.version).join(','),'migration order differs');
+    for(const sql of applicationRoleGrants(tenantRole))await owner.withAdminSession(session=>session.query(sql));
+    for(const sql of controlPlaneRoleGrants(controlRole))await owner.withAdminSession(session=>session.query(sql));
+    return `schema=${result.currentVersion}, ledger=${result.applied.length}`;
+  });
+
+  await owner.withAdminSession(async session=>{
+    await session.query('INSERT INTO tenants(tenant_id,name,residency_profile,database_region,storage_region) VALUES($1,$2,$3,$4,$5),($6,$7,$3,$4,$5)',[tenantA,'Foundation tenant A','north-america','us-east-1','us-east-1',tenantB,'Foundation tenant B']);
+    await session.query("INSERT INTO wimblo_platform.module_catalog(module_key,display_name,contract_version) VALUES('crm','CRM Core',1)");
+  });
+
+  await runStep('expanded tenant lifecycle accepts closed and requires a scheduled deletion date',async()=>{
+    const closedTenant=randomUUID();
+    await owner.withAdminSession(session=>session.query("INSERT INTO tenants(tenant_id,name,residency_profile,database_region,storage_region,status) VALUES($1,'Closed verifier','north-america','us-east-1','us-east-1','closed')",[closedTenant]));
+    const error=await expectFailure(()=>owner.withAdminSession(session=>session.query("INSERT INTO tenants(tenant_id,name,residency_profile,database_region,storage_region,status) VALUES($1,'Scheduled verifier','north-america','us-east-1','us-east-1','deletion_scheduled')",[randomUUID()])),PERSISTENCE_CODES.INVALID,'undated deletion schedule');
+    assert(error.code===PERSISTENCE_CODES.INVALID,'deletion lifecycle constraint did not classify as invalid');
+    return 'closed=accepted, undated-deletion=refused';
+  });
+
+  await runStep('tenant and control connections use distinct non-bypassing roles',async()=>{
+    const tenantEvidence=await tenantPool.withAdminSession(session=>assertRowLevelSecurityEffective(session));
+    const controlEvidence=await controlPool.withAdminSession(session=>assertControlPlaneRole(session));
+    assert(tenantEvidence.role===tenantRole,'tenant connection role mismatch');
+    assert(controlEvidence.role===controlRole,'control connection role mismatch');
+    assert(tenantEvidence.role!==controlEvidence.role,'runtime roles are not distinct');
+    return `tenant=${tenantEvidence.role}, control=${controlEvidence.role}`;
+  });
+
+  await runStep('forced row-level security covers original and foundation tenant tables',async()=>{
+    const expected=[...TENANT_TABLES.map(table=>['public',table]),...TENANT_FOUNDATION_TABLES.map(table=>table.split('.'))];
+    const {rows}=await owner.withAdminSession(session=>session.query(
+      `SELECT n.nspname, c.relname, c.relrowsecurity, c.relforcerowsecurity
+       FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+       WHERE (n.nspname='public' AND c.relname=ANY($1)) OR (n.nspname='wimblo_platform' AND c.relname=ANY($2))`,
+      [TENANT_TABLES,TENANT_FOUNDATION_TABLES.map(table=>table.split('.')[1])]));
+    const found=new Map(rows.map(row=>[`${row.nspname}.${row.relname}`,row]));
+    for(const [schema,table] of expected){
+      const row=found.get(`${schema}.${table}`);
+      assert(row?.relrowsecurity&&row?.relforcerowsecurity,`${schema}.${table} is not forced-RLS`);
+    }
+    return `forced=${expected.length}`;
+  });
+
+  await tenantPool.withTransaction(tenantA,session=>session.query("INSERT INTO wimblo_platform.tenant_modules(tenant_id,module_key,state) VALUES($1,'crm','enabled')",[tenantA]));
+  await tenantPool.withTransaction(tenantB,session=>session.query("INSERT INTO wimblo_platform.tenant_modules(tenant_id,module_key,state) VALUES($1,'crm','enabled')",[tenantB]));
+
+  await runStep('two tenants cannot read or write each other module rows',async()=>{
+    const own=await tenantPool.withTenantSession(tenantA,session=>session.query('SELECT tenant_id::text FROM wimblo_platform.tenant_modules'));
+    assert(own.rowCount===1&&own.rows[0].tenant_id===tenantA,'tenant A did not see exactly its own row');
+    const cross=await tenantPool.withTenantSession(tenantA,session=>session.query('SELECT tenant_id::text FROM wimblo_platform.tenant_modules WHERE tenant_id=$1',[tenantB]));
+    assert(cross.rowCount===0,'tenant A read tenant B module state');
+    await expectFailure(()=>tenantPool.withTransaction(tenantA,session=>session.query("UPDATE wimblo_platform.tenant_modules SET state='suspended' WHERE tenant_id=$1 AND module_key='crm' RETURNING tenant_id",[tenantB])).then(result=>{
+      if(result.rowCount===0)throw Object.assign(new Error('cross-tenant update was hidden by RLS'),{code:PERSISTENCE_CODES.ISOLATION});
+      return result;
+    }),PERSISTENCE_CODES.ISOLATION,'cross-tenant write');
+    return 'cross-read=0, cross-write=refused';
+  });
+
+  await runStep('missing tenant scope fails closed',async()=>{
+    await expectFailure(()=>tenantPool.withAdminSession(session=>session.query('SELECT COUNT(*) FROM wimblo_platform.tenant_modules')),PERSISTENCE_CODES.ISOLATION,'unscoped tenant read');
+    return 'unscoped=refused';
+  });
+
+  await runStep('control role can use platform identity tables but cannot read tenant business tables',async()=>{
+    await controlPool.withAdminSession(session=>session.query('INSERT INTO wimblo_platform.global_identities(identity_id,normalized_email,display_name,password_hash) VALUES($1,$2,$3,$4)',[identityId,'foundation@example.invalid','Foundation verifier','not-a-real-login-hash']));
+    const found=await controlPool.withAdminSession(session=>session.query('SELECT identity_id::text FROM wimblo_platform.global_identities WHERE identity_id=$1',[identityId]));
+    assert(found.rowCount===1,'control role could not read its platform identity');
+    await expectFailure(()=>controlPool.withAdminSession(session=>session.query('SELECT COUNT(*) FROM records')),PERSISTENCE_CODES.ISOLATION,'control-plane business read');
+    return 'platform-read=1, business-read=refused';
+  });
+
+  line('FOUNDATION VERIFICATION PASSED');
+}
+
+main().catch(error=>{
+  process.stderr.write(`FOUNDATION VERIFICATION FAILED: ${error.message}\n`);
+  process.exitCode=1;
+}).finally(cleanup);

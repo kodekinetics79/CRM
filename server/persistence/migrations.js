@@ -183,7 +183,219 @@ export const MIGRATIONS=Object.freeze([
    `ALTER TABLE ${table} FORCE ROW LEVEL SECURITY`,
    `CREATE POLICY ${table}_tenant_isolation ON ${table} USING (tenant_id = wimblo_current_tenant()) WITH CHECK (tenant_id = wimblo_current_tenant())`
   ])
- )
+ ),
+ migration(6,'platform-identities-memberships-sessions-and-mfa',[
+  `CREATE SCHEMA IF NOT EXISTS wimblo_platform`,
+  `CREATE TABLE wimblo_platform.global_identities(
+    identity_id uuid PRIMARY KEY,
+    normalized_email text NOT NULL CHECK (normalized_email = lower(btrim(normalized_email)) AND char_length(normalized_email) BETWEEN 3 AND 320),
+    display_name text NOT NULL CHECK (char_length(display_name) BETWEEN 1 AND 200),
+    password_hash text NOT NULL,
+    status text NOT NULL DEFAULT 'active' CHECK (status IN ('active','suspended','closed')),
+    security_version integer NOT NULL DEFAULT 1 CHECK (security_version >= 1),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (normalized_email)
+   )`,
+  `CREATE TABLE wimblo_platform.memberships(
+    tenant_id uuid NOT NULL REFERENCES tenants(tenant_id) ON DELETE RESTRICT,
+    identity_id uuid NOT NULL REFERENCES wimblo_platform.global_identities(identity_id) ON DELETE RESTRICT,
+    role text NOT NULL CHECK (role IN ('owner','admin','staff','viewer','helper')),
+    status text NOT NULL DEFAULT 'active' CHECK (status IN ('active','suspended','revoked')),
+    version integer NOT NULL DEFAULT 1 CHECK (version >= 1),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, identity_id)
+   )`,
+  `CREATE INDEX memberships_identity ON wimblo_platform.memberships(identity_id, status)`,
+  `CREATE TABLE wimblo_platform.invitations(
+    invitation_id uuid PRIMARY KEY,
+    tenant_id uuid NOT NULL REFERENCES tenants(tenant_id) ON DELETE RESTRICT,
+    token_hash char(64) NOT NULL UNIQUE CHECK (token_hash ~ '^[a-f0-9]{64}$'),
+    normalized_email text NOT NULL CHECK (normalized_email = lower(btrim(normalized_email)) AND char_length(normalized_email) BETWEEN 3 AND 320),
+    role text NOT NULL CHECK (role IN ('owner','admin','staff','viewer','helper')),
+    status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','consumed','revoked','expired')),
+    created_by uuid NOT NULL REFERENCES wimblo_platform.global_identities(identity_id) ON DELETE RESTRICT,
+    consumed_by uuid REFERENCES wimblo_platform.global_identities(identity_id) ON DELETE RESTRICT,
+    expires_at timestamptz NOT NULL,
+    consumed_at timestamptz,
+    revoked_at timestamptz,
+    version integer NOT NULL DEFAULT 1 CHECK (version >= 1),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    CHECK ((status = 'consumed') = (consumed_at IS NOT NULL)),
+    CHECK ((status = 'revoked') = (revoked_at IS NOT NULL))
+   )`,
+  `CREATE INDEX invitations_tenant_status ON wimblo_platform.invitations(tenant_id, status, expires_at)`,
+  `CREATE TABLE wimblo_platform.opaque_sessions(
+    token_hash char(64) PRIMARY KEY CHECK (token_hash ~ '^[a-f0-9]{64}$'),
+    tenant_id uuid NOT NULL,
+    identity_id uuid NOT NULL,
+    membership_version integer NOT NULL CHECK (membership_version >= 1),
+    security_version integer NOT NULL CHECK (security_version >= 1),
+    mfa_verified_at timestamptz NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    expires_at timestamptz NOT NULL,
+    revoked_at timestamptz,
+    FOREIGN KEY (tenant_id, identity_id) REFERENCES wimblo_platform.memberships(tenant_id, identity_id) ON DELETE CASCADE
+   )`,
+  `CREATE INDEX opaque_sessions_identity ON wimblo_platform.opaque_sessions(identity_id, expires_at) WHERE revoked_at IS NULL`,
+  `CREATE TABLE wimblo_platform.mfa_settings(
+    identity_id uuid PRIMARY KEY REFERENCES wimblo_platform.global_identities(identity_id) ON DELETE CASCADE,
+    state text NOT NULL CHECK (state IN ('required','enrolling','active','recovery_required','disabled')),
+    secret_ciphertext text,
+    enrolled_at timestamptz,
+    version integer NOT NULL DEFAULT 1 CHECK (version >= 1),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CHECK (state NOT IN ('active','recovery_required') OR enrolled_at IS NOT NULL)
+   )`,
+  `CREATE TABLE wimblo_platform.mfa_recovery_codes(
+    identity_id uuid NOT NULL REFERENCES wimblo_platform.global_identities(identity_id) ON DELETE CASCADE,
+    code_hash char(64) NOT NULL CHECK (code_hash ~ '^[a-f0-9]{64}$'),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    used_at timestamptz,
+    PRIMARY KEY (identity_id, code_hash)
+   )`,
+  `CREATE TABLE wimblo_platform.mfa_challenges(
+    challenge_id uuid PRIMARY KEY,
+    identity_id uuid NOT NULL REFERENCES wimblo_platform.global_identities(identity_id) ON DELETE CASCADE,
+    purpose text NOT NULL CHECK (purpose IN ('enrollment','sign_in','recovery','step_up')),
+    challenge_hash char(64) NOT NULL CHECK (challenge_hash ~ '^[a-f0-9]{64}$'),
+    attempts integer NOT NULL DEFAULT 0 CHECK (attempts BETWEEN 0 AND 10),
+    expires_at timestamptz NOT NULL,
+    completed_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now()
+   )`,
+  `CREATE INDEX mfa_challenges_identity ON wimblo_platform.mfa_challenges(identity_id, expires_at) WHERE completed_at IS NULL`,
+  `CREATE TABLE wimblo_platform.control_audit(
+    audit_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    tenant_id uuid REFERENCES tenants(tenant_id) ON DELETE RESTRICT,
+    identity_id uuid REFERENCES wimblo_platform.global_identities(identity_id) ON DELETE RESTRICT,
+    actor_identity_id uuid REFERENCES wimblo_platform.global_identities(identity_id) ON DELETE RESTRICT,
+    action text NOT NULL CHECK (char_length(action) BETWEEN 1 AND 120),
+    target_type text NOT NULL CHECK (char_length(target_type) BETWEEN 1 AND 80),
+    target_id text NOT NULL CHECK (char_length(target_id) BETWEEN 1 AND 200),
+    details jsonb NOT NULL DEFAULT '{}'::jsonb,
+    at timestamptz NOT NULL DEFAULT now()
+   )`,
+  `CREATE FUNCTION wimblo_platform.control_audit_append_only() RETURNS trigger LANGUAGE plpgsql AS $fn$
+   BEGIN
+    RAISE EXCEPTION 'Control audit is append-only';
+   END
+  $fn$`,
+  `CREATE TRIGGER control_audit_no_update BEFORE UPDATE ON wimblo_platform.control_audit FOR EACH ROW EXECUTE FUNCTION wimblo_platform.control_audit_append_only()`,
+  `CREATE TRIGGER control_audit_no_delete BEFORE DELETE ON wimblo_platform.control_audit FOR EACH ROW EXECUTE FUNCTION wimblo_platform.control_audit_append_only()`
+ ]),
+ migration(7,'capability-catalog-and-tenant-modules',[
+  `CREATE TABLE wimblo_platform.module_catalog(
+    module_key text PRIMARY KEY CHECK (module_key ~ '^[a-z][a-z0-9_-]{1,63}$'),
+    display_name text NOT NULL CHECK (char_length(display_name) BETWEEN 1 AND 120),
+    contract_version integer NOT NULL CHECK (contract_version >= 1),
+    status text NOT NULL DEFAULT 'active' CHECK (status IN ('active','deprecated','retired')),
+    dependencies jsonb NOT NULL DEFAULT '[]'::jsonb,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+   )`,
+  `CREATE TABLE wimblo_platform.tenant_modules(
+    tenant_id uuid NOT NULL REFERENCES tenants(tenant_id) ON DELETE RESTRICT,
+    module_key text NOT NULL REFERENCES wimblo_platform.module_catalog(module_key) ON DELETE RESTRICT,
+    state text NOT NULL CHECK (state IN ('disabled','enabled','suspended')),
+    config jsonb NOT NULL DEFAULT '{}'::jsonb,
+    version integer NOT NULL DEFAULT 1 CHECK (version >= 1),
+    enabled_at timestamptz,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, module_key)
+   )`,
+  `CREATE TABLE wimblo_platform.module_events(
+    tenant_id uuid NOT NULL,
+    event_id uuid NOT NULL,
+    module_key text NOT NULL,
+    event_type text NOT NULL CHECK (char_length(event_type) BETWEEN 1 AND 120),
+    actor_identity_id uuid REFERENCES wimblo_platform.global_identities(identity_id) ON DELETE RESTRICT,
+    details jsonb NOT NULL DEFAULT '{}'::jsonb,
+    at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, event_id),
+    FOREIGN KEY (tenant_id, module_key) REFERENCES wimblo_platform.tenant_modules(tenant_id, module_key) ON DELETE RESTRICT
+   )`,
+  `ALTER TABLE wimblo_platform.tenant_modules ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE wimblo_platform.tenant_modules FORCE ROW LEVEL SECURITY`,
+  `CREATE POLICY tenant_modules_tenant_isolation ON wimblo_platform.tenant_modules USING (tenant_id = wimblo_current_tenant()) WITH CHECK (tenant_id = wimblo_current_tenant())`,
+  `ALTER TABLE wimblo_platform.module_events ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE wimblo_platform.module_events FORCE ROW LEVEL SECURITY`,
+  `CREATE POLICY module_events_tenant_isolation ON wimblo_platform.module_events USING (tenant_id = wimblo_current_tenant()) WITH CHECK (tenant_id = wimblo_current_tenant())`
+ ]),
+ migration(8,'durable-jobs-attempts-and-dead-letter-state',[
+  `CREATE TABLE wimblo_platform.durable_jobs(
+    tenant_id uuid NOT NULL REFERENCES tenants(tenant_id) ON DELETE RESTRICT,
+    job_id uuid NOT NULL,
+    queue text NOT NULL CHECK (queue ~ '^[a-z][a-z0-9_-]{0,63}$'),
+    kind text NOT NULL CHECK (kind ~ '^[a-z][a-z0-9_.:-]{0,127}$'),
+    idempotency_key text NOT NULL CHECK (char_length(idempotency_key) BETWEEN 1 AND 200),
+    payload jsonb NOT NULL,
+    state text NOT NULL DEFAULT 'ready' CHECK (state IN ('ready','leased','retry_wait','completed','dead_lettered','cancelled')),
+    priority smallint NOT NULL DEFAULT 0 CHECK (priority BETWEEN -100 AND 100),
+    available_at timestamptz NOT NULL DEFAULT now(),
+    lease_owner text,
+    lease_expires_at timestamptz,
+    attempts integer NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+    max_attempts integer NOT NULL DEFAULT 5 CHECK (max_attempts BETWEEN 1 AND 25),
+    version integer NOT NULL DEFAULT 1 CHECK (version >= 1),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    completed_at timestamptz,
+    PRIMARY KEY (tenant_id, job_id),
+    UNIQUE (tenant_id, idempotency_key),
+    CHECK ((state = 'leased') = (lease_owner IS NOT NULL AND lease_expires_at IS NOT NULL))
+   )`,
+  `CREATE INDEX durable_jobs_claim ON wimblo_platform.durable_jobs(queue, state, available_at, priority DESC)`,
+  `CREATE TABLE wimblo_platform.durable_job_attempts(
+    tenant_id uuid NOT NULL,
+    job_id uuid NOT NULL,
+    attempt integer NOT NULL CHECK (attempt >= 1),
+    worker_id text NOT NULL,
+    started_at timestamptz NOT NULL,
+    finished_at timestamptz,
+    outcome text CHECK (outcome IN ('completed','retry','dead_lettered','cancelled')),
+    error_code text,
+    error_detail text,
+    PRIMARY KEY (tenant_id, job_id, attempt),
+    FOREIGN KEY (tenant_id, job_id) REFERENCES wimblo_platform.durable_jobs(tenant_id, job_id) ON DELETE RESTRICT
+   )`,
+  `CREATE TABLE wimblo_platform.dead_letter_jobs(
+    tenant_id uuid NOT NULL,
+    job_id uuid NOT NULL,
+    dead_lettered_at timestamptz NOT NULL DEFAULT now(),
+    reason_code text NOT NULL,
+    reason_detail text NOT NULL,
+    reviewed_at timestamptz,
+    reviewed_by uuid REFERENCES wimblo_platform.global_identities(identity_id) ON DELETE RESTRICT,
+    resolution text,
+    PRIMARY KEY (tenant_id, job_id),
+    FOREIGN KEY (tenant_id, job_id) REFERENCES wimblo_platform.durable_jobs(tenant_id, job_id) ON DELETE RESTRICT
+   )`,
+  `ALTER TABLE wimblo_platform.durable_jobs ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE wimblo_platform.durable_jobs FORCE ROW LEVEL SECURITY`,
+  `CREATE POLICY durable_jobs_tenant_isolation ON wimblo_platform.durable_jobs USING (tenant_id = wimblo_current_tenant()) WITH CHECK (tenant_id = wimblo_current_tenant())`,
+  `ALTER TABLE wimblo_platform.durable_job_attempts ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE wimblo_platform.durable_job_attempts FORCE ROW LEVEL SECURITY`,
+  `CREATE POLICY durable_job_attempts_tenant_isolation ON wimblo_platform.durable_job_attempts USING (tenant_id = wimblo_current_tenant()) WITH CHECK (tenant_id = wimblo_current_tenant())`,
+  `ALTER TABLE wimblo_platform.dead_letter_jobs ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE wimblo_platform.dead_letter_jobs FORCE ROW LEVEL SECURITY`,
+  `CREATE POLICY dead_letter_jobs_tenant_isolation ON wimblo_platform.dead_letter_jobs USING (tenant_id = wimblo_current_tenant()) WITH CHECK (tenant_id = wimblo_current_tenant())`
+ ]),
+ migration(9,'tenant-lifecycle-retention-and-versioning',[
+  `ALTER TABLE tenants ADD COLUMN retention_until timestamptz`,
+  `ALTER TABLE tenants ADD COLUMN deletion_scheduled_at timestamptz`,
+  `ALTER TABLE tenants ADD COLUMN lifecycle_version integer NOT NULL DEFAULT 1 CHECK (lifecycle_version >= 1)`,
+  `ALTER TABLE tenants ADD CONSTRAINT tenants_status_expand_check CHECK (status IN ('active','suspended','exited','export_pending','deletion_scheduled','legal_hold','closed')) NOT VALID`,
+  `ALTER TABLE tenants VALIDATE CONSTRAINT tenants_status_expand_check`,
+  `ALTER TABLE tenants DROP CONSTRAINT tenants_status_check`,
+  `UPDATE tenants SET status = 'closed', lifecycle_version = lifecycle_version + 1 WHERE status = 'exited'`,
+  `ALTER TABLE tenants DROP CONSTRAINT tenants_status_expand_check`,
+  `ALTER TABLE tenants ADD CONSTRAINT tenants_status_check CHECK (status IN ('active','suspended','export_pending','deletion_scheduled','legal_hold','closed')) NOT VALID`,
+  `ALTER TABLE tenants VALIDATE CONSTRAINT tenants_status_check`,
+  `ALTER TABLE tenants ADD CONSTRAINT tenants_lifecycle_dates_check CHECK (status <> 'deletion_scheduled' OR deletion_scheduled_at IS NOT NULL) NOT VALID`,
+  `ALTER TABLE tenants VALIDATE CONSTRAINT tenants_lifecycle_dates_check`
+ ])
 ]);
 
 export const SCHEMA_VERSION=MIGRATIONS[MIGRATIONS.length-1].version;

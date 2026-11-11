@@ -208,10 +208,21 @@ export function createPostgresPool(options={}){
  };
 }
 
-export function poolFromEnv(env=process.env,overrides={}){
- if(!env.DATABASE_URL)persistenceFail(PERSISTENCE_CODES.INVALID,'DATABASE_URL is required; the persistence boundary never guesses a database.');
+function poolFromNamedEnv(env,key,applicationName,overrides={}){
+ if(!env[key])persistenceFail(PERSISTENCE_CODES.INVALID,`${key} is required; the persistence boundary never guesses a database.`);
  const production=env.NODE_ENV==='production';
- const url=new URL(env.DATABASE_URL);
- if(production&&!['require','verify-ca','verify-full'].includes(url.searchParams.get('sslmode')||''))persistenceFail(PERSISTENCE_CODES.INVALID,'Production DATABASE_URL must require TLS (sslmode=require or stronger).');
- return createPostgresPool({connectionString:env.DATABASE_URL,...overrides});
+ let url;
+ try{url=new URL(env[key]);}
+ catch{persistenceFail(PERSISTENCE_CODES.INVALID,`${key} must be a valid PostgreSQL connection URL.`);}
+ if(!['postgres:','postgresql:'].includes(url.protocol))persistenceFail(PERSISTENCE_CODES.INVALID,`${key} must be a PostgreSQL connection URL.`);
+ if(production&&!['require','verify-ca','verify-full'].includes(url.searchParams.get('sslmode')||''))persistenceFail(PERSISTENCE_CODES.INVALID,`Production ${key} must require TLS (sslmode=require or stronger).`);
+ return createPostgresPool({connectionString:env[key],applicationName,...overrides});
+}
+
+export function poolFromEnv(env=process.env,overrides={}){
+ return poolFromNamedEnv(env,'DATABASE_URL','wimblo-tenant-data',overrides);
+}
+
+export function controlPoolFromEnv(env=process.env,overrides={}){
+ return poolFromNamedEnv(env,'CONTROL_DATABASE_URL','wimblo-control-plane',overrides);
 }
