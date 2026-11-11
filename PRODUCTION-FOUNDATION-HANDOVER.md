@@ -4,7 +4,7 @@
 
 - Product direction: industry-neutral, multi-customer SaaS with isolated organizations.
 - Branch: `feat/wimblo-production-foundation`
-- Certified code commit: `aaba7a9e9cda6a6bd1fdce0b3bdefc67e12bf94b`
+- Certified code commit: `ba8a5c863957a40e67cf488546336abe71e29682`
 - Certification date: 2026-11-11 (America/New_York)
 - PostgreSQL target class: local PostgreSQL 17.10 on the fixed loopback verification port, using a new disposable database and new non-superuser roles for every run.
 - Cost boundary: no push, pull request, merge, deployment, paid Git feature, hosting upgrade, provider activation or other billable cloud action was performed.
@@ -15,13 +15,17 @@ The certified commit is an empty secure SaaS foundation. It is not a completed C
 
 - Fail-closed production runtime profiles for separately operated web and worker processes.
 - Distinct tenant-data and control-plane PostgreSQL roles.
+- Control-plane grants explicitly revoke tenant module/job table privileges, including repair of previously granted roles.
 - Twelve forward-only checksum-protected migrations.
 - Forced row-level security over all 13 tenant-scoped foundation tables.
 - Global identities, isolated memberships and append-only control audit.
 - Required MFA for active production identities, encrypted factors and one-use recovery/challenge state.
 - Opaque tenant-bound sessions with CSRF, MFA, identity-security and membership-version binding.
 - An industry-neutral capability catalog with reviewed enable, suspend, retire and disable lifecycles.
-- Tenant-scoped durable jobs with idempotency, leases, heartbeats, retries, dead letters and bounded workers.
+- Tenant-serialized capability transitions that preserve every enabled dependency.
+- Tenant-scoped durable jobs with idempotency, leases, heartbeats, retries, exhausted-crash recovery, dead letters and bounded workers.
+- Credential-bound one-use MFA challenges while the enrolled factor remains usable after a legitimate password/security rotation.
+- Tenant-serialized membership changes that retain at least one active owner under concurrency.
 - Separate executable web and worker compositions with graceful shutdown.
 - A narrow control-only global dead-letter aggregate for read-only readiness inspection.
 - A redacted read-only configured-environment readiness command.
@@ -34,14 +38,16 @@ The large existing evaluator CRM remains a separate synthetic/evaluation runtime
 | Area | Exact command | Result |
 |---|---|---|
 | TDD discipline | `npm run test:discipline` | Passed: 0 focused, 0 skipped |
-| Production foundation | `npm run test:production-foundation` | Passed: 66/66 tests |
+| Production foundation | `npm run test:production-foundation` | Passed: 69/69 tests |
 | PostgreSQL controls | `npm run verify:postgres-foundation` | Passed: schema 12/12; distinct non-bypassing roles; 13 forced-RLS tables; global dead letters 0; cross-tenant and missing-scope access refused |
-| Full regression | `npm test` | Passed: 1,540/1,540 tests, 0 failed/skipped |
+| Full regression | `npm test` | Passed: 1,543/1,543 tests, 0 failed/skipped |
 | Frontend build | `npm run build` | Passed; one existing 511.71 kB chunk-size warning remains |
 | Dependency audit | `npm audit --audit-level=high` | Passed: 0 vulnerabilities |
 | Live readiness | `npm run check:production-foundation` | Correctly blocked with fixed redacted reason codes because no configured deployed environment or recent private operator evidence was supplied |
 
 Four targeted mutation checks also proved the owning tests detect inverted tenant RLS, bypassed membership-version invalidation, capabilities granted to disabled modules and removal of tenant-scoped job idempotency. Every mutation was restored before certification.
+
+An independent whole-branch review then found and drove five additional TDD fixes: control-role tenant-table access, dependent-module invalidation, exhausted crashed leases, MFA lockout after identity security changes and concurrent final-owner demotions. Focused tests and disposable PostgreSQL now cover each case.
 
 ## Readiness command contract
 
