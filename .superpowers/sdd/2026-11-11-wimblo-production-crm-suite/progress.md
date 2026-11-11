@@ -44,7 +44,7 @@
 ## Tasks
 
 - Task 1: complete after fix round 1/5 and scoped re-review PASS.
-- Task 2: implementation verified locally; independent review pending.
+- Task 2: complete after fix round 1/5 and scoped re-review PASS.
 - Task 3: pending.
 - Task 4: pending.
 - Task 5: pending.
@@ -59,6 +59,6 @@ Task 1: fix round 1/5 (5 addressed, 0 open — scoped re-review PASS; the fix re
 
 Task 2: partial focused tests initially passed 13/13, but the production-foundation run exposed a forward-compatibility failure in the Task 1 migration test (97/98 passed). Added a future-safe migration-13 assertion, then added RED database-invariant expectations for composite pipeline-stage, tenant-bound ownership and conversion links (14/15 passed, expected RED). Database and CRM logic SMEs confirmed these are real gaps; no completion claim made.
 
-Task 2: implementation checkpoint — extended RED 11/17 passed, final focused compatibility 33/33 passed, production foundation 105/105 plus real PostgreSQL schema/RLS/tenant negatives passed, full suite 1,579/1,579 passed, build passed, audit 0; independent review pending.
+Task 2: implementation checkpoint `efc1472` — extended RED 11/17 passed, final focused compatibility 33/33 passed, production foundation 105/105 plus real PostgreSQL schema/RLS/tenant negatives passed, full suite 1,579/1,579 passed, build passed, audit 0; independent review found three concrete gaps.
 
-Task 2: fix round 1/5 (3 addressed, 0 open pending scoped re-review — composite opportunity/pipeline history FK; deterministic stage order; advisory-lock-sensitive concurrency test). RED 12/14; GREEN 14/14; production foundation 105/105 plus real PostgreSQL verification passed.
+Task 2: fix round 1/5 (3 addressed, 0 open — commits `efc1472..cfb0232`; composite opportunity/pipeline history FK; deterministic stage order; advisory-lock-sensitive concurrency test). RED 12/14; GREEN 14/14; production foundation 105/105 plus real PostgreSQL verification passed; scoped re-review PASS.
