@@ -1,0 +1,53 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {resolveSaasRuntimeConfig} from '../server/production/runtimeConfig.js';
+
+const validEnv=()=>({
+ NODE_ENV:'production',WIMBLO_RUNTIME:'saas',PROCESS_ROLE:'web',APP_ORIGIN:'https://app.wimblo.example',
+ DATABASE_URL:'postgresql://wimblo_tenant_app:tenant-password@db.example.test/wimblo?sslmode=require',
+ CONTROL_DATABASE_URL:'postgresql://wimblo_control_app:control-password@db.example.test/wimblo?sslmode=verify-full',
+ MFA_ENCRYPTION_KEY:'a'.repeat(64),SESSION_SECRET:'session-secret-with-at-least-thirty-two-characters',BACKUP_ENCRYPTION_KEY:'b'.repeat(64),
+ DOCUMENT_STORAGE_PROVIDER:'s3',DOCUMENT_STORAGE_BUCKET:'wimblo-production-private',DOCUMENT_STORAGE_NAMESPACE:'production',DOCUMENT_STORAGE_PRIVATE_CONFIRMED:'true',
+ BACKUP_STORAGE_BUCKET:'wimblo-production-backups',BACKUP_STORAGE_NAMESPACE:'production-backups',BACKUP_STORAGE_PRIVATE_CONFIRMED:'true',
+ AWS_REGION:'us-east-1',AWS_ACCESS_KEY_ID:'SYNTHETIC_TEST_ACCESS',AWS_SECRET_ACCESS_KEY:'SYNTHETIC_TEST_SECRET',
+ TRUST_PROXY_HOPS:'1',DB_POOL_MAX:'10',JOB_CONCURRENCY:'4',JOB_LEASE_MS:'30000'
+});
+
+test('SaaS production requires web or worker process role and exact HTTPS origin',()=>{
+ const missingRole=validEnv();delete missingRole.PROCESS_ROLE;
+ assert.throws(()=>resolveSaasRuntimeConfig(missingRole,'/srv/wimblo'),{message:'SaaS production requires PROCESS_ROLE=web or worker.'});
+ const badRole={...validEnv(),PROCESS_ROLE:'both'};
+ assert.throws(()=>resolveSaasRuntimeConfig(badRole,'/srv/wimblo'),{message:'SaaS production requires PROCESS_ROLE=web or worker.'});
+ const badOrigin={...validEnv(),APP_ORIGIN:'http://app.wimblo.example/path'};
+ assert.throws(()=>resolveSaasRuntimeConfig(badOrigin,'/srv/wimblo'),{message:'SaaS production requires APP_ORIGIN to be an exact HTTPS origin.'});
+ assert.equal(resolveSaasRuntimeConfig({...validEnv(),PROCESS_ROLE:'worker'},'/srv/wimblo').processRole,'worker');
+});
+
+test('SaaS production requires distinct tenant and control database URLs with TLS',()=>{
+ const missing=validEnv();delete missing.DATABASE_URL;
+ assert.throws(()=>resolveSaasRuntimeConfig(missing,'/srv/wimblo'),{message:'SaaS production requires DATABASE_URL and CONTROL_DATABASE_URL.'});
+ const noTls={...validEnv(),DATABASE_URL:'postgresql://wimblo_tenant_app:password@db.example.test/wimblo'};
+ assert.throws(()=>resolveSaasRuntimeConfig(noTls,'/srv/wimblo'),{message:'SaaS production database URLs must require TLS.'});
+ const sameRole={...validEnv(),CONTROL_DATABASE_URL:'postgresql://wimblo_tenant_app:other-password@db.example.test/wimblo?sslmode=require'};
+ assert.throws(()=>resolveSaasRuntimeConfig(sameRole,'/srv/wimblo'),{message:'SaaS tenant and control databases require distinct runtime roles.'});
+});
+
+test('SaaS production rejects evaluator demo temporary storage and sync-postgres driver flags',()=>{
+ for(const changes of [
+  {CLIENT_EVALUATION_MODE:'true'},
+  {DEMO_MODE:'true'},
+  {ALLOW_DEMO:'true'},
+  {CLIENT_EVALUATION_DATA_DIR:'/tmp/wimblo-client-evaluation-forbidden'},
+  {PERSISTENCE_DRIVER:'sync-postgres'}
+ ])assert.throws(()=>resolveSaasRuntimeConfig({...validEnv(),...changes},'/srv/wimblo'),{message:'SaaS production rejects evaluator, demo, temporary-storage and synchronous PostgreSQL settings.'});
+});
+
+test('resolved metadata never exposes database URLs keys or secret values',()=>{
+ const env=validEnv(),config=resolveSaasRuntimeConfig(env,'/srv/wimblo'),serialized=JSON.stringify(config.publicMetadata());
+ assert.deepEqual(config.publicMetadata(),{
+  mode:'saas',processRole:'web',appOrigin:'https://app.wimblo.example',cookieName:'wimblo_session',
+  objectStorage:{provider:'s3',region:'us-east-1',privateConfirmed:true},
+  limits:{trustProxyHops:1,dbPoolMax:10,jobConcurrency:4,jobLeaseMs:30000}
+ });
+ for(const secret of [env.DATABASE_URL,env.CONTROL_DATABASE_URL,env.MFA_ENCRYPTION_KEY,env.SESSION_SECRET,env.BACKUP_ENCRYPTION_KEY,env.AWS_ACCESS_KEY_ID,env.AWS_SECRET_ACCESS_KEY,env.DOCUMENT_STORAGE_BUCKET,env.BACKUP_STORAGE_BUCKET])assert.doesNotMatch(serialized,new RegExp(secret.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
+});

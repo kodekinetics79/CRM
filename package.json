@@ -9,6 +9,8 @@
     "build": "vite build",
     "start": "NODE_ENV=production node server/index.js",
     "start:evaluation": "NODE_ENV=evaluation node server/index.js",
+    "start:saas:web": "NODE_ENV=production WIMBLO_RUNTIME=saas PROCESS_ROLE=web node server/production/web.js",
+    "start:saas:worker": "NODE_ENV=production WIMBLO_RUNTIME=saas PROCESS_ROLE=worker node server/production/worker.js",
     "test": "node --test --test-concurrency=4 tests/*.test.js",
     "test:discipline": "node scripts/tdd-gate.mjs",
     "evaluate": "node scripts/evaluate.mjs",
