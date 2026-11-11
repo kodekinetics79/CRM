@@ -88,9 +88,9 @@ async function main(){
   const controlPool=createPostgresPool({connectionString:databaseUrl(database,controlRole,controlPassword),max:2,applicationName:'wimblo-foundation-control'});
   pools.push(owner,tenantPool,controlPool);
 
-  await runStep('explicit migrations apply versions 1 through 10',async()=>{
+  await runStep('explicit migrations apply versions 1 through 11',async()=>{
     const result=await owner.withAdminSession(session=>applyMigrations(session));
-    assert(result.currentVersion===10&&SCHEMA_VERSION===10,'schema did not reach version 10');
+    assert(result.currentVersion===11&&SCHEMA_VERSION===11,'schema did not reach version 11');
     assert(result.applied.map(entry=>entry.version).join(',')===MIGRATIONS.map(entry=>entry.version).join(','),'migration order differs');
     for(const sql of applicationRoleGrants(tenantRole))await owner.withAdminSession(session=>session.query(sql));
     for(const sql of controlPlaneRoleGrants(controlRole))await owner.withAdminSession(session=>session.query(sql));
@@ -116,6 +116,14 @@ async function main(){
     assert(controlEvidence.role===controlRole,'control connection role mismatch');
     assert(tenantEvidence.role!==controlEvidence.role,'runtime roles are not distinct');
     return `tenant=${tenantEvidence.role}, control=${controlEvidence.role}`;
+  });
+
+  await runStep('control role enumerates only runnable tenant identifiers for scoped workers',async()=>{
+    const result=await controlPool.withAdminSession(session=>session.query('SELECT tenant_id::text AS tenant_id FROM wimblo_platform.runnable_tenant_ids() ORDER BY tenant_id'));
+    assert(result.rowCount===2,'worker tenant source did not return the two active tenants');
+    assert(result.rows.some(row=>row.tenant_id===tenantA)&&result.rows.some(row=>row.tenant_id===tenantB),'worker tenant source omitted an active tenant');
+    await expectFailure(()=>tenantPool.withAdminSession(session=>session.query('SELECT tenant_id FROM wimblo_platform.runnable_tenant_ids()')),PERSISTENCE_CODES.ISOLATION,'tenant-role worker enumeration');
+    return 'active=2, tenant-role=refused';
   });
 
   await runStep('forced row-level security covers original and foundation tenant tables',async()=>{

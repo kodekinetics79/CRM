@@ -412,6 +412,13 @@ export const MIGRATIONS=Object.freeze([
  migration(10,'durable-job-claim-access-paths',[
   `CREATE INDEX durable_jobs_due_claim_v2 ON wimblo_platform.durable_jobs(tenant_id, queue, available_at, priority DESC, created_at, job_id) WHERE state IN ('ready','retry_wait')`,
   `CREATE INDEX durable_jobs_expired_claim_v2 ON wimblo_platform.durable_jobs(tenant_id, queue, lease_expires_at, job_id) WHERE state = 'leased'`
+ ]),
+ migration(11,'worker-runnable-tenant-boundary',[
+  `CREATE FUNCTION wimblo_platform.runnable_tenant_ids() RETURNS TABLE(tenant_id uuid)
+   LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $fn$
+    SELECT t.tenant_id FROM public.tenants t WHERE t.status='active' ORDER BY t.tenant_id
+   $fn$`,
+  `REVOKE ALL ON FUNCTION wimblo_platform.runnable_tenant_ids() FROM PUBLIC`
  ])
 ]);
 

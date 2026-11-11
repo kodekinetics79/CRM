@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
+import express from 'express';
+import {once} from 'node:events';
 import {CAPABILITY_CATALOG,createModuleService,requireModule} from '../server/production/moduleService.js';
+import {installModuleRoutes} from '../server/production/moduleRoutes.js';
 
 function poolFixture(){
  const rows=new Map(),events=[];
@@ -61,4 +64,12 @@ test('requireModule exposes only authorized capabilities to routes',async()=>{
  const middleware=requireModule('sales','write'),req={tenantId:randomUUID(),moduleService:{authorize:async()=>({allowed:false,state:'suspended'})}};
  const response={statusCode:200,status(code){this.statusCode=code;return this;},json(value){this.body=value;return this;}};await middleware(req,response,()=>{response.next=true;});
  assert.equal(response.statusCode,403);assert.equal(response.next,undefined);assert.doesNotMatch(JSON.stringify(response.body),/config|record/i);
+});
+
+test('capability lifecycle writes require recent authentication before service mutation',async t=>{
+ let changed=0;const app=express();app.use(express.json());app.use((req,res,next)=>{req.productionSession={tenantId:randomUUID(),identityId:randomUUID(),membership:{role:'owner'}};next();});
+ const pass=(req,res,next)=>next(),recent=(req,res)=>res.status(403).json({error:'recent authentication required'}),moduleService={list:async()=>[],enable:async()=>{changed++;}};
+ installModuleRoutes(app,{moduleService,requireTenantSession:pass,requireCsrf:pass,requireRecentAuthentication:recent});app.use((error,req,res,next)=>res.status(error.status||500).json({error:error.message}));
+ const server=app.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>new Promise(resolve=>server.close(resolve)));const response=await fetch(`http://127.0.0.1:${server.address().port}/api/modules/core/enable`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{"version":0,"reason":"launch"}'});
+ assert.equal(response.status,403);assert.equal(changed,0);
 });

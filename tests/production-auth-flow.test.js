@@ -85,3 +85,10 @@ test('password-only sessions are limited to MFA enrollment and logout until a ve
  assert.equal(identitySession.mfaVerifiedAt,null);
  assert.equal(await f.service.authenticate(issued.token),null);
 });
+
+test('password-only HTTP sessions cannot read identity or tenant membership data',async t=>{
+ const f=fixture(),issued=await f.service.issue({identity:f.identity,membership:f.memberships.get('a'),mfaVerifiedAt:null,recentAuthenticatedAt:new Date(start)}),app=express();app.use(express.json());
+ installProductionAuthRoutes(app,{sessionService:f.service,identityService:{listActiveMemberships:async()=>{throw new Error('membership data must not be read');}},mfaService:{beginEnrollment:async()=>({secret:'synthetic'})},appOrigin:'https://app.wimblo.example'});app.use((error,req,res,next)=>res.status(error.status||500).json({error:error.message}));
+ const server=app.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>new Promise(resolve=>server.close(resolve)));const base=`http://127.0.0.1:${server.address().port}`,headers={Cookie:`wimblo_session=${issued.token}`};
+ for(const path of ['/api/auth/me','/api/auth/tenants'])assert.equal((await fetch(base+path,{headers})).status,401,path);
+});

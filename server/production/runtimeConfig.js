@@ -69,16 +69,17 @@ export function resolveSaasRuntimeConfig(env=process.env,root=process.cwd()){
   jobConcurrency:integer(env,'JOB_CONCURRENCY',{min:1,max:32,defaultValue:4}),
   jobLeaseMs:integer(env,'JOB_LEASE_MS',{min:5000,max:300000,defaultValue:30000})
  });
+ const http=Object.freeze({host:'0.0.0.0',port:integer(env,'PORT',{min:1,max:65535,defaultValue:3000})});
  const objectStorage=Object.freeze({
   provider:'s3',bucket:env.DOCUMENT_STORAGE_BUCKET,namespace:env.DOCUMENT_STORAGE_NAMESPACE,region:env.AWS_REGION,privateConfirmed:true,
   credentials:Object.freeze({accessKeyId:env.AWS_ACCESS_KEY_ID,secretAccessKey:env.AWS_SECRET_ACCESS_KEY,...(env.AWS_SESSION_TOKEN?{sessionToken:env.AWS_SESSION_TOKEN}:{})})
  });
- const publicMetadata=()=>Object.freeze({mode:'saas',processRole:env.PROCESS_ROLE,appOrigin,cookieName,objectStorage:Object.freeze({provider:'s3',region:env.AWS_REGION,privateConfirmed:true}),limits});
+ const publicMetadata=()=>Object.freeze({mode:'saas',processRole:env.PROCESS_ROLE,appOrigin,cookieName,objectStorage:Object.freeze({provider:'s3',region:env.AWS_REGION,privateConfirmed:true}),http,limits});
  return Object.freeze({
   mode:'saas',root:resolve(root),processRole:env.PROCESS_ROLE,appOrigin,cookieName,
   tenantDatabaseUrl:env.DATABASE_URL,controlDatabaseUrl:env.CONTROL_DATABASE_URL,
   mfaEncryptionKey:env.MFA_ENCRYPTION_KEY,sessionSecret:env.SESSION_SECRET,backupEncryptionKey:env.BACKUP_ENCRYPTION_KEY,
   objectStorage,backupStorage:Object.freeze({bucket:env.BACKUP_STORAGE_BUCKET,namespace:env.BACKUP_STORAGE_NAMESPACE,region:env.BACKUP_AWS_REGION||env.AWS_REGION,privateConfirmed:true}),
-  limits,publicMetadata
+  http,limits,publicMetadata
  });
 }

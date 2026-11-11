@@ -10,7 +10,7 @@ const validEnv=()=>({
  DOCUMENT_STORAGE_PROVIDER:'s3',DOCUMENT_STORAGE_BUCKET:'wimblo-production-private',DOCUMENT_STORAGE_NAMESPACE:'production',DOCUMENT_STORAGE_PRIVATE_CONFIRMED:'true',
  BACKUP_STORAGE_BUCKET:'wimblo-production-backups',BACKUP_STORAGE_NAMESPACE:'production-backups',BACKUP_STORAGE_PRIVATE_CONFIRMED:'true',
  AWS_REGION:'us-east-1',AWS_ACCESS_KEY_ID:'SYNTHETIC_TEST_ACCESS',AWS_SECRET_ACCESS_KEY:'SYNTHETIC_TEST_SECRET',
- TRUST_PROXY_HOPS:'1',DB_POOL_MAX:'10',JOB_CONCURRENCY:'4',JOB_LEASE_MS:'30000'
+ TRUST_PROXY_HOPS:'1',DB_POOL_MAX:'10',JOB_CONCURRENCY:'4',JOB_LEASE_MS:'30000',PORT:'3000'
 });
 
 test('SaaS production requires web or worker process role and exact HTTPS origin',()=>{
@@ -47,7 +47,13 @@ test('resolved metadata never exposes database URLs keys or secret values',()=>{
  assert.deepEqual(config.publicMetadata(),{
   mode:'saas',processRole:'web',appOrigin:'https://app.wimblo.example',cookieName:'wimblo_session',
   objectStorage:{provider:'s3',region:'us-east-1',privateConfirmed:true},
+  http:{host:'0.0.0.0',port:3000},
   limits:{trustProxyHops:1,dbPoolMax:10,jobConcurrency:4,jobLeaseMs:30000}
  });
  for(const secret of [env.DATABASE_URL,env.CONTROL_DATABASE_URL,env.MFA_ENCRYPTION_KEY,env.SESSION_SECRET,env.BACKUP_ENCRYPTION_KEY,env.AWS_ACCESS_KEY_ID,env.AWS_SECRET_ACCESS_KEY,env.DOCUMENT_STORAGE_BUCKET,env.BACKUP_STORAGE_BUCKET])assert.doesNotMatch(serialized,new RegExp(secret.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
+});
+
+test('SaaS listener settings are validated before process composition',()=>{
+ const config=resolveSaasRuntimeConfig(validEnv(),'/srv/wimblo');assert.deepEqual(config.http,{host:'0.0.0.0',port:3000});
+ for(const port of ['0','65536','invalid'])assert.throws(()=>resolveSaasRuntimeConfig({...validEnv(),PORT:port},'/srv/wimblo'),/PORT must be an integer between 1 and 65535/);
 });

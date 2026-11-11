@@ -44,13 +44,14 @@ export function createJobRepository({tenantPool,clock=()=>new Date(),leaseMs=30_
   });
  }
 
- async function claim({tenantId,queue='default',workerId,limit=1}){
+ async function claim({tenantId,queue='default',workerId,limit=1,kinds=null}){
   const tenant=assertTenantId(tenantId),queueValue=queueName(queue),worker=workerName(workerId),count=positive(limit,'Claim limit',100),claimedAt=now(),expiresAt=new Date(claimedAt.getTime()+leaseMs);
+  const allowedKinds=kinds===null?null:[...new Set(kinds)].map(kindName);if(allowedKinds&&allowedKinds.length===0)persistenceFail(PERSISTENCE_CODES.INVALID,'A kind-restricted claim requires at least one job kind.');
   const jobs=await tenantPool.withTransaction(tenant,async session=>{
    const {rows}=await session.query(`/*job:claim*/
     WITH candidates AS (
       SELECT tenant_id,job_id,state,attempts FROM wimblo_platform.durable_jobs
-      WHERE tenant_id=$1 AND queue=$2 AND attempts < max_attempts
+      WHERE tenant_id=$1 AND queue=$2 AND ($7::text[] IS NULL OR kind=ANY($7::text[])) AND attempts < max_attempts
         AND ((state IN ('ready','retry_wait') AND available_at <= $4) OR (state='leased' AND lease_expires_at <= $4))
       ORDER BY priority DESC, CASE WHEN state='leased' THEN lease_expires_at ELSE available_at END, created_at, job_id
       FOR UPDATE SKIP LOCKED LIMIT $6
@@ -63,7 +64,7 @@ export function createJobRepository({tenantPool,clock=()=>new Date(),leaseMs=30_
     ), logged AS (
       INSERT INTO wimblo_platform.durable_job_attempts(tenant_id,job_id,attempt,worker_id,started_at)
       SELECT tenant_id,job_id,attempts,$3,$4 FROM claimed RETURNING tenant_id,job_id
-    ) SELECT claimed.* FROM claimed JOIN logged USING(tenant_id,job_id)`,[tenant,queueValue,worker,claimedAt,expiresAt,count]);
+    ) SELECT claimed.* FROM claimed JOIN logged USING(tenant_id,job_id)`,[tenant,queueValue,worker,claimedAt,expiresAt,count,allowedKinds]);
    return rows.map(mapJob);
   });
   metrics.claims+=jobs.length;metrics.attempts+=jobs.length;

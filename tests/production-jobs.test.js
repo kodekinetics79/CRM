@@ -27,8 +27,8 @@ function memoryPool(){
   }
   if(sql.includes('/*job:claim*/')){
    assert.match(sql,/FOR UPDATE SKIP LOCKED/i,'claims must not serialize workers behind locked rows');
-   const [tenantId,queue,workerId,now,leaseExpiresAt,limit]=values,instant=+new Date(now);
-   const eligible=[...jobs.values()].filter(job=>job.tenantId===tenantId&&job.queue===queue&&job.attempts<job.maxAttempts&&((['ready','retry_wait'].includes(job.state)&&job.availableAt<=instant)||(job.state==='leased'&&job.leaseExpiresAt<=instant))).sort((a,b)=>b.priority-a.priority||a.availableAt-b.availableAt||a.createdAt-b.createdAt).slice(0,limit);
+   const [tenantId,queue,workerId,now,leaseExpiresAt,limit,kinds]=values,instant=+new Date(now);
+   const eligible=[...jobs.values()].filter(job=>job.tenantId===tenantId&&job.queue===queue&&(!kinds||kinds.includes(job.kind))&&job.attempts<job.maxAttempts&&((['ready','retry_wait'].includes(job.state)&&job.availableAt<=instant)||(job.state==='leased'&&job.leaseExpiresAt<=instant))).sort((a,b)=>b.priority-a.priority||a.availableAt-b.availableAt||a.createdAt-b.createdAt).slice(0,limit);
    for(const job of eligible){job.state='leased';job.leaseOwner=workerId;job.leaseExpiresAt=+new Date(leaseExpiresAt);job.attempts++;job.version++;job.updatedAt=instant;attempts.push({tenantId,jobId:job.jobId,attempt:job.attempts,workerId,startedAt:instant});}
    return {rows:eligible.map(row),rowCount:eligible.length};
   }
@@ -98,6 +98,13 @@ test('heartbeat and completion require the current unexpired lease owner and ver
  const completed=await repository.complete({...job,workerId:'worker-a'});assert.equal(completed.state,'completed');
 });
 
+test('claims can be restricted to registered handler kinds without consuming unknown jobs',async()=>{
+ const db=memoryPool(),time=clockFixture(),repository=createJobRepository({tenantPool:db.pool,clock:time.clock}),tenantId=randomUUID();
+ await repository.enqueue({tenantId,kind:'unknown.job',idempotencyKey:'unknown-1',payload:{}});await repository.enqueue({tenantId,kind:'known.job',idempotencyKey:'known-1',payload:{}});
+ const [known]=await repository.claim({tenantId,workerId:'worker-a',kinds:['known.job']});assert.equal(known.kind,'known.job');
+ assert.equal((await repository.claim({tenantId,workerId:'worker-b',kinds:['known.job']})).length,0);assert.equal((await repository.claim({tenantId,workerId:'worker-b'}))[0].kind,'unknown.job');
+});
+
 test('an expired lease is reclaimed while one idempotent effect and one completion win',async()=>{
  const db=memoryPool(),time=clockFixture(),repository=createJobRepository({tenantPool:db.pool,clock:time.clock,leaseMs:1_000}),tenantId=randomUUID(),effects=new Map();
  await repository.enqueue({tenantId,kind:'payment.capture',idempotencyKey:'capture-42',payload:{amount:4200}});const [leaseA]=await repository.claim({tenantId,workerId:'worker-a'});
@@ -110,7 +117,7 @@ test('the worker bounds global and per-tenant concurrency and never runs a handl
  const tenantA=randomUUID(),tenantB=randomUUID(),jobs=[1,2,3,4].map((n,index)=>({tenantId:index<2?tenantA:tenantB,jobId:randomUUID(),kind:'work.run',idempotencyKey:`work-${n}`,payload:{n},version:2,attempts:1,state:'leased'}));
  let active=0,peak=0,transactionActive=0;const perTenant=new Map(),tenantPeak=new Map(),completed=[];const controller=new AbortController();
  const repository={
-  async claim({workerId,tenantId}){transactionActive++;try{const index=jobs.findIndex(job=>job.tenantId===tenantId);if(index<0)return [];const [job]=jobs.splice(index,1);return [{...job,leaseOwner:workerId}];}finally{transactionActive--; }},
+  async claim({workerId,tenantId,kinds}){assert.deepEqual(kinds,['work.run']);transactionActive++;try{const index=jobs.findIndex(job=>job.tenantId===tenantId&&kinds.includes(job.kind));if(index<0)return [];const [job]=jobs.splice(index,1);return [{...job,leaseOwner:workerId}];}finally{transactionActive--; }},
   async complete(job){completed.push(job.jobId);if(completed.length===4)controller.abort();return {...job,state:'completed'};},
   async retry(job){throw new Error(`unexpected retry ${job.jobId}`);}
  };
@@ -148,4 +155,8 @@ test('abort racing a claim releases the lease without invoking its handler',asyn
  const running=runWorker({repository,handlers:{'provider.call':async()=>{handled++;}},signal:controller.signal,concurrency:1,tenantIds:[tenantId]});
  while(!resolveClaim)await new Promise(resolve=>setImmediate(resolve));controller.abort();resolveClaim([job]);await running;
  assert.equal(handled,0);assert.equal(released.errorCode,'WORKER_SHUTDOWN');
+});
+
+test('a worker with no registered handlers refuses startup before claiming',async()=>{
+ let claims=0;await assert.rejects(()=>runWorker({repository:{claim:async()=>{claims++;return [];},complete:async()=>{},retry:async()=>{}},handlers:{},signal:AbortSignal.abort(),concurrency:1,tenantIds:[]}),/registered job handler/i);assert.equal(claims,0);
 });
