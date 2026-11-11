@@ -1,7 +1,7 @@
 {
   "at": "2026-09-16T00:49:08.220Z",
   "gitBase": "8dfdc2870539a252819a4eabedd26467cabdffa4",
-  "workingTree": "Local source committed and pushed to origin/main in this run; no production deployment performed at the time of writing",
+  "workingTree": "Committed and pushed to origin/main (7177d73). One further local commit (b4527c3, render.yaml build command) is not pushed, because pushing auto-triggers a provider deploy and that action was gated.",
   "integratedSuite": {
     "tests": 1366,
     "passed": 1366,
@@ -1346,5 +1346,39 @@
     "Model assistance selects records only on instances in synthetic data mode, and synthetic data mode reflects how the workspace database was initialised, not what it now holds",
     "Alert transports, off-host log retention, key custody, backup cadence and residency placement are operational, not established by source",
     "Focus placement after asynchronous actions is asserted to exist in code but was not observed firing under a screen reader"
-  ]
+  ],
+  "deployment": {
+    "provider": "Render",
+    "service": "Wimblo_CRM (srv-daj8htnqj5pc73cl051g)",
+    "url": "https://crm-xenz.onrender.com",
+    "status": "NOT DEPLOYED. The build now succeeds; the application deliberately refuses to start.",
+    "startupRefusal": "Production requires a verified persistent mount and explicit PERSISTENT_DATA_DIR. Free ephemeral hosting is unsupported. (server/runtimeConfig.js:27)",
+    "fixedThisRun": [
+      "Build command corrected to npm ci --include=dev && npm run build. Render sets NODE_ENV=production, so npm ci omitted vite and every previous build failed, including the September 13 one.",
+      "Health check path moved from /api/health to /healthz. /api/health returns 403 over plaintext HTTP because the control plane mounts its HTTPS guard ahead of the tenant health route, so an internal provider probe would have marked every deploy unhealthy.",
+      "Set MFA_ENCRYPTION_KEY, BACKUP_ENCRYPTION_KEY (distinct), PERSISTENT_DATA_DIR, PLATFORM_DATA_DIR and ENABLE_ACCEPTANCE=false."
+    ],
+    "remainingBlockers": [
+      "The service is on the free plan with no disk. Plan upgrade and disk attachment are billing actions: the API silently ignores a plan change and returns 500 for disk creation, so they must be done in the Render dashboard.",
+      "PERSISTENT_STORAGE_CONFIRMED must stay unset until a disk is actually mounted at /var/data. Setting it true on ephemeral storage would defeat a deliberate safety control and silently destroy data on every restart.",
+      "ADMIN_NAME is the literal placeholder \"Your administrator name\"; the real initial administrator name, email and password are needed for bootstrap."
+    ],
+    "topology": "PRODUCTION-HANDOVER.md documents Vercel serving the frontend and proxying /api/:path* to this Render service, with APP_ORIGIN set to the browser origin. APP_ORIGIN is https://wimblo.vercel.app and was deliberately left unchanged. The Vercel proxy rewrite remains not activated.",
+    "sideEffects": "No provider was contacted beyond Render itself, nothing was sent, charged or published to constituents. No plan upgrade was purchased.",
+    "liveStateObserved": {
+      "at": "2026-09-16T05:00:11.068Z",
+      "wimblo.vercel.app": "HTTP 200. The frontend is publicly live and currently renders \"Workspace unavailable - The server returned an unreadable response.\" because no backend answers.",
+      "wimblo.vercel.app/api/health": "HTTP 404. The documented /api/:path* proxy rewrite to the Render service is not activated.",
+      "crm-xenz.onrender.com/healthz": "No response. The backend has never deployed successfully.",
+      "note": "A publicly reachable URL is showing a broken product. Either activate the backend or take the public URL down until it works."
+    },
+    "neon": {
+      "endpoint": "ep-small-dust-av68rho7 (AWS us-east-1), PostgreSQL 18.6, database neondb",
+      "residency": "US region, consistent with supplied Addendum 2 which restricts stored data to the United States or Canada",
+      "schemaState": "public schema empty; only the nine neon_auth tables exist",
+      "ownerRole": "neondb_owner has rolbypassrls = true, so it bypasses row-level security. This is live confirmation of the deployment constraint found during this run: the application must not connect as the database owner, and a dedicated NOSUPERUSER NOBYPASSRLS role is required.",
+      "canItBeTheLiveStore": "Not today. The application data layer is synchronous node:sqlite throughout; the PostgreSQL repository is verified readiness and is imported by no running code path. Making Neon the live store is a rewrite of every module data access to async, not a configuration change.",
+      "verificationAgainstNeon": "Not run. It creates and drops timestamp-namespaced databases and a role on the hosted instance, which requires the owner explicit approval."
+    }
+  }
 }

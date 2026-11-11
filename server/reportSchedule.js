@@ -1,5 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import {z} from 'zod';
+import {commitIdempotencyMarker} from './idempotency.js';
 const fail=(status,message)=>{const e=new Error(message);e.status=status;throw e;};
 const intervals={Hourly:3600000,Daily:86400000,Weekly:604800000};
 const scheduleSchema=z.object({reportId:z.string().uuid(),name:z.string().trim().min(1).max(250),cadence:z.enum(['Hourly','Daily','Weekly']),startAt:z.iso.datetime()}).strict();
@@ -14,7 +15,7 @@ export function installReportScheduleRoutes(app,{db,getReport,runReport,assertSt
  const view=r=>({id:r.id,reportId:r.report_id,name:r.name,ownerId:r.owner_id,ownerName:user(r.owner_id)?.name||'Unavailable account',cadence:r.cadence,nextRun:r.next_run,status:r.status,version:r.version,createdAt:r.created_at,updatedAt:r.updated_at});
  const find=id=>{const s=db.prepare('SELECT * FROM report_schedules WHERE id=?').get(id);if(!s)fail(404,'Report schedule not found');return s;};
  const canManage=(s,u)=>{if(u.role!=='admin'&&s.owner_id!==u.id)fail(403,'Only the schedule owner or an administrator can change this schedule.');};
- const transaction=fn=>{db.exec('BEGIN IMMEDIATE');try{const r=fn();db.exec('COMMIT');return r;}catch(e){db.exec('ROLLBACK');throw e;}};
+ const transaction=fn=>{db.exec('BEGIN IMMEDIATE');try{const r=fn();commitIdempotencyMarker(db);db.exec('COMMIT');return r;}catch(e){db.exec('ROLLBACK');throw e;}};
  function runDueReports(time=clock()){
   if(!isTenantActive())return {produced:0,failed:0,suspended:true};let produced=0,failed=0;
   const due=db.prepare("SELECT * FROM report_schedules WHERE status='Active' AND next_run<=? ORDER BY next_run LIMIT 50").all(new Date(time).toISOString());

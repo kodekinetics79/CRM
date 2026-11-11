@@ -28,11 +28,13 @@ import { installDocumentRoutes } from './documents.js';
 import {installDocumentMigrationRoutes} from './documentMigration.js';
 import express from 'express';
 import helmet from 'helmet';
-import { DatabaseSync } from 'node:sqlite';
+import {openDatabase} from './persistence/openDatabase.js';
+import {createIdempotencyMiddleware,commitIdempotencyMarker} from './idempotency.js';
 import { randomBytes, randomUUID, scryptSync, timingSafeEqual, createHash } from 'node:crypto';
 import { z } from 'zod';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import {installRecordIndexes,createRecordLookups,isGiftSourceReferenceConflict,giftSourceReferenceConflictMessage} from './recordLookups.js';
 
 const collections=['constituents','gifts','campaigns','grants','volunteers','events','tasks','communications','designations','pledges','volunteerTime','reportViews','evaluations','volunteerShifts','shiftReservations'];
 const str=z.string().max(8000).default('');
@@ -84,7 +86,7 @@ export function createApp({dbPath=':memory:',seed=true,tenantId=null,tenantInfo=
  }
  if(dbPath!==':memory:') mkdirSync(dirname(dbPath),{recursive:true});
  if(production)assertMfaEncryptionKey(mfaKey);
- const db=new DatabaseSync(dbPath);
+ const db=openDatabase(dbPath);
  if(production&&db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'").get()&&db.prepare('SELECT email,password_hash FROM users').all().some(u=>['alex@foundation.example','staff@foundation.example','board@foundation.example'].includes(u.email.toLowerCase())||verifyPassword('FoundationDemo!2026',u.password_hash))){db.close();throw new Error('Demonstration accounts or credentials detected. Use a reviewed production database; no data conversion is performed.');}
  db.exec('PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;');
  db.exec(`CREATE TABLE IF NOT EXISTS records(collection TEXT NOT NULL,id TEXT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(collection,id));
@@ -94,6 +96,7 @@ export function createApp({dbPath=':memory:',seed=true,tenantId=null,tenantInfo=
  CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY AUTOINCREMENT,actor TEXT NOT NULL,action TEXT NOT NULL,collection TEXT,record_id TEXT,at TEXT NOT NULL,details TEXT NOT NULL);
  CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit BEGIN SELECT RAISE(ABORT,'Audit is append-only'); END;
  CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit BEGIN SELECT RAISE(ABORT,'Audit is append-only'); END;`);
+ installRecordIndexes(db);
  // Additive migration preserves existing users and credentials.
  const userColumns=new Set(db.prepare('PRAGMA table_info(users)').all().map(c=>c.name));
  if(!userColumns.has('active'))db.exec('ALTER TABLE users ADD COLUMN active INTEGER NOT NULL DEFAULT 1');
@@ -103,10 +106,12 @@ export function createApp({dbPath=':memory:',seed=true,tenantId=null,tenantInfo=
  const readRecord=(collection,value)=>{const record=JSON.parse(value);if(collection==='constituents')getConstituentTypes(record);return record;};
  const list=c=>db.prepare('SELECT data FROM records WHERE collection=? ORDER BY rowid').all(c).map(r=>readRecord(c,r.data));
  const get=(c,i)=>{const r=db.prepare('SELECT data FROM records WHERE collection=? AND id=?').get(c,i);if(!r)fail(404,'Record not found');return readRecord(c,r.data);};
+ // Indexed narrowing with the original strict JavaScript predicate still deciding; see recordLookups.js.
+ const listWhere=createRecordLookups({db,list,readRecord});
  const exists=(c,i)=>{if(i==null)return true;const row=db.prepare('SELECT data FROM records WHERE collection=? AND id=?').get(c,i);return Boolean(row&&!readRecord(c,row.data).mergedInto);};
  let extensions=null,publicExtensions=null,fundraisingGuard=null,eventGuard=null,eventHelperGuard=null,tributeGuard=null,grantGuard=null,receiptGuard=null,taskOwnership=null,peerFundraisingGuard=null,hostedGivingService=null,marketingResponsesService=null,mailchimpContactSyncService=null;
- const put=(c,r)=>{if(c==='constituents')getConstituentTypes(r);const previous=db.prepare('SELECT data FROM records WHERE collection=? AND id=?').get(c,r.id);if(previous){const old=JSON.parse(previous.data);fundraisingGuard?.validateMutation(c,old,r);peerFundraisingGuard?.validateMutation(c,old,r);hostedGivingService?.validateMutation(c,old,r);marketingResponsesService?.validateMutation(c,old,r);eventGuard?.validateMutation(c,old,r);tributeGuard?.validateMutation(c,old,r);receiptGuard?.validateMutation(c,old,r);extensions?.validateMutation(c,old,r);}return db.prepare('INSERT INTO records VALUES(?,?,?) ON CONFLICT(collection,id) DO UPDATE SET data=excluded.data').run(c,r.id,JSON.stringify(r));};
- const transaction=fn=>{db.exec('BEGIN IMMEDIATE');try{const result=fn();db.exec('COMMIT');return result;}catch(e){db.exec('ROLLBACK');throw e;}};
+ const put=(c,r)=>{if(c==='constituents')getConstituentTypes(r);const previous=db.prepare('SELECT data FROM records WHERE collection=? AND id=?').get(c,r.id);if(previous){const old=JSON.parse(previous.data);fundraisingGuard?.validateMutation(c,old,r);peerFundraisingGuard?.validateMutation(c,old,r);hostedGivingService?.validateMutation(c,old,r);marketingResponsesService?.validateMutation(c,old,r);eventGuard?.validateMutation(c,old,r);tributeGuard?.validateMutation(c,old,r);receiptGuard?.validateMutation(c,old,r);extensions?.validateMutation(c,old,r);}try{return db.prepare('INSERT INTO records VALUES(?,?,?) ON CONFLICT(collection,id) DO UPDATE SET data=excluded.data').run(c,r.id,JSON.stringify(r));}catch(e){if(c==='gifts'&&isGiftSourceReferenceConflict(e))fail(409,giftSourceReferenceConflictMessage(db,r));throw e;}};
+ const transaction=fn=>{db.exec('BEGIN IMMEDIATE');try{const result=fn();commitIdempotencyMarker(db);db.exec('COMMIT');return result;}catch(e){db.exec('ROLLBACK');throw e;}};
  const audit=(u,action,c,r,details={})=>db.prepare('INSERT INTO audit(actor,action,collection,record_id,at,details) VALUES(?,?,?,?,?,?)').run(u?.id||'system',action,c||null,r||null,now(),JSON.stringify(details));
  const schoolYear=d=>{const y=+d.slice(0,4),m=+d.slice(5,7),month=getSettings().fiscalStartMonth;if(month===1)return String(y);const start=m>=month?y:y-1;return `${start}–${start+1}`;};
  const formatAssignedYear=(start,month=getSettings().fiscalStartMonth)=>month===1?String(start).padStart(4,'0'):`${String(start).padStart(4,'0')}–${String(start+1).padStart(4,'0')}`;
@@ -124,7 +129,7 @@ export function createApp({dbPath=':memory:',seed=true,tenantId=null,tenantInfo=
    if(parsed.ownerId){const u=db.prepare('SELECT id,name,role,active FROM users WHERE id=?').get(parsed.ownerId);if(!u||!u.active||!['admin','staff'].includes(u.role)){if(!old||old.ownerId!==parsed.ownerId)fail(400,'Choose an active staff owner; viewers cannot own tasks.');}else parsed.owner=u.name;}
    else if(parsed.owner.trim()&&!(old&&!old.ownerId&&parsed.owner===old.owner)){const candidates=db.prepare("SELECT id,name FROM users WHERE active=1 AND role IN ('admin','staff') AND name=?").all(parsed.owner.trim());if(candidates.length===1){parsed.ownerId=candidates[0].id;parsed.owner=candidates[0].name;}else if(!old||old.ownerId||parsed.owner!==old.owner)fail(400,'Choose a current staff account rather than a free-text owner.');}
   }
-  if(c==='gifts'){if((parsed.type==='In-kind')!==(parsed.method==='In-kind'))fail(400,'In-kind gifts must use the In-kind method; other gift types cannot');refs.push(['campaigns',parsed.campaignId],['constituents',parsed.softCreditId]);for(const a of parsed.allocations)refs.push(['designations',a.designationId]);if(parsed.allocations.reduce((n,a)=>n+a.amount,0)!==parsed.amount)fail(400,'Allocations must sum to gift amount');if(new Set(parsed.allocations.map(a=>a.designationId)).size!==parsed.allocations.length)fail(400,'Duplicate designation allocation');if(parsed.externalRef&&list('gifts').some(g=>g.externalRef===parsed.externalRef&&g.id!==recordId))fail(409,'Duplicate externalRef');}
+  if(c==='gifts'){if((parsed.type==='In-kind')!==(parsed.method==='In-kind'))fail(400,'In-kind gifts must use the In-kind method; other gift types cannot');refs.push(['campaigns',parsed.campaignId],['constituents',parsed.softCreditId]);for(const a of parsed.allocations)refs.push(['designations',a.designationId]);if(parsed.allocations.reduce((n,a)=>n+a.amount,0)!==parsed.amount)fail(400,'Allocations must sum to gift amount');if(new Set(parsed.allocations.map(a=>a.designationId)).size!==parsed.allocations.length)fail(400,'Duplicate designation allocation');}
   if(c==='pledges')refs.push(['designations',parsed.designationId],['campaigns',parsed.campaignId]);
   if(c==='gifts')refs.push(['pledges',parsed.pledgeId],['grants',parsed.grantId]);
   if(c==='grants')refs.push(['constituents',parsed.funderId]);
@@ -134,7 +139,7 @@ export function createApp({dbPath=':memory:',seed=true,tenantId=null,tenantInfo=
   for(const [target,key] of refs)if(!exists(target,key))fail(400,`Invalid ${target} reference`);
   if(c==='volunteerShifts'){
    if(parsed.startTime>=parsed.endTime)fail(400,'Shift end must follow start on the same date');
-   const reservations=list('shiftReservations').filter(r=>r.shiftId===recordId);
+   const reservations=listWhere('shiftReservations','shiftId',recordId);
    if(reservations.filter(r=>r.status==='Reserved').length>parsed.capacity)fail(409,'Capacity cannot be below reserved places');
    if(old&&reservations.length&&['date','startTime','endTime','eventId'].some(k=>parsed[k]!==old[k]))fail(409,'Shift date, times and event cannot change after reservations; create a new shift');
   }
@@ -144,25 +149,25 @@ export function createApp({dbPath=':memory:',seed=true,tenantId=null,tenantInfo=
    if(!isPersonConstituent(get('constituents',parsed.constituentId)))fail(400,'Reserve volunteer places for an individual, alumni, employee or staff constituent');
    if(parsed.status!=='Cancelled'){
     if((!old||old.status!==parsed.status)&&shift.status!=='Open')fail(409,'Closed shifts cannot accept reservations or waitlist changes');
-    const active=list('shiftReservations').filter(r=>r.id!==recordId&&r.status!=='Cancelled');
-    if(active.some(r=>r.shiftId===parsed.shiftId&&r.constituentId===parsed.constituentId))fail(409,'This person already has an active reservation or waitlist place');
+    const active=rows=>rows.filter(r=>r.id!==recordId&&r.status!=='Cancelled'),forPerson=active(listWhere('shiftReservations','constituentId',parsed.constituentId));
+    if(forPerson.some(r=>r.shiftId===parsed.shiftId))fail(409,'This person already has an active reservation or waitlist place');
     if(parsed.status==='Reserved'){
-     if(active.filter(r=>r.shiftId===parsed.shiftId&&r.status==='Reserved').length>=shift.capacity)fail(409,'Shift is full; choose the waitlist');
-     if(active.filter(r=>r.constituentId===parsed.constituentId&&r.status==='Reserved').some(r=>{const other=get('volunteerShifts',r.shiftId);return other.date===shift.date&&other.startTime<shift.endTime&&shift.startTime<other.endTime;}))fail(409,'This person has an overlapping reserved shift');
+     if(active(listWhere('shiftReservations','shiftId',parsed.shiftId)).filter(r=>r.status==='Reserved').length>=shift.capacity)fail(409,'Shift is full; choose the waitlist');
+     if(forPerson.filter(r=>r.status==='Reserved').some(r=>{const other=get('volunteerShifts',r.shiftId);return other.date===shift.date&&other.startTime<shift.endTime&&shift.startTime<other.endTime;}))fail(409,'This person has an overlapping reserved shift');
     }
    }
   }
-  if(c==='constituents'&&recordId&&!isPersonConstituent(parsed)&&(list('shiftReservations').some(r=>r.constituentId===recordId)||list('volunteers').some(r=>r.constituentId===recordId)||list('volunteerTime').some(r=>r.constituentId===recordId)))fail(409,'Constituent physical identity is protected by volunteer and reservation history');
+  if(c==='constituents'&&recordId&&!isPersonConstituent(parsed)&&(listWhere('shiftReservations','constituentId',recordId).length>0||list('volunteers').some(r=>r.constituentId===recordId)||list('volunteerTime').some(r=>r.constituentId===recordId)))fail(409,'Constituent physical identity is protected by volunteer and reservation history');
   if(c==='constituents'||c==='designations'){let parent=parsed.parentId;const seen=new Set(recordId?[recordId]:[]);while(parent){if(seen.has(parent))fail(400,'Hierarchy cycle');seen.add(parent);parent=get(c,parent).parentId;}}
   if(c==='gifts'&&old?.acknowledgment&&(parsed.constituentId!==old.constituentId||parsed.type!==old.type))fail(409,'Acknowledged gift donor and revenue type cannot change');
-  if(c==='communications'&&old&&(old.giftId||list('gifts').some(g=>g.acknowledgment?.communicationId===old.id))&&['constituentId','status','date','channel'].some(key=>parsed[key]!==old[key]))fail(409,'Linked acknowledgment identity, status, date and channel cannot change');
-  if(c==='gifts'&&parsed.pledgeId){const pledge=get('pledges',parsed.pledgeId);if(parsed.constituentId!==pledge.constituentId)fail(400,'Gift donor must match pledge donor');if(['Fee payment','In-kind'].includes(parsed.type))fail(400,'Pledge receipts must be monetary contributions');const received=list('gifts').filter(g=>g.id!==recordId&&g.pledgeId===pledge.id&&g.status!=='Voided').reduce((total,g)=>total+g.amount,0);if(received+parsed.amount>pledge.amount)fail(409,'Gift exceeds outstanding pledge commitment');}
-  if(c==='gifts'&&parsed.grantId){if(parsed.pledgeId)fail(400,'A gift cannot reconcile both a grant and a pledge');if(parsed.type!=='Grant')fail(400,'Linked grant receipts must use the Grant revenue type');const grant=get('grants',parsed.grantId);if(grant.funderId&&parsed.constituentId!==grant.funderId)fail(400,'Gift donor must match grant funder');const received=list('gifts').filter(g=>g.id!==recordId&&g.grantId===grant.id&&g.status!=='Voided').reduce((total,g)=>total+g.amount,0);if(!grant.awardedAmount||received+parsed.amount>grant.awardedAmount)fail(409,'Receipt exceeds the recorded grant award');}
-  if(c==='grants'){if(parsed.awardedAmount>0&&(!['Awarded','Closed'].includes(parsed.stage)||!parsed.awardDate))fail(400,'A positive grant award requires Awarded or Closed stage and an award date');if(recordId){const receipts=list('gifts').filter(g=>g.grantId===recordId&&g.status!=='Voided');if(parsed.funderId&&receipts.some(g=>g.constituentId!==parsed.funderId))fail(409,'Grant funder cannot change while posted receipts are linked');if(receipts.reduce((total,g)=>total+g.amount,0)>parsed.awardedAmount)fail(409,'Grant award cannot be below posted receipts');}}
-  if(c==='pledges'&&recordId){const receipts=list('gifts').filter(g=>g.pledgeId===recordId&&g.status!=='Voided');if(receipts.some(g=>g.constituentId!==parsed.constituentId))fail(409,'Pledge donor cannot change while received gifts are linked');if(receipts.reduce((total,g)=>total+g.amount,0)>parsed.amount)fail(409,'Pledge amount cannot be below received gifts');}
+  if(c==='communications'&&old&&(old.giftId||listWhere('gifts','acknowledgment.communicationId',old.id).length>0)&&['constituentId','status','date','channel'].some(key=>parsed[key]!==old[key]))fail(409,'Linked acknowledgment identity, status, date and channel cannot change');
+  if(c==='gifts'&&parsed.pledgeId){const pledge=get('pledges',parsed.pledgeId);if(parsed.constituentId!==pledge.constituentId)fail(400,'Gift donor must match pledge donor');if(['Fee payment','In-kind'].includes(parsed.type))fail(400,'Pledge receipts must be monetary contributions');const received=listWhere('gifts','pledgeId',pledge.id).filter(g=>g.id!==recordId&&g.status!=='Voided').reduce((total,g)=>total+g.amount,0);if(received+parsed.amount>pledge.amount)fail(409,'Gift exceeds outstanding pledge commitment');}
+  if(c==='gifts'&&parsed.grantId){if(parsed.pledgeId)fail(400,'A gift cannot reconcile both a grant and a pledge');if(parsed.type!=='Grant')fail(400,'Linked grant receipts must use the Grant revenue type');const grant=get('grants',parsed.grantId);if(grant.funderId&&parsed.constituentId!==grant.funderId)fail(400,'Gift donor must match grant funder');const received=listWhere('gifts','grantId',grant.id).filter(g=>g.id!==recordId&&g.status!=='Voided').reduce((total,g)=>total+g.amount,0);if(!grant.awardedAmount||received+parsed.amount>grant.awardedAmount)fail(409,'Receipt exceeds the recorded grant award');}
+  if(c==='grants'){if(parsed.awardedAmount>0&&(!['Awarded','Closed'].includes(parsed.stage)||!parsed.awardDate))fail(400,'A positive grant award requires Awarded or Closed stage and an award date');if(recordId){const receipts=listWhere('gifts','grantId',recordId).filter(g=>g.status!=='Voided');if(parsed.funderId&&receipts.some(g=>g.constituentId!==parsed.funderId))fail(409,'Grant funder cannot change while posted receipts are linked');if(receipts.reduce((total,g)=>total+g.amount,0)>parsed.awardedAmount)fail(409,'Grant award cannot be below posted receipts');}}
+  if(c==='pledges'&&recordId){const receipts=listWhere('gifts','pledgeId',recordId).filter(g=>g.status!=='Voided');if(receipts.some(g=>g.constituentId!==parsed.constituentId))fail(409,'Pledge donor cannot change while received gifts are linked');if(receipts.reduce((total,g)=>total+g.amount,0)>parsed.amount)fail(409,'Pledge amount cannot be below received gifts');}
   if(c==='evaluations'&&parsed.result!=='Passed'&&!parsed.reproduction.trim())fail(400,'Reproduction details are required for a finding or blocked test');
   if(c==='reportViews'&&parsed.filters.start&&parsed.filters.end&&parsed.filters.start>parsed.filters.end)fail(400,'Report end date precedes start date');
-  if(c==='volunteers'&&old&&parsed.constituentId!==old.constituentId&&list('volunteerTime').some(t=>t.volunteerId===old.id))fail(409,'Volunteer identity cannot change after time is recorded; create a new volunteer record');
+  if(c==='volunteers'&&old&&parsed.constituentId!==old.constituentId&&listWhere('volunteerTime','volunteerId',old.id).length>0)fail(409,'Volunteer identity cannot change after time is recorded; create a new volunteer record');
   if(c==='volunteers'&&old?.clockIn&&(parsed.constituentId!==old.constituentId||parsed.eventId!==old.eventId))fail(409,'Clock out before changing volunteer or event');
   if(c==='campaigns'&&parsed.startDate>parsed.endDate)fail(400,'End date precedes start date');
   if(c==='events'&&old&&parsed.capacity<old.registrations.length)fail(409,'Capacity below existing registrations');
@@ -231,7 +236,7 @@ export function createApp({dbPath=':memory:',seed=true,tenantId=null,tenantInfo=
  app.use(express.json({limit:'2mb'}));
  app.get('/api/health',(req,res)=>{res.set('Cache-Control','no-store');res.json({status:'ok',version:'0.5.0',mode:evaluator?'evaluator':process.env.NODE_ENV==='production'?'production':'local'});});
  const allowed=new Set(process.env.NODE_ENV==='production'?[process.env.APP_ORIGIN]:['http://localhost:5174','http://127.0.0.1:5174','http://localhost:5173','http://127.0.0.1:5173','http://localhost:4311','http://127.0.0.1:4311',...(evaluator?[`http://127.0.0.1:${process.env.PORT||4321}`,`http://localhost:${process.env.PORT||4321}`]:[]),...(process.env.APP_ORIGIN?[process.env.APP_ORIGIN]:[])]);
- app.use('/api',(req,res,next)=>{res.set('Cache-Control','no-store');if(process.env.NODE_ENV==='production'&&!req.secure)return res.status(403).json({error:'HTTPS required; configure the trusted reverse proxy explicitly'});const origin=req.get('Origin');if(origin&&!allowed.has(origin))return res.status(403).json({error:'Origin denied'});if(origin){res.set('Access-Control-Allow-Origin',origin);res.set('Vary','Origin');res.set('Access-Control-Allow-Credentials','true');res.set('Access-Control-Allow-Headers','Content-Type,X-CSRF-Token');res.set('Access-Control-Allow-Methods','GET,POST,PUT,PATCH,DELETE,OPTIONS');}if(req.method==='OPTIONS')return res.sendStatus(204);next();});
+ app.use('/api',(req,res,next)=>{res.set('Cache-Control','no-store');if(process.env.NODE_ENV==='production'&&!req.secure)return res.status(403).json({error:'HTTPS required; configure the trusted reverse proxy explicitly'});const origin=req.get('Origin');if(origin&&!allowed.has(origin))return res.status(403).json({error:'Origin denied'});if(origin){res.set('Access-Control-Allow-Origin',origin);res.set('Vary','Origin');res.set('Access-Control-Allow-Credentials','true');res.set('Access-Control-Allow-Headers','Content-Type,X-CSRF-Token,Idempotency-Key');res.set('Access-Control-Expose-Headers','Idempotent-Replayed');res.set('Access-Control-Allow-Methods','GET,POST,PUT,PATCH,DELETE,OPTIONS');}if(req.method==='OPTIONS')return res.sendStatus(204);next();});
  if(tenantId&&!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tenantId))throw new Error('Invalid tenant session namespace');
  const cookieName=tenantId?'wimblo_tenant_'+tenantId.replaceAll('-','')+'_session':evaluator?'jordan_everbright_evaluator_session':'foundation_session';const cookieOptions={httpOnly:true,sameSite:'strict',secure:process.env.NODE_ENV==='production',path:'/',maxAge:8*3600*1000};
  app.get('/api/config',(req,res)=>res.json({demoAccess,acceptanceEnabled,...(tenantInfo?{tenant:tenantInfo,platformAvailable:true}:{})}));
@@ -255,6 +260,7 @@ export function createApp({dbPath=':memory:',seed=true,tenantId=null,tenantInfo=
  app.post('/api/auth/mfa/confirm',csrf,(req,res)=>{const body=z.object({code:z.string().regex(/^\d{6}$/)}).strict().parse(req.body);const result=mfa.confirmEnrollment(req.user,body.code);res.clearCookie(cookieName,cookieOptions).json(result);});
  app.post('/api/auth/mfa/disable',csrf,(req,res)=>{const body=z.object({password:z.string().min(1).max(200),code:z.string().min(6).max(17)}).strict().parse(req.body);if(workspaceMfaRequired(production))fail(403,'Production workspace users cannot disable required MFA. Use an unused recovery code or the approved account-recovery procedure');const result=mfa.disable(req.user,body.password,body.code);res.clearCookie(cookieName,cookieOptions).json(result);});
  app.use('/api',(req,res,next)=>{if(workspaceMfaRequired(production)&&!recheckWorkspaceAccess(req))return res.status(403).json({error:'MFA enrollment and fresh MFA sign-in are required before workspace access',mfaEnrollmentRequired:true});next();});
+ app.use('/api',createIdempotencyMiddleware({db,audit,transaction,now,tenantId,isTenantActive,clock:Date.now,options:extensionOptions.idempotency||null}));
  eventHelperGuard=installEventHelperAccessRoutes(app,{db,get,list,audit,csrf,admin,transaction,isTenantActive,checkInTicket:(req,input)=>{if(!eventGuard)fail(503,'Event check-in is unavailable');return eventGuard.checkInTicket(req,input);},recheckAccess:req=>{
   const session=db.prepare('SELECT * FROM sessions WHERE token_hash=?').get(req.session.token_hash),u=db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id),time=Date.now();
   if(!session||session.user_id!==req.user.id||session.expires<time||session.last_seen<time-30*60*1000||!u?.active||!validRoles.has(u.role)||u.role!==req.user.role||session.account_binding!==mfaAccountBinding(u))return false;

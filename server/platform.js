@@ -1,8 +1,8 @@
 import express from 'express';
 import helmet from 'helmet';
-import { DatabaseSync } from 'node:sqlite';
+import { openDatabase, databaseExists } from './persistence/openDatabase.js';
 import { randomBytes, randomUUID, scryptSync, timingSafeEqual, createHash } from 'node:crypto';
-import { mkdirSync, rmSync, existsSync } from 'node:fs';
+import { mkdirSync, rmSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { z } from 'zod';
 import {createMfaService,assertMfaEncryptionKey,mfaAccountBinding} from './mfa.js';
@@ -38,7 +38,7 @@ export function createPlatformApp({ rootDir, legacyDbPath, seedLegacy = true, te
   if (production) { try { productionOrigin = new URL(process.env.APP_ORIGIN); } catch { throw new Error('Production platform requires an HTTPS APP_ORIGIN.'); } if (productionOrigin.protocol !== 'https:' || productionOrigin.origin !== process.env.APP_ORIGIN || productionOrigin.username || productionOrigin.password) throw new Error('Production platform requires an HTTPS APP_ORIGIN.'); }
   if(production&&(seedLegacy||process.env.ALLOW_DEMO==='true'||process.env.EVALUATOR_MODE==='true'))throw new Error('Production platform cannot enable demonstration seed, ALLOW_DEMO or evaluator mode.');if(production)assertMfaEncryptionKey(mfaKey);
   const root = resolve(rootDir); mkdirSync(join(root, 'tenants'), { recursive: true });
-  const db = new DatabaseSync(join(root, 'platform.sqlite'));
+  const db = openDatabase(join(root, 'platform.sqlite'));
   if(production&&db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='administrators'").get()&&db.prepare('SELECT password_hash FROM administrators').all().some(a=>verify('FoundationDemo!2026',a.password_hash))){db.close();throw new Error('Demonstration platform credentials detected. Production requires reviewed real accounts.');}
   db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;
     CREATE TABLE IF NOT EXISTS tenants(id TEXT PRIMARY KEY,slug TEXT UNIQUE NOT NULL,name TEXT NOT NULL,plan TEXT NOT NULL,status TEXT NOT NULL,ai_enabled INTEGER NOT NULL,data_mode TEXT NOT NULL,version INTEGER NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
@@ -59,7 +59,7 @@ export function createPlatformApp({ rootDir, legacyDbPath, seedLegacy = true, te
   const tenantPath = id => id === LEGACY_ID ? resolve(legacyDbPath) : join(root, 'tenants', id, 'workspace.sqlite');
   const getTenantApp = (tenant, initialAdmin) => {
     if (!apps.has(tenant.id)) {
-      if (tenant.id !== LEGACY_ID && !initialAdmin && !existsSync(tenantPath(tenant.id))) fail(503, 'Workspace storage is unavailable; administrator recovery is required.');
+      if (tenant.id !== LEGACY_ID && !initialAdmin && !databaseExists(tenantPath(tenant.id))) fail(503, 'Workspace storage is unavailable; administrator recovery is required.');
       const aiPolicy = {}; Object.defineProperties(aiPolicy, { enabled: { enumerable: true, get: () => Boolean(lookup(tenant.id)?.ai_enabled) }, aiEnabled: { enumerable: true, get: () => Boolean(lookup(tenant.id)?.ai_enabled) }, dataMode: { enumerable: true, get: () => lookup(tenant.id)?.data_mode || 'restricted' } });
       // The workspace needs its live plan and entitlements. These stay
       // non-enumerable so the existing tenant identity payload is unchanged.
@@ -102,7 +102,7 @@ export function createPlatformApp({ rootDir, legacyDbPath, seedLegacy = true, te
     if(!z.uuid().safeParse(req.params.tenantId).success)return res.status(400).json({error:'Invalid callback workspace'});
     try{
       const tenant=lookup(req.params.tenantId);
-      if(!tenant||tenant.status!=='active'||!existsSync(tenantPath(tenant.id)))return res.status(503).json({error:'Callback workspace unavailable; retry later'});
+      if(!tenant||tenant.status!=='active'||!databaseExists(tenantPath(tenant.id)))return res.status(503).json({error:'Callback workspace unavailable; retry later'});
       const child=getTenantApp(tenant),original=req.url;
       req.url='/api/'+provider+'/webhook';
       child(req,res,error=>{req.url=original;next(error);});
@@ -151,7 +151,7 @@ export function createPlatformApp({ rootDir, legacyDbPath, seedLegacy = true, te
       res.status(201).json({ tenant });
     } catch (error) { if (createdApp) createdApp.locals.close?.(); apps.delete(id); rmSync(join(root, 'tenants', id), { recursive: true, force: true }); throw error; }
   });
-  router.patch('/tenants/:id', (req, res) => { const body = z.object({ version: z.number().int().min(1), status: z.enum(['active', 'suspended']).optional(), aiEnabled: z.boolean().optional(), plan: z.enum(['trial', 'subscription', 'dedicated']).optional() }).strict().refine(v => v.status !== undefined || v.aiEnabled !== undefined || v.plan !== undefined, 'A lifecycle, plan or AI change is required').parse(req.body); const tenant = tx(() => { const old = lookup(req.params.id); if (!old) fail(404, 'Tenant not found'); if (old.version !== body.version) fail(409, 'Tenant changed; reload before saving'); const next = { status: body.status ?? old.status, aiEnabled: body.aiEnabled ?? Boolean(old.ai_enabled), plan: body.plan ?? old.plan }; const entitlement = planEntitlements(next.plan); if (next.aiEnabled && !entitlement.ai) fail(409, `The ${entitlement.label} plan does not include AI assistance. Disable AI or choose a plan that includes it.`); if (old.status === 'suspended' && next.status === 'active') {if (!existsSync(tenantPath(old.id))) fail(503,'Workspace storage is unavailable. Restore it before resuming access.');const workspace=getTenantApp(old);workspace.locals.suppressTaskReminders?.();workspace.locals.suppressCommunicationWorkflows?.();workspace.locals.suppressTenantAdministration?.();workspace.locals.revokeAllSessions?.();} db.prepare('UPDATE tenants SET status=?,ai_enabled=?,plan=?,version=version+1,updated_at=? WHERE id=?').run(next.status, next.aiEnabled ? 1 : 0, next.plan, new Date().toISOString(), old.id); audit(req.platformAdmin.id, 'update_tenant', old.id, { previous: { status: old.status, aiEnabled: Boolean(old.ai_enabled), plan: old.plan }, next, entitlements: planEntitlements(next.plan) }); return publicTenant(lookup(old.id)); }); if (tenant.status === 'suspended' && existsSync(tenantPath(tenant.id))) {try {const workspace=getTenantApp(lookup(tenant.id));workspace.locals.suppressTaskReminders?.();workspace.locals.suppressCommunicationWorkflows?.();workspace.locals.suppressTenantAdministration?.();workspace.locals.revokeAllSessions?.();}catch {fail(503,'Workspace suspension is committed. Pending automation suppression could not finish; retry suspension before restoring access.');}} res.json({ tenant }); });
+  router.patch('/tenants/:id', (req, res) => { const body = z.object({ version: z.number().int().min(1), status: z.enum(['active', 'suspended']).optional(), aiEnabled: z.boolean().optional(), plan: z.enum(['trial', 'subscription', 'dedicated']).optional() }).strict().refine(v => v.status !== undefined || v.aiEnabled !== undefined || v.plan !== undefined, 'A lifecycle, plan or AI change is required').parse(req.body); const tenant = tx(() => { const old = lookup(req.params.id); if (!old) fail(404, 'Tenant not found'); if (old.version !== body.version) fail(409, 'Tenant changed; reload before saving'); const next = { status: body.status ?? old.status, aiEnabled: body.aiEnabled ?? Boolean(old.ai_enabled), plan: body.plan ?? old.plan }; const entitlement = planEntitlements(next.plan); if (next.aiEnabled && !entitlement.ai) fail(409, `The ${entitlement.label} plan does not include AI assistance. Disable AI or choose a plan that includes it.`); if (old.status === 'suspended' && next.status === 'active') {if (!databaseExists(tenantPath(old.id))) fail(503,'Workspace storage is unavailable. Restore it before resuming access.');const workspace=getTenantApp(old);workspace.locals.suppressTaskReminders?.();workspace.locals.suppressCommunicationWorkflows?.();workspace.locals.suppressTenantAdministration?.();workspace.locals.revokeAllSessions?.();} db.prepare('UPDATE tenants SET status=?,ai_enabled=?,plan=?,version=version+1,updated_at=? WHERE id=?').run(next.status, next.aiEnabled ? 1 : 0, next.plan, new Date().toISOString(), old.id); audit(req.platformAdmin.id, 'update_tenant', old.id, { previous: { status: old.status, aiEnabled: Boolean(old.ai_enabled), plan: old.plan }, next, entitlements: planEntitlements(next.plan) }); return publicTenant(lookup(old.id)); }); if (tenant.status === 'suspended' && databaseExists(tenantPath(tenant.id))) {try {const workspace=getTenantApp(lookup(tenant.id));workspace.locals.suppressTaskReminders?.();workspace.locals.suppressCommunicationWorkflows?.();workspace.locals.suppressTenantAdministration?.();workspace.locals.revokeAllSessions?.();}catch {fail(503,'Workspace suspension is committed. Pending automation suppression could not finish; retry suspension before restoring access.');}} res.json({ tenant }); });
   router.use((req, res) => res.status(404).json({ error: 'Platform endpoint not found' }));
   // Unauthenticated invitation acceptance is workspace-bound. An anonymous request
   // carries no workspace selector cookie, so the workspace is named in the path and
@@ -162,7 +162,7 @@ export function createPlatformApp({ rootDir, legacyDbPath, seedLegacy = true, te
     const tenant = db.prepare('SELECT * FROM tenants WHERE slug=?').get(slug);
     if (!tenant) return res.status(404).json({ error: 'Invitation workspace not found' });
     if (tenant.status !== 'active') return res.status(403).json({ error: 'Workspace is suspended' });
-    if (!existsSync(tenantPath(tenant.id))) return res.status(503).json({ error: 'Workspace storage is unavailable; retry later' });
+    if (!databaseExists(tenantPath(tenant.id))) return res.status(503).json({ error: 'Workspace storage is unavailable; retry later' });
     try { const child = getTenantApp(tenant), original = req.url; req.url = '/api/public/invitations/accept'; child(req, res, error => { req.url = original; next(error); }); } catch (error) { next(error); }
   });
   app.all('/api/public/invitations/accept', (req, res) => res.status(404).json({ error: 'Use the workspace-bound invitation acceptance endpoint' }));

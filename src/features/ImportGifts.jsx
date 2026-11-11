@@ -2,6 +2,11 @@ import { useId, useRef, useState } from 'react';
 import { Download, FileSpreadsheet, Upload, X, CheckCircle2 } from 'lucide-react';
 import { cents, designationPath, download, money, parseCSV, toCSV, today } from '../lib';
 import { METHODS, TYPES } from '../schema';
+import { newIdempotencyKey, rejectedWithoutEffect } from '../api';
+
+const pendingIdempotencyKey = Symbol.for('wimblo.pendingIdempotencyKey');
+// One key per import panel, visible to the first mutating request of this import only, so a retry of the same preview imports once.
+const withSaveKey = (key, fn) => { const previous = globalThis[pendingIdempotencyKey]; globalThis[pendingIdempotencyKey] = key; try { return fn(); } finally { globalThis[pendingIdempotencyKey] = previous; } };
 
 const HEADERS = ['donorEmail', 'amount', 'type', 'method', 'date', 'designationCode', 'campaignName', 'externalRef'];
 const validDate = value => /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T12:00:00Z`)) && new Date(`${value}T12:00:00Z`).toISOString().slice(0, 10) === value;
@@ -19,6 +24,7 @@ export default function ImportGifts({ data, onImport, onClose }) {
   const [errors, setErrors] = useState([]);
   const [importUncertain, setImportUncertain] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [importKey, setImportKey] = useState(() => newIdempotencyKey());
   const errorRef = useRef(null);
   const previewRef = useRef(null);
   const fileRef = useRef(null);
@@ -77,8 +83,9 @@ export default function ImportGifts({ data, onImport, onClose }) {
   const importRows = async () => {
     if (!preview?.length || busy) return;
     setBusy(true); setErrors([]); setImportUncertain(false);
-    try { await onImport(preview); onClose(); } catch (error) {
-      const uncertain = !error.status;
+    try { await withSaveKey(importKey, () => onImport(preview, { idempotencyKey: importKey })); setImportKey(newIdempotencyKey()); onClose(); } catch (error) {
+      const uncertain = !error.status || String(error.code || '').startsWith('IDEMPOTENCY_');
+      if (rejectedWithoutEffect(error)) setImportKey(newIdempotencyKey());
       setImportUncertain(uncertain);
       setErrors([error.message || (uncertain ? 'The connection was interrupted while confirming the import.' : 'The import failed. Review the data and try again.')]);
       requestAnimationFrame(() => errorRef.current?.focus());
@@ -97,7 +104,7 @@ export default function ImportGifts({ data, onImport, onClose }) {
       <p className="subtle" id={`${prefix}-help`}>Use the sample’s eight column names. Donor email, designation account code and optional campaign name must match existing records exactly. Leave campaignName and externalRef blank if unused. In-kind amounts record noncash value.</p>
       <div className="form-actions"><button className="btn btn-secondary" type="submit" disabled={busy || !text.trim()}><Upload size={16} aria-hidden="true" /> Validate and preview</button></div>
     </form>
-    {errors.length > 0 && <div className="error-banner" ref={errorRef} tabIndex={-1} role="alert"><strong>Import needs attention</strong><p>{importUncertain ? 'Import could not be confirmed. Check Gifts before retrying; use unique external references to prevent duplicates.' : `No rows were imported. ${errors.length === 1 ? 'Correct the issue below.' : `Correct these ${errors.length} issues and preview again.`}`}</p><ul>{errors.slice(0, 30).map((error, index) => <li key={index}>{error}</li>)}</ul>{errors.length > 30 && <p>{errors.length - 30} more issues. Correct the first issues and validate again.</p>}</div>}
+    {errors.length > 0 && <div className="error-banner" ref={errorRef} tabIndex={-1} role="alert"><strong>Import needs attention</strong><p>{importUncertain ? 'Import could not be confirmed. Importing this same preview again will not save it twice; check Gifts before importing a changed file.' : `No rows were imported. ${errors.length === 1 ? 'Correct the issue below.' : `Correct these ${errors.length} issues and preview again.`}`}</p><ul>{errors.slice(0, 30).map((error, index) => <li key={index}>{error}</li>)}</ul>{errors.length > 30 && <p>{errors.length - 30} more issues. Correct the first issues and validate again.</p>}</div>}
     {preview && <div ref={previewRef} tabIndex={-1} aria-labelledby={`${prefix}-preview`}>
       <h3 id={`${prefix}-preview`} className="section-title"><CheckCircle2 size={18} aria-hidden="true" /> {preview.length} {preview.length === 1 ? 'gift ready' : 'gifts ready'} to import</h3>
       <div className="summary-strip"><div className="stat"><span className="subtle">Monetary gift / revenue value</span><strong className="money">{money(preview.filter(g => g.type !== 'In-kind').reduce((sum, g) => sum + g.amount, 0))}</strong></div><div className="stat"><span className="subtle">In-kind noncash value</span><strong className="money">{money(preview.filter(g => g.type === 'In-kind').reduce((sum, g) => sum + g.amount, 0))}</strong></div></div>
