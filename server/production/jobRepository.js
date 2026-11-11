@@ -47,7 +47,25 @@ export function createJobRepository({tenantPool,clock=()=>new Date(),leaseMs=30_
  async function claim({tenantId,queue='default',workerId,limit=1,kinds=null}){
   const tenant=assertTenantId(tenantId),queueValue=queueName(queue),worker=workerName(workerId),count=positive(limit,'Claim limit',100),claimedAt=now(),expiresAt=new Date(claimedAt.getTime()+leaseMs);
   const allowedKinds=kinds===null?null:[...new Set(kinds)].map(kindName);if(allowedKinds&&allowedKinds.length===0)persistenceFail(PERSISTENCE_CODES.INVALID,'A kind-restricted claim requires at least one job kind.');
-  const jobs=await tenantPool.withTransaction(tenant,async session=>{
+  const claimed=await tenantPool.withTransaction(tenant,async session=>{
+   const exhausted=await session.query(`/*job:sweep-exhausted*/
+    WITH candidates AS (
+      SELECT tenant_id,job_id,attempts FROM wimblo_platform.durable_jobs
+      WHERE tenant_id=$1 AND queue=$2 AND state='leased' AND lease_expires_at <= $3 AND attempts >= max_attempts
+      ORDER BY lease_expires_at,job_id FOR UPDATE SKIP LOCKED LIMIT $5
+    ), finished AS (
+      UPDATE wimblo_platform.durable_job_attempts a SET finished_at=$3,outcome='dead_lettered',error_code=$4,error_detail='Worker lease expired during the final allowed attempt.'
+      FROM candidates c WHERE a.tenant_id=c.tenant_id AND a.job_id=c.job_id AND a.attempt=c.attempts AND a.finished_at IS NULL
+      RETURNING a.tenant_id,a.job_id
+    ), moved AS (
+      UPDATE wimblo_platform.durable_jobs j SET state='dead_lettered',lease_owner=NULL,lease_expires_at=NULL,updated_at=$3,version=j.version+1
+      FROM candidates c WHERE j.tenant_id=c.tenant_id AND j.job_id=c.job_id AND EXISTS (SELECT 1 FROM finished f WHERE f.tenant_id=c.tenant_id AND f.job_id=c.job_id)
+      RETURNING j.*
+    ), recorded AS (
+      INSERT INTO wimblo_platform.dead_letter_jobs(tenant_id,job_id,dead_lettered_at,reason_code,reason_detail)
+      SELECT tenant_id,job_id,$3,$4,'Worker lease expired during the final allowed attempt.' FROM moved
+      ON CONFLICT (tenant_id,job_id) DO NOTHING RETURNING tenant_id,job_id
+    ) SELECT moved.* FROM moved JOIN recorded USING(tenant_id,job_id)`,[tenant,queueValue,claimedAt,'LEASE_EXPIRED_FINAL_ATTEMPT',count]);
    const {rows}=await session.query(`/*job:claim*/
     WITH candidates AS (
       SELECT tenant_id,job_id,state,attempts FROM wimblo_platform.durable_jobs
@@ -65,8 +83,9 @@ export function createJobRepository({tenantPool,clock=()=>new Date(),leaseMs=30_
       INSERT INTO wimblo_platform.durable_job_attempts(tenant_id,job_id,attempt,worker_id,started_at)
       SELECT tenant_id,job_id,attempts,$3,$4 FROM claimed RETURNING tenant_id,job_id
     ) SELECT claimed.* FROM claimed JOIN logged USING(tenant_id,job_id)`,[tenant,queueValue,worker,claimedAt,expiresAt,count,allowedKinds]);
-   return rows.map(mapJob);
+   return {jobs:rows.map(mapJob),swept:exhausted.rowCount};
   });
+  const jobs=claimed.jobs;metrics.deadLetters+=claimed.swept;
   metrics.claims+=jobs.length;metrics.attempts+=jobs.length;
   for(const job of jobs)metrics.queueLagMs=Math.max(metrics.queueLagMs,Math.max(0,claimedAt-job.availableAt));
   return jobs;

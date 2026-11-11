@@ -171,7 +171,8 @@ async function main(){
     await expectFailure(()=>jobs.complete({...stale,workerId:'verify-worker-a'}),PERSISTENCE_CODES.CONFLICT,'stale job completion');
     const attemptRows=await tenantPool.withTenantSession(tenantA,session=>session.query('SELECT attempt,outcome,error_code FROM wimblo_platform.durable_job_attempts WHERE job_id=$1 ORDER BY attempt',[stale.jobId]));
     assert(attemptRows.rowCount===2&&attemptRows.rows[0].error_code==='LEASE_EXPIRED'&&attemptRows.rows[1].outcome==='completed','attempt ledger did not preserve lease recovery');
-    return `distinct-claims=2, recovered-attempt=${reclaimed.attempts}, schema=${SCHEMA_VERSION}, second=${second.jobId.slice(0,8)}`;
+    const terminal=await jobs.enqueue({tenantId:tenantA,kind:'verify.final',idempotencyKey:'verify-final-crash',payload:{sequence:4},maxAttempts:1});const [terminalLease]=await jobs.claim({tenantId:tenantA,workerId:'verify-worker-final',kinds:['verify.final']});assert(terminalLease.jobId===terminal.jobId&&terminalLease.attempts===1,'final-attempt lease was not claimed');clockMs+=1_001;assert((await jobs.claim({tenantId:tenantA,workerId:'verify-worker-sweeper',kinds:['verify.final']})).length===0,'exhausted final lease was reclaimed');const terminalState=await tenantPool.withTenantSession(tenantA,session=>session.query('SELECT state FROM wimblo_platform.durable_jobs WHERE job_id=$1',[terminal.jobId])),terminalDead=await tenantPool.withTenantSession(tenantA,session=>session.query('SELECT reason_code FROM wimblo_platform.dead_letter_jobs WHERE job_id=$1',[terminal.jobId]));assert(terminalState.rows[0]?.state==='dead_lettered'&&terminalDead.rows[0]?.reason_code==='LEASE_EXPIRED_FINAL_ATTEMPT','exhausted final lease did not enter dead-letter state');
+    return `distinct-claims=2, recovered-attempt=${reclaimed.attempts}, final-crash=dead-lettered, schema=${SCHEMA_VERSION}, second=${second.jobId.slice(0,8)}`;
   });
 
   await runStep('two tenants cannot read or write each other module rows',async()=>{
@@ -196,7 +197,8 @@ async function main(){
     const found=await controlPool.withAdminSession(session=>session.query('SELECT identity_id::text FROM wimblo_platform.global_identities WHERE identity_id=$1',[identityId]));
     assert(found.rowCount===1,'control role could not read its platform identity');
     await expectFailure(()=>controlPool.withAdminSession(session=>session.query('SELECT COUNT(*) FROM records')),PERSISTENCE_CODES.ISOLATION,'control-plane business read');
-    return 'platform-read=1, business-read=refused';
+    await expectFailure(()=>controlPool.withAdminSession(async session=>{await session.query('SELECT set_config($1,$2,$3)',['wimblo.tenant_id',tenantA,false]);return session.query('SELECT payload FROM wimblo_platform.durable_jobs');}),PERSISTENCE_CODES.ISOLATION,'control-plane tenant-job read with forged scope');
+    return 'platform-read=1, business-read=refused, tenant-job-read=refused';
   });
 
   await runStep('tenant role cannot read global identities',async()=>{
@@ -234,6 +236,16 @@ async function main(){
     const atomic=await repository.acceptInvitationMembership({token:atomicToken,expectedVersion:1,identityId:atomicIdentity,membershipId:atomicMembership,newIdentity:{email:'atomic@example.invalid',displayName:'Atomic verifier',passwordHash:'not-a-login-hash'}});
     assert(atomic.identity.identityId===atomicIdentity&&atomic.membership.membershipId===atomicMembership&&atomic.invitation.status==='consumed','atomic invitation acceptance did not commit all records');
 
+    const raceOwnerA=await repository.createMembership({membershipId:randomUUID(),tenantId:tenantC,identityId:repositoryIdentity,role:'owner'});
+    const raceOwnerB=await repository.changeMembership({membershipId:atomicMembership,role:'owner',expectedVersion:atomic.membership.version,actorIdentityId:atomicIdentity});
+    const demotions=await Promise.allSettled([
+      repository.changeMembership({membershipId:raceOwnerA.membershipId,role:'admin',expectedVersion:raceOwnerA.version,actorIdentityId:repositoryIdentity}),
+      repository.changeMembership({membershipId:raceOwnerB.membershipId,role:'admin',expectedVersion:raceOwnerB.version,actorIdentityId:atomicIdentity})
+    ]);
+    assert(demotions.filter(result=>result.status==='fulfilled').length===1,'concurrent owner demotions did not have exactly one winner');
+    assert(demotions.filter(result=>result.status==='rejected'&&result.reason?.code===PERSISTENCE_CODES.CONFLICT).length===1,'concurrent final-owner demotion was not refused as a conflict');
+    const retainedOwners=await repository.listTenantMemberships(tenantC,{status:'active',role:'owner'});assert(retainedOwners.length===1,'concurrent demotions removed every active owner');
+
     await repository.createSession({token:sessionToken,csrfHash:'c'.repeat(64),tenantId:tenantA,identityId:repositoryIdentity,membershipVersion:first.version,securityVersion:identity.securityVersion,mfaVerifiedAt:new Date(),recentAuthenticatedAt:new Date(),expiresAt:new Date(Date.now()+60_000)});
     const session=await repository.getSession(sessionToken);
     assert(session.identityId===repositoryIdentity&&!Object.hasOwn(session,'tokenHash'),'session lookup exposed token custody');
@@ -243,8 +255,9 @@ async function main(){
     const audit=await repository.appendAudit({identityId:repositoryIdentity,actorIdentityId:repositoryIdentity,action:'foundation.verified',targetType:'identity',targetId:repositoryIdentity});
     await expectFailure(()=>controlPool.withAdminSession(db=>db.query('UPDATE wimblo_platform.control_audit SET action=$1 WHERE audit_id=$2',['tampered',audit.auditId])),PERSISTENCE_CODES.ISOLATION,'append-only audit update');
 
+    const rollbackIdentity=randomUUID();await repository.createIdentity({identityId:rollbackIdentity,email:'rollback@example.invalid',displayName:'Rollback verifier',passwordHash:'not-a-login-hash'});
     const rolledBackMembership=randomUUID();
-    await expectFailure(()=>repository.createMembership({membershipId:rolledBackMembership,tenantId:tenantC,identityId:repositoryIdentity,role:'viewer',actorIdentityId:randomUUID()}),PERSISTENCE_CODES.INVALID,'membership audit foreign-key rollback');
+    await expectFailure(()=>repository.createMembership({membershipId:rolledBackMembership,tenantId:tenantC,identityId:rollbackIdentity,role:'viewer',actorIdentityId:randomUUID()}),PERSISTENCE_CODES.INVALID,'membership audit foreign-key rollback');
     const rolledBack=await owner.withAdminSession(db=>db.query('SELECT membership_id FROM wimblo_platform.memberships WHERE membership_id=$1',[rolledBackMembership]));
     assert(rolledBack.rowCount===0,'membership survived a failed same-transaction audit');
     return 'identities=1, memberships=2, token-hashes=2, stale-write=refused, rollback=clean';

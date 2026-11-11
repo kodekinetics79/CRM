@@ -79,12 +79,15 @@ test('one identity can hold separate membership records in two tenants',async()=
 });
 
 test('membership mutation refuses a stale expected version instead of overwriting',async()=>{
+  const tenantId=randomUUID(),membershipId=randomUUID();
   const pool=scriptedPool(sql=>{
-    if(sql.includes('UPDATE wimblo_platform.memberships'))return {rows:[],rowCount:0};
+    if(sql.includes('/*membership:tenant*/'))return {rows:[{tenant_id:tenantId}],rowCount:1};
+    if(sql.includes('/*membership:lock*/'))return {rows:[{}],rowCount:1};
+    if(sql.includes('/*membership:current*/'))return {rows:[{membership_id:membershipId,tenant_id:tenantId,identity_id:randomUUID(),role:'owner',status:'active',version:2}],rowCount:1};
     throw new Error(`Unexpected query: ${sql}`);
   });
   const repository=createControlRepository({pool,clock});
-  await assert.rejects(()=>repository.changeMembership({membershipId:randomUUID(),role:'admin',status:'active',expectedVersion:3}),error=>{
+  await assert.rejects(()=>repository.changeMembership({membershipId,role:'admin',status:'active',expectedVersion:3}),error=>{
     assert.equal(error.code,PERSISTENCE_CODES.CONFLICT);
     assert.match(error.message,/version conflict/i);
     return true;

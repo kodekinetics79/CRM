@@ -111,6 +111,11 @@ test('tenant and control-plane grants are distinct, least-privilege and identifi
   assert.ok(control.some(sql=>sql.includes('wimblo_platform.global_identities')));
   assert.ok(control.some(sql=>sql.includes('runnable_tenant_ids()')));
   assert.ok(control.some(sql=>sql.includes('dead_letter_count()')));
+  for(const table of ['tenant_modules','module_events','durable_jobs','durable_job_attempts','dead_letter_jobs']){
+    const qualified=`wimblo_platform.${table}`;
+    assert.ok(control.includes(`REVOKE ALL PRIVILEGES ON ${qualified} FROM wimblo_control`),table);
+    assert.equal(control.some(sql=>sql.startsWith('GRANT SELECT, INSERT, UPDATE, DELETE')&&sql.includes(qualified)),false,table);
+  }
   assert.equal(control.some(sql=>/\b(records|gift_ledger|gift_allocations|object_metadata)\b/.test(sql)),false);
   assert.equal([...tenant,...control].some(sql=>/GRANT ALL|SUPERUSER|BYPASSRLS/.test(sql)),false);
   assert.throws(()=>controlPlaneRoleGrants('unsafe role'),/lower-case identifier/);

@@ -242,13 +242,21 @@ export function createControlRepository({pool,clock=()=>new Date()}={}){
  async function changeMembership({membershipId,role,status,expectedVersion,actorIdentityId=null}){
   const member=uuid(membershipId,'Membership ID'),expected=version(expectedVersion),at=currentTime();
   if(role===undefined&&status===undefined)fail('Membership change requires role or status.');
+  const nextRole=role===undefined?null:oneOf(role,ROLES,'Membership role'),nextStatus=status===undefined?null:oneOf(status,MEMBERSHIP_STATUSES,'Membership status');
   return transaction(async session=>{
+   const {rows:[located]}=await session.query('/*membership:tenant*/ SELECT tenant_id FROM wimblo_platform.memberships WHERE membership_id=$1',[member]);
+   if(!located)persistenceFail(PERSISTENCE_CODES.CONFLICT,'Membership version conflict. Reload before retrying.');
+   await session.query("/*membership:lock*/ SELECT pg_advisory_xact_lock(hashtextextended('wimblo:membership:' || $1::text,0))",[located.tenant_id]);
+   const {rows:[current]}=await session.query('/*membership:current*/ SELECT membership_id,tenant_id,identity_id,role,status,version FROM wimblo_platform.memberships WHERE membership_id=$1 FOR UPDATE',[member]);
+   if(!current||Number(current.version)!==expected)persistenceFail(PERSISTENCE_CODES.CONFLICT,'Membership version conflict. Reload before retrying.');
+   const proposedRole=nextRole??current.role,proposedStatus=nextStatus??current.status,removesOwner=current.role==='owner'&&current.status==='active'&&(proposedRole!=='owner'||proposedStatus!=='active');
+   if(removesOwner){const {rows:[owners]}=await session.query("/*membership:owner-count*/ SELECT count(*)::int AS count FROM wimblo_platform.memberships WHERE tenant_id=$1 AND role='owner' AND status='active'",[current.tenant_id]);if(Number(owners?.count)<=1)persistenceFail(PERSISTENCE_CODES.CONFLICT,'The final active owner cannot be removed or demoted.');}
    const {rows}=await session.query(
-    `UPDATE wimblo_platform.memberships
+    `/*membership:update*/ UPDATE wimblo_platform.memberships
      SET role=COALESCE($2,role),status=COALESCE($3,status),version=version+1,updated_at=$4::timestamptz
      WHERE membership_id=$1 AND version=$5
      RETURNING membership_id,tenant_id,identity_id,role,status,version,created_at,updated_at`,
-    [member,role===undefined?null:oneOf(role,ROLES,'Membership role'),status===undefined?null:oneOf(status,MEMBERSHIP_STATUSES,'Membership status'),at,expected]);
+    [member,nextRole,nextStatus,at,expected]);
    if(!rows[0])persistenceFail(PERSISTENCE_CODES.CONFLICT,'Membership version conflict. Reload before retrying.');
    const mapped=mapMembership(rows[0]);
    await session.query('UPDATE wimblo_platform.opaque_sessions SET revoked_at=$3::timestamptz WHERE tenant_id=$1 AND identity_id=$2 AND revoked_at IS NULL',[mapped.tenantId,mapped.identityId,at]);

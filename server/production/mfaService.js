@@ -52,11 +52,11 @@ export function createGlobalMfaService({repository,key,clock=Date.now,issuer='Wi
   if(payload.failures>=5)fail('Too many enrollment attempts. Start again.',429);
   const step=matchTotp(payload.secret,code,-1,time);
   if(step===null){payload.failures++;await repository.putMfaState({identityId,state:'enrolling',secretCiphertext:protect(payload,identityId),enrolledAt:null,expectedVersion:state.version,actorIdentityId:identityId});fail('Enter a valid six-digit authenticator code.');}
-  const active={secret:payload.secret,binding:identitySecurityBinding({...identity,securityVersion:identity.securityVersion+1}),lastStep:step,failures:0};
+  const active={secret:payload.secret,lastStep:step,failures:0};
   await repository.putMfaState({identityId,state:'active',secretCiphertext:protect(active,identityId),enrolledAt:new Date(time),expectedVersion:state.version,actorIdentityId:identityId,rotateSecurity:true});
   const recoveryCodes=codes();
   const rotated=await repository.replaceRecoveryCodes({identityId,codeHashes:codeHashes(identityId,recoveryCodes),actorIdentityId:identityId});
-  const saved=await repository.getMfaState(identityId);active.binding=identitySecurityBinding({...identity,securityVersion:rotated.securityVersion});
+  const saved=await repository.getMfaState(identityId);
   await repository.putMfaState({identityId,state:'active',secretCiphertext:protect(active,identityId),enrolledAt:new Date(time),expectedVersion:saved.version,actorIdentityId:identityId});
   return {enabled:true,recoveryCodes,securityVersion:rotated.securityVersion,reauthenticationRequired:true};
  }
@@ -64,10 +64,9 @@ export function createGlobalMfaService({repository,key,clock=Date.now,issuer='Wi
  async function createChallenge(identityId){
   const identity=await activeIdentity(identityId),state=await repository.getMfaState(identityId),time=now();
   if(!state||state.state!=='active')fail('MFA is not enabled.',409);
-  const payload=unprotect(state.secretCiphertext,identityId);
-  if(payload.binding!==identitySecurityBinding(identity))fail('Account access changed. Enroll MFA again.');
+  unprotect(state.secretCiphertext,identityId);
   const challengeId=randomUUID(),secret=randomBytes(32).toString('base64url'),challengeToken=`${challengeId}.${secret}`,expiresAt=time+TTL_MS;
-  await repository.createMfaChallenge({challengeId,identityId,purpose:'sign_in',challengeHash:hash(challengeToken),expiresAt:new Date(expiresAt)});
+  await repository.createMfaChallenge({challengeId,identityId,purpose:'sign_in',challengeHash:hash(`${challengeToken}:${identitySecurityBinding(identity)}`),expiresAt:new Date(expiresAt)});
   return {challengeToken,expiresAt};
  }
 
@@ -76,12 +75,12 @@ export function createGlobalMfaService({repository,key,clock=Date.now,issuer='Wi
   if(!challengeId||!secret||extra.length)fail('Invalid or expired MFA challenge.');
   const challenge=await repository.getMfaChallenge(challengeId);
   const time=now();
-  if(!challenge||challenge.completedAt||new Date(challenge.expiresAt).getTime()<=time||!equal(challenge.challengeHash,hash(challengeToken)))fail('Invalid or expired MFA challenge.');
+  if(!challenge||challenge.completedAt||new Date(challenge.expiresAt).getTime()<=time)fail('Invalid or expired MFA challenge.');
   if(challenge.attempts>=5)fail('Too many MFA attempts. Sign in again.',429);
   const identity=await activeIdentity(challenge.identityId),state=await repository.getMfaState(challenge.identityId);
   if(!state||state.state!=='active')fail('Invalid or expired MFA challenge.');
   const payload=unprotect(state.secretCiphertext,identity.identityId);
-  if(payload.binding!==identitySecurityBinding(identity))fail('Account access changed. Sign in again.');
+  if(!equal(challenge.challengeHash,hash(`${challengeToken}:${identitySecurityBinding(identity)}`)))fail('Account access changed. Sign in again.');
   let verified=false,nextStep=payload.lastStep;
   const step=matchTotp(payload.secret,code,payload.lastStep,time);
   if(step!==null){verified=true;nextStep=step;}
@@ -97,7 +96,7 @@ export function createGlobalMfaService({repository,key,clock=Date.now,issuer='Wi
  async function regenerateRecoveryCodes(identityId){
   const identity=await activeIdentity(identityId);const state=await repository.getMfaState(identityId);if(!state||state.state!=='active')fail('MFA is not enabled.',409);
   const recoveryCodes=codes(),rotated=await repository.replaceRecoveryCodes({identityId,codeHashes:codeHashes(identityId,recoveryCodes),actorIdentityId:identityId});
-  const payload=unprotect(state.secretCiphertext,identityId);payload.binding=identitySecurityBinding({...identity,securityVersion:rotated.securityVersion});
+  const payload=unprotect(state.secretCiphertext,identityId);
   await repository.putMfaState({identityId,state:'active',secretCiphertext:protect(payload,identityId),enrolledAt:state.enrolledAt,expectedVersion:state.version,actorIdentityId:identityId});
   return {recoveryCodes,securityVersion:rotated.securityVersion,reauthenticationRequired:true};
  }

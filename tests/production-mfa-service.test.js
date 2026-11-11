@@ -84,6 +84,18 @@ test('TOTP steps and challenge tokens are one-use and security binding changes i
   await assert.rejects(()=>f.service.verifyChallenge(changed.challengeToken,totp(enrollment.secret,f.time()+30000)),/access changed/i);
 });
 
+test('a credential security change invalidates old challenges but preserves the enrolled factor',async()=>{
+  const f=fixture(),enrollment=await f.service.beginEnrollment(f.identity.identityId);
+  await f.service.confirmEnrollment(f.identity.identityId,totp(enrollment.secret,f.time()));
+  const old=await f.service.createChallenge(f.identity.identityId);
+  f.identity.passwordHash='adaptive-hash-rotated';f.identity.securityVersion++;
+  f.advance(30000);
+  await assert.rejects(()=>f.service.verifyChallenge(old.challengeToken,totp(enrollment.secret,f.time())),/access changed/i);
+  assert.equal((await f.service.status(f.identity.identityId)).enabled,true);
+  const fresh=await f.service.createChallenge(f.identity.identityId);
+  assert.equal((await f.service.verifyChallenge(fresh.challengeToken,totp(enrollment.secret,f.time()))).verified,true);
+});
+
 test('enrollment and challenges stop after five failures and expire after five minutes',async()=>{
   const f=fixture(),enrollment=await f.service.beginEnrollment(f.identity.identityId);
   for(let i=0;i<5;i++)await assert.rejects(()=>f.service.confirmEnrollment(f.identity.identityId,'000000'),/valid six-digit/i);

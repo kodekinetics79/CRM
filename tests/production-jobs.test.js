@@ -25,6 +25,11 @@ function memoryPool(){
    if(!job){job={tenantId,jobId,queue,kind,idempotencyKey,payload:JSON.parse(payload),state:'ready',priority,availableAt:+new Date(availableAt),leaseOwner:null,leaseExpiresAt:null,attempts:0,maxAttempts,version:1,createdAt:+new Date(now),updatedAt:+new Date(now),completedAt:null};jobs.set(key(tenantId,jobId),job);}
    return {rows:[row(job)],rowCount:1};
   }
+  if(sql.includes('/*job:sweep-exhausted*/')){
+   const [tenantId,queue,now,reasonCode,limit]=values,instant=+new Date(now),exhausted=[...jobs.values()].filter(job=>job.tenantId===tenantId&&job.queue===queue&&job.state==='leased'&&job.leaseExpiresAt<=instant&&job.attempts>=job.maxAttempts).sort((a,b)=>a.leaseExpiresAt-b.leaseExpiresAt).slice(0,limit);
+   for(const job of exhausted){job.state='dead_lettered';job.leaseOwner=null;job.leaseExpiresAt=null;job.updatedAt=instant;job.version++;const attempt=attempts.findLast(item=>item.tenantId===tenantId&&item.jobId===job.jobId&&item.attempt===job.attempts);Object.assign(attempt,{finishedAt:instant,outcome:'dead_lettered',errorCode:reasonCode,errorDetail:'Worker lease expired during the final allowed attempt.'});deadLetters.push({tenantId,jobId:job.jobId,reasonCode,reasonDetail:'Worker lease expired during the final allowed attempt.'});}
+   return {rows:exhausted.map(row),rowCount:exhausted.length};
+  }
   if(sql.includes('/*job:claim*/')){
    assert.match(sql,/FOR UPDATE SKIP LOCKED/i,'claims must not serialize workers behind locked rows');
    const [tenantId,queue,workerId,now,leaseExpiresAt,limit,kinds]=values,instant=+new Date(now);
@@ -88,6 +93,15 @@ test('retry uses bounded exponential delay and exhausts into dead letter state',
  time.advance(2_000);[job]=await repository.claim({tenantId,workerId:'worker-a'});job=await repository.retry({...job,workerId:'worker-a',errorCode:'UPSTREAM',errorDetail:'third'});
  assert.equal(job.state,'dead_lettered');assert.equal(db.deadLetters.length,1);assert.equal(db.attempts.length,3);
  const metrics=repository.getMetrics();assert.equal(metrics.deadLetters,1);assert.equal(metrics.attempts,3);assert.equal(Object.hasOwn(metrics,'payload'),false);assert.doesNotMatch(JSON.stringify(metrics),/cursor|UPSTREAM/);
+});
+
+test('a crash on the final leased attempt is swept into dead letter state',async()=>{
+ const db=memoryPool(),time=clockFixture(),repository=createJobRepository({tenantPool:db.pool,clock:time.clock,leaseMs:1_000}),tenantId=randomUUID();
+ const queued=await repository.enqueue({tenantId,kind:'provider.final',idempotencyKey:'final-crash',payload:{},maxAttempts:1});
+ const [lease]=await repository.claim({tenantId,workerId:'worker-a'});assert.equal(lease.attempts,1);
+ time.advance(1_001);assert.deepEqual(await repository.claim({tenantId,workerId:'worker-b'}),[]);
+ const retained=db.jobs.get(`${tenantId}:${queued.jobId}`);assert.equal(retained.state,'dead_lettered');assert.equal(retained.leaseOwner,null);assert.equal(db.deadLetters.length,1);assert.equal(db.attempts[0].outcome,'dead_lettered');assert.equal(repository.getMetrics().deadLetters,1);
+ assert.deepEqual(await repository.claim({tenantId,workerId:'worker-c'}),[]);assert.equal(db.deadLetters.length,1);
 });
 
 test('heartbeat and completion require the current unexpired lease owner and version',async()=>{

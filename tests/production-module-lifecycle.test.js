@@ -9,6 +9,7 @@ import {installModuleRoutes} from '../server/production/moduleRoutes.js';
 function poolFixture(){
  const rows=new Map(),events=[];
  const session={async query(sql,values=[]){
+  if(sql.includes('/*module:lifecycle-lock*/'))return {rows:[{}],rowCount:1};
   if(sql.includes('/*module:list*/'))return {rows:[...rows.values()].map(value=>({...value}))};
   if(sql.includes('/*module:get*/')){const row=rows.get(values[1]);return {rows:row?[{...row}]:[],rowCount:row?1:0};}
   if(sql.includes('/*module:upsert*/')){const previous=rows.get(values[1]),row={tenant_id:values[0],module_key:values[1],state:values[2],config:JSON.parse(values[3]),version:(previous?.version??0)+1,enabled_at:values[2]==='enabled'?(previous?.enabled_at??values[4]):previous?.enabled_at??null,updated_at:values[4]};rows.set(values[1],row);return {rows:[{...row}],rowCount:1};}
@@ -58,6 +59,18 @@ test('suspension permits read/export only; reviewed retirement disables routes w
  assert.equal(disabled.state,'disabled');assert.ok(f.rows.has('core'));
  assert.equal((await service.authorize({tenantId,code:'core',action:'read'})).allowed,false);
  const reenabled=await service.enable({tenantId,code:'core',expectedVersion:disabled.version,reason:'compatible re-enable'});assert.equal(reenabled.state,'enabled');
+});
+
+test('an enabled dependent prevents its required module from being suspended or retired',async()=>{
+ const f=poolFixture(),tenantId=randomUUID(),service=createModuleService({tenantPool:f.pool});
+ const core=await service.enable({tenantId,code:'core',expectedVersion:0,reason:'launch core'});
+ await service.enable({tenantId,code:'sales',expectedVersion:0,reason:'launch sales'});
+ const events=f.events.length;
+ await assert.rejects(()=>service.suspend({tenantId,code:'core',expectedVersion:core.version,reason:'unsafe suspension'}),/enabled dependent.*sales/i);
+ await assert.rejects(()=>service.beginRetirement({tenantId,code:'core',expectedVersion:core.version,reason:'unsafe retirement',dependencyReview:true,exportReview:true}),/enabled dependent.*sales/i);
+ assert.equal((await service.list(tenantId)).find(item=>item.code==='core').state,'enabled');
+ assert.equal((await service.list(tenantId)).find(item=>item.code==='sales').state,'enabled');
+ assert.equal(f.events.length,events);
 });
 
 test('requireModule exposes only authorized capabilities to routes',async()=>{

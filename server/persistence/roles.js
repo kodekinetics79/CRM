@@ -34,8 +34,7 @@ export const CONTROL_PLANE_TABLES=Object.freeze([
  'wimblo_platform.mfa_settings',
  'wimblo_platform.mfa_recovery_codes',
  'wimblo_platform.mfa_challenges',
- 'wimblo_platform.module_catalog',
- ...TENANT_FOUNDATION_TABLES
+ 'wimblo_platform.module_catalog'
 ]);
 
 const identifier=name=>{
@@ -59,6 +58,7 @@ export function controlPlaneRoleGrants(role){
  const name=identifier(role);
  return [
   `GRANT USAGE ON SCHEMA wimblo_platform TO ${name}`,
+  ...TENANT_FOUNDATION_TABLES.map(table=>`REVOKE ALL PRIVILEGES ON ${table} FROM ${name}`),
   ...CONTROL_PLANE_TABLES.map(table=>`GRANT SELECT, INSERT, UPDATE, DELETE ON ${table} TO ${name}`),
   `GRANT SELECT, INSERT ON wimblo_platform.control_audit TO ${name}`,
   `GRANT USAGE, SELECT ON SEQUENCE wimblo_platform.control_audit_audit_id_seq TO ${name}`,
@@ -100,13 +100,14 @@ export async function assertControlPlaneRole(session){
  if(missing.length)persistenceFail(PERSISTENCE_CODES.ISOLATION,`The control-plane role "${role.name}" lacks required least-privilege access to: ${missing.join(', ')}.`);
 
  const {rows:business}=await session.query(
-  `SELECT table_name,
+  `SELECT table_schema || '.' || table_name AS table_name,
           (has_table_privilege(current_user, quote_ident(table_schema) || '.' || quote_ident(table_name), 'SELECT')
            OR has_table_privilege(current_user, quote_ident(table_schema) || '.' || quote_ident(table_name), 'INSERT')
            OR has_table_privilege(current_user, quote_ident(table_schema) || '.' || quote_ident(table_name), 'UPDATE')
            OR has_table_privilege(current_user, quote_ident(table_schema) || '.' || quote_ident(table_name), 'DELETE')) AS has_business_access
    FROM information_schema.tables
-   WHERE table_schema = current_schema() AND table_name = ANY($1)`,[TENANT_TABLES.filter(table=>table!==MIGRATION_LEDGER_TABLE)]);
+   WHERE (table_schema = current_schema() AND table_name = ANY($1))
+      OR (table_schema = 'wimblo_platform' AND table_name = ANY($2))`,[TENANT_TABLES,TENANT_FOUNDATION_TABLES.map(table=>table.split('.')[1])]);
  const exposed=business.filter(row=>row.has_business_access).map(row=>row.table_name);
  if(exposed.length)persistenceFail(PERSISTENCE_CODES.ISOLATION,`The control-plane role "${role.name}" can access tenant business tables: ${exposed.join(', ')}.`);
  return {role:role.name,superuser:false,bypassRls:false,platformTables:CONTROL_PLANE_TABLES.length,businessTables:0};
