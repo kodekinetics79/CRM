@@ -88,9 +88,9 @@ async function main(){
   const controlPool=createPostgresPool({connectionString:databaseUrl(database,controlRole,controlPassword),max:2,applicationName:'wimblo-foundation-control'});
   pools.push(owner,tenantPool,controlPool);
 
-  await runStep('explicit migrations apply versions 1 through 11',async()=>{
+  await runStep('explicit migrations apply versions 1 through 12',async()=>{
     const result=await owner.withAdminSession(session=>applyMigrations(session));
-    assert(result.currentVersion===11&&SCHEMA_VERSION===11,'schema did not reach version 11');
+    assert(result.currentVersion===12&&SCHEMA_VERSION===12,'schema did not reach version 12');
     assert(result.applied.map(entry=>entry.version).join(',')===MIGRATIONS.map(entry=>entry.version).join(','),'migration order differs');
     for(const sql of applicationRoleGrants(tenantRole))await owner.withAdminSession(session=>session.query(sql));
     for(const sql of controlPlaneRoleGrants(controlRole))await owner.withAdminSession(session=>session.query(sql));
@@ -124,6 +124,13 @@ async function main(){
     assert(result.rows.some(row=>row.tenant_id===tenantA)&&result.rows.some(row=>row.tenant_id===tenantB),'worker tenant source omitted an active tenant');
     await expectFailure(()=>tenantPool.withAdminSession(session=>session.query('SELECT tenant_id FROM wimblo_platform.runnable_tenant_ids()')),PERSISTENCE_CODES.ISOLATION,'tenant-role worker enumeration');
     return 'active=2, tenant-role=refused';
+  });
+
+  await runStep('control role reads only the global dead-letter aggregate',async()=>{
+    const result=await controlPool.withAdminSession(session=>session.query('SELECT wimblo_platform.dead_letter_count()::int AS count'));
+    assert(result.rows[0]?.count===0,'fresh foundation unexpectedly contains dead letters');
+    await expectFailure(()=>tenantPool.withAdminSession(session=>session.query('SELECT wimblo_platform.dead_letter_count()')),PERSISTENCE_CODES.ISOLATION,'tenant-role dead-letter aggregate');
+    return 'dead-letters=0, tenant-role=refused';
   });
 
   await runStep('forced row-level security covers original and foundation tenant tables',async()=>{

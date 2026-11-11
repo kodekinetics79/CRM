@@ -23,15 +23,15 @@ const ORIGINAL_CHECKSUMS=Object.freeze([
 
 const recorded=list=>list.map(({version,name,checksum})=>({version,name,checksum}));
 
-test('production foundation appends contiguous migrations 6 through 11 without rewriting versions 1 through 5',()=>{
-  assert.equal(SCHEMA_VERSION,11);
-  assert.deepEqual(MIGRATIONS.map(entry=>entry.version),[1,2,3,4,5,6,7,8,9,10,11]);
+test('production foundation appends contiguous migrations 6 through 12 without rewriting versions 1 through 5',()=>{
+  assert.equal(SCHEMA_VERSION,12);
+  assert.deepEqual(MIGRATIONS.map(entry=>entry.version),[1,2,3,4,5,6,7,8,9,10,11,12]);
   assert.deepEqual(MIGRATIONS.slice(0,5).map(entry=>entry.checksum),ORIGINAL_CHECKSUMS);
 
   const plan=planMigrations(recorded(MIGRATIONS.slice(0,5)));
   assert.equal(plan.currentVersion,5);
-  assert.equal(plan.targetVersion,11);
-  assert.deepEqual(plan.pending.map(entry=>entry.version),[6,7,8,9,10,11]);
+  assert.equal(plan.targetVersion,12);
+  assert.deepEqual(plan.pending.map(entry=>entry.version),[6,7,8,9,10,11,12]);
 });
 
 test('a failed production-foundation migration rolls back without recording its ledger row',async()=>{
@@ -94,6 +94,12 @@ test('foundation migrations create control identity, module, job and lifecycle b
   assert.match(workerTenants,/SECURITY DEFINER/);
   assert.match(workerTenants,/WHERE t\.status='active'/);
   assert.match(workerTenants,/REVOKE ALL ON FUNCTION wimblo_platform\.runnable_tenant_ids\(\) FROM PUBLIC/);
+
+  const readiness=byVersion.get(12);
+  assert.match(readiness,/FUNCTION wimblo_platform\.dead_letter_count\(\)/);
+  assert.match(readiness,/SECURITY DEFINER/);
+  assert.match(readiness,/count\(\*\)/);
+  assert.match(readiness,/REVOKE ALL ON FUNCTION wimblo_platform\.dead_letter_count\(\) FROM PUBLIC/);
 });
 
 test('tenant and control-plane grants are distinct, least-privilege and identifier-safe',async()=>{
@@ -104,6 +110,7 @@ test('tenant and control-plane grants are distinct, least-privilege and identifi
   assert.ok(control.includes('GRANT USAGE ON SCHEMA wimblo_platform TO wimblo_control'));
   assert.ok(control.some(sql=>sql.includes('wimblo_platform.global_identities')));
   assert.ok(control.some(sql=>sql.includes('runnable_tenant_ids()')));
+  assert.ok(control.some(sql=>sql.includes('dead_letter_count()')));
   assert.equal(control.some(sql=>/\b(records|gift_ledger|gift_allocations|object_metadata)\b/.test(sql)),false);
   assert.equal([...tenant,...control].some(sql=>/GRANT ALL|SUPERUSER|BYPASSRLS/.test(sql)),false);
   assert.throws(()=>controlPlaneRoleGrants('unsafe role'),/lower-case identifier/);

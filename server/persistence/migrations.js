@@ -419,6 +419,13 @@ export const MIGRATIONS=Object.freeze([
     SELECT t.tenant_id FROM public.tenants t WHERE t.status='active' ORDER BY t.tenant_id
    $fn$`,
   `REVOKE ALL ON FUNCTION wimblo_platform.runnable_tenant_ids() FROM PUBLIC`
+ ]),
+ migration(12,'readiness-dead-letter-aggregate',[
+  `CREATE FUNCTION wimblo_platform.dead_letter_count() RETURNS bigint
+   LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, wimblo_platform AS $fn$
+    SELECT count(*)::bigint FROM wimblo_platform.dead_letter_jobs
+   $fn$`,
+  `REVOKE ALL ON FUNCTION wimblo_platform.dead_letter_count() FROM PUBLIC`
  ])
 ]);
 

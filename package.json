@@ -16,7 +16,9 @@
     "test:discipline": "node scripts/tdd-gate.mjs",
     "evaluate": "node scripts/evaluate.mjs",
     "verify:postgres": "node scripts/postgres-verify.mjs",
-    "verify:postgres-foundation": "node scripts/postgres-foundation-verify.mjs"
+    "verify:postgres-foundation": "node scripts/postgres-foundation-verify.mjs",
+    "check:production-foundation": "node scripts/production-foundation-check.mjs",
+    "certify:production-foundation:local": "npm run test:production-foundation && npm run build && npm audit --audit-level=high"
   },
   "engines": {
     "node": ">=24.0.0"
