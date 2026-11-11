@@ -21,7 +21,9 @@ import {MIGRATION_LEDGER_TABLE} from './migrations.js';
 export const TENANT_TABLES=Object.freeze([
  'tenants','records','users','settings','audit_entries','gift_ledger','gift_allocations','object_metadata',
  'parties','people','organizations','contact_points','relationships','party_events'
+ ,'pipelines','pipeline_stages','leads','opportunities','opportunity_stage_events'
 ]);
+const APPEND_ONLY_TENANT_TABLES=Object.freeze(['party_events','opportunity_stage_events']);
 export const TENANT_FOUNDATION_TABLES=Object.freeze([
  'wimblo_platform.tenant_modules',
  'wimblo_platform.module_events',
@@ -50,7 +52,8 @@ export function applicationRoleGrants(role){
  const name=identifier(role);
  return [
   `GRANT USAGE ON SCHEMA wimblo_platform TO ${name}`,
-  ...TENANT_TABLES.map(table=>`GRANT SELECT, INSERT, UPDATE, DELETE ON ${table} TO ${name}`),
+  ...TENANT_TABLES.filter(table=>!APPEND_ONLY_TENANT_TABLES.includes(table)).map(table=>`GRANT SELECT, INSERT, UPDATE, DELETE ON ${table} TO ${name}`),
+  ...APPEND_ONLY_TENANT_TABLES.map(table=>`GRANT SELECT, INSERT ON ${table} TO ${name}`),
   ...TENANT_FOUNDATION_TABLES.map(table=>`GRANT SELECT, INSERT, UPDATE, DELETE ON ${table} TO ${name}`),
   `GRANT SELECT ON ${MIGRATION_LEDGER_TABLE} TO ${name}`
  ];

@@ -15,6 +15,11 @@ export function createCrmService({repository,moduleService}={}){
     if(!result?.allowed)persistenceFail(PERSISTENCE_CODES.ISOLATION,'Capability is unavailable for this action.');
     return result;
   }
+  async function requireSalesCapability(tenantId,action){
+    const result=await moduleService.authorize({tenantId,code:'sales',action});
+    if(!result?.allowed)persistenceFail(PERSISTENCE_CODES.ISOLATION,'Capability is unavailable for this action.');
+    return result;
+  }
   function requireReadRole(actorRole){
     if(!READ_ROLES.has(actorRole))persistenceFail(PERSISTENCE_CODES.ISOLATION,'An authorized CRM read role is required.');
   }
@@ -23,6 +28,8 @@ export function createCrmService({repository,moduleService}={}){
   }
   const writeContext=async(tenantId,actorRole)=>{await requireCapability(tenantId,'write');requireWriteRole(actorRole);};
   const readContext=async(tenantId,actorRole)=>{await requireCapability(tenantId,'read');requireReadRole(actorRole);};
+  const salesWriteContext=async(tenantId,actorRole)=>{await requireSalesCapability(tenantId,'write');requireWriteRole(actorRole);};
+  const salesReadContext=async(tenantId,actorRole)=>{await requireSalesCapability(tenantId,'read');requireReadRole(actorRole);};
 
   return Object.freeze({
     createPerson:async input=>{await writeContext(input.tenantId,input.actorRole);return repository.createPerson(input);},
@@ -33,6 +40,13 @@ export function createCrmService({repository,moduleService}={}){
     getParty:async input=>{await readContext(input.tenantId,input.actorRole);return repository.getParty(input.tenantId,input.partyId);},
     listParties:async input=>{await readContext(input.tenantId,input.actorRole);return repository.listParties(input.tenantId,input);},
     listContacts:async input=>{await readContext(input.tenantId,input.actorRole);return repository.listContacts(input.tenantId,input);},
-    listRelationships:async input=>{await readContext(input.tenantId,input.actorRole);return repository.listRelationships(input.tenantId,input);}
+    listRelationships:async input=>{await readContext(input.tenantId,input.actorRole);return repository.listRelationships(input.tenantId,input);},
+    ensureDefaultPipeline:async input=>{await salesWriteContext(input.tenantId,input.actorRole);return repository.ensureDefaultPipeline(input);},
+    createLead:async input=>{await salesWriteContext(input.tenantId,input.actorRole);return repository.createLead(input);},
+    convertLead:async input=>{await salesWriteContext(input.tenantId,input.actorRole);return repository.convertLead(input);},
+    changeOpportunityStage:async input=>{await salesWriteContext(input.tenantId,input.actorRole);return repository.changeOpportunityStage(input);},
+    listPipelines:async input=>{await salesReadContext(input.tenantId,input.actorRole);return repository.listPipelines(input.tenantId,input);},
+    listLeads:async input=>{await salesReadContext(input.tenantId,input.actorRole);return repository.listLeads(input.tenantId,input);},
+    listOpportunities:async input=>{await salesReadContext(input.tenantId,input.actorRole);return repository.listOpportunities(input.tenantId,input);}
   });
 }

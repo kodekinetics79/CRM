@@ -121,7 +121,12 @@ test('the application role receives only the grants it needs, and its name is va
  const grants=applicationRoleGrants('wimblo_app');
  assert.equal(grants.length,TENANT_TABLES.length+TENANT_FOUNDATION_TABLES.length+2);
  assert.ok(grants.includes('GRANT USAGE ON SCHEMA wimblo_platform TO wimblo_app'));
- for(const table of TENANT_TABLES)assert.ok(grants.includes(`GRANT SELECT, INSERT, UPDATE, DELETE ON ${table} TO wimblo_app`));
+ for(const table of TENANT_TABLES){
+  const expected=['party_events','opportunity_stage_events'].includes(table)
+   ?`GRANT SELECT, INSERT ON ${table} TO wimblo_app`
+   :`GRANT SELECT, INSERT, UPDATE, DELETE ON ${table} TO wimblo_app`;
+  assert.ok(grants.includes(expected),table);
+ }
  for(const table of TENANT_FOUNDATION_TABLES)assert.ok(grants.includes(`GRANT SELECT, INSERT, UPDATE, DELETE ON ${table} TO wimblo_app`));
  assert.ok(grants.includes(`GRANT SELECT ON ${MIGRATION_LEDGER_TABLE} TO wimblo_app`));
  assert.equal(grants.some(g=>/GRANT ALL|SUPERUSER|BYPASSRLS/.test(g)),false);

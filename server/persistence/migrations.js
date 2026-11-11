@@ -484,6 +484,15 @@ export const MIGRATIONS=Object.freeze([
    $fn$`,
   `CREATE TRIGGER people_party_type_matches BEFORE INSERT ON people FOR EACH ROW EXECUTE FUNCTION wimblo_party_subtype_matches()`,
   `CREATE TRIGGER organizations_party_type_matches BEFORE INSERT ON organizations FOR EACH ROW EXECUTE FUNCTION wimblo_party_subtype_matches()`,
+  `CREATE FUNCTION wimblo_party_type_immutable() RETURNS trigger LANGUAGE plpgsql AS $fn$
+    BEGIN
+     IF NEW.party_type <> OLD.party_type THEN
+      RAISE EXCEPTION 'Party type is immutable' USING ERRCODE='23514';
+     END IF;
+     RETURN NEW;
+    END
+   $fn$`,
+  `CREATE TRIGGER party_type_immutable BEFORE UPDATE OF party_type ON parties FOR EACH ROW EXECUTE FUNCTION wimblo_party_type_immutable()`,
   `CREATE TABLE contact_points(
     tenant_id uuid NOT NULL,
     contact_id uuid NOT NULL,
@@ -544,6 +553,121 @@ export const MIGRATIONS=Object.freeze([
   `CREATE INDEX relationships_to ON relationships(tenant_id, to_party_id, status)`,
   `CREATE INDEX party_events_target ON party_events(tenant_id, target_type, target_id, at DESC)`,
   ...['parties','people','organizations','contact_points','relationships','party_events'].flatMap(table=>[
+   `ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`,
+   `ALTER TABLE ${table} FORCE ROW LEVEL SECURITY`,
+   `CREATE POLICY ${table}_tenant_isolation ON ${table} USING (tenant_id = wimblo_current_tenant()) WITH CHECK (tenant_id = wimblo_current_tenant())`
+  ])
+ ]),
+ migration(14,'production-crm-pipelines-leads-and-opportunities',[
+  `CREATE TABLE pipelines(
+    tenant_id uuid NOT NULL REFERENCES tenants(tenant_id) ON DELETE RESTRICT,
+    pipeline_id uuid NOT NULL,
+    name text NOT NULL CHECK (char_length(name) BETWEEN 1 AND 200),
+    is_default boolean NOT NULL DEFAULT false,
+    status text NOT NULL DEFAULT 'active' CHECK (status IN ('active','retired')),
+    version integer NOT NULL DEFAULT 1 CHECK (version >= 1),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, pipeline_id)
+   )`,
+  `CREATE UNIQUE INDEX pipelines_one_default ON pipelines(tenant_id) WHERE is_default`,
+  `CREATE TABLE pipeline_stages(
+    tenant_id uuid NOT NULL,
+    stage_id uuid NOT NULL,
+    pipeline_id uuid NOT NULL,
+    name text NOT NULL CHECK (char_length(name) BETWEEN 1 and 160),
+    kind text NOT NULL CHECK (kind IN ('open','won','lost')),
+    position integer NOT NULL CHECK (position BETWEEN 1 AND 100),
+    probability integer NOT NULL CHECK (probability BETWEEN 0 AND 100),
+    version integer NOT NULL DEFAULT 1 CHECK (version >= 1),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, stage_id),
+    FOREIGN KEY (tenant_id, pipeline_id) REFERENCES pipelines(tenant_id, pipeline_id) ON DELETE CASCADE,
+    UNIQUE (tenant_id, pipeline_id, position),
+    UNIQUE (tenant_id, pipeline_id, stage_id)
+   )`,
+  `CREATE INDEX pipeline_stages_view ON pipeline_stages(tenant_id, pipeline_id, position)`,
+  `CREATE TABLE leads(
+    tenant_id uuid NOT NULL,
+    lead_id uuid NOT NULL,
+    party_id uuid NOT NULL,
+    pipeline_id uuid NOT NULL,
+    stage_id uuid NOT NULL,
+    source text NOT NULL CHECK (char_length(source) BETWEEN 1 AND 120),
+    status text NOT NULL DEFAULT 'new' CHECK (status IN ('new','working','qualified','converted','disqualified')),
+    owner_identity_id uuid,
+    expected_value_cents bigint NOT NULL CHECK (expected_value_cents >= 0 AND expected_value_cents <= 9007199254740991),
+    currency char(3) NOT NULL CHECK (currency ~ '^[A-Z]{3}$'),
+    probability integer NOT NULL CHECK (probability BETWEEN 0 AND 100),
+    expected_close_date date NOT NULL,
+    converted_opportunity_id uuid,
+    version integer NOT NULL DEFAULT 1 CHECK (version >= 1),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CHECK ((status = 'converted') = (converted_opportunity_id IS NOT NULL)),
+    PRIMARY KEY (tenant_id, lead_id),
+    FOREIGN KEY (tenant_id, party_id) REFERENCES parties(tenant_id, party_id) ON DELETE RESTRICT,
+    FOREIGN KEY (tenant_id, pipeline_id) REFERENCES pipelines(tenant_id, pipeline_id) ON DELETE RESTRICT,
+    FOREIGN KEY (tenant_id, pipeline_id, stage_id) REFERENCES pipeline_stages(tenant_id, pipeline_id, stage_id) ON DELETE RESTRICT,
+    FOREIGN KEY (tenant_id, owner_identity_id) REFERENCES wimblo_platform.memberships(tenant_id, identity_id) ON DELETE RESTRICT
+   )`,
+  `CREATE INDEX leads_qualification ON leads(tenant_id, status, probability, expected_value_cents)`,
+  `CREATE TABLE opportunities(
+    tenant_id uuid NOT NULL,
+    opportunity_id uuid NOT NULL,
+    party_id uuid NOT NULL,
+    pipeline_id uuid NOT NULL,
+    stage_id uuid NOT NULL,
+    lead_id uuid,
+    name text NOT NULL CHECK (char_length(name) BETWEEN 1 AND 200),
+    amount_cents bigint NOT NULL CHECK (amount_cents >= 0 AND amount_cents <= 9007199254740991),
+    currency char(3) NOT NULL CHECK (currency ~ '^[A-Z]{3}$'),
+    probability integer NOT NULL CHECK (probability BETWEEN 0 AND 100),
+    expected_close_date date NOT NULL,
+    status text NOT NULL DEFAULT 'open' CHECK (status IN ('open','won','lost')),
+    owner_identity_id uuid,
+    version integer NOT NULL DEFAULT 1 CHECK (version >= 1),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, opportunity_id),
+    FOREIGN KEY (tenant_id, party_id) REFERENCES parties(tenant_id, party_id) ON DELETE RESTRICT,
+    FOREIGN KEY (tenant_id, pipeline_id) REFERENCES pipelines(tenant_id, pipeline_id) ON DELETE RESTRICT,
+    FOREIGN KEY (tenant_id, pipeline_id, stage_id) REFERENCES pipeline_stages(tenant_id, pipeline_id, stage_id) ON DELETE RESTRICT,
+    FOREIGN KEY (tenant_id, lead_id) REFERENCES leads(tenant_id, lead_id) ON DELETE RESTRICT,
+    FOREIGN KEY (tenant_id, owner_identity_id) REFERENCES wimblo_platform.memberships(tenant_id, identity_id) ON DELETE RESTRICT,
+    UNIQUE (tenant_id, lead_id)
+   )`,
+  `ALTER TABLE leads ADD CONSTRAINT leads_converted_opportunity_fk
+    FOREIGN KEY (tenant_id, converted_opportunity_id) REFERENCES opportunities(tenant_id, opportunity_id) ON DELETE RESTRICT`,
+  `CREATE INDEX opportunities_owner_status ON opportunities(tenant_id, owner_identity_id, status, expected_close_date)`,
+  `CREATE INDEX opportunities_forecast ON opportunities(tenant_id, expected_close_date) INCLUDE (amount_cents, probability, currency)`,
+  `CREATE TABLE opportunity_stage_events(
+    tenant_id uuid NOT NULL REFERENCES tenants(tenant_id) ON DELETE RESTRICT,
+    event_id uuid NOT NULL,
+    opportunity_id uuid NOT NULL,
+    pipeline_id uuid NOT NULL,
+    from_stage_id uuid,
+    to_stage_id uuid,
+    action text NOT NULL CHECK (char_length(action) BETWEEN 1 AND 120),
+    actor_identity_id uuid,
+    details jsonb NOT NULL DEFAULT '{}'::jsonb,
+    at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, event_id),
+    FOREIGN KEY (tenant_id, opportunity_id) REFERENCES opportunities(tenant_id, opportunity_id) ON DELETE CASCADE,
+    FOREIGN KEY (tenant_id, pipeline_id, from_stage_id) REFERENCES pipeline_stages(tenant_id, pipeline_id, stage_id) ON DELETE RESTRICT,
+    FOREIGN KEY (tenant_id, pipeline_id, to_stage_id) REFERENCES pipeline_stages(tenant_id, pipeline_id, stage_id) ON DELETE RESTRICT,
+    FOREIGN KEY (tenant_id, actor_identity_id) REFERENCES wimblo_platform.memberships(tenant_id, identity_id) ON DELETE RESTRICT
+   )`,
+  `CREATE INDEX opportunity_stage_events_view ON opportunity_stage_events(tenant_id, opportunity_id, at DESC)`,
+  `CREATE FUNCTION wimblo_opportunity_stage_event_append_only() RETURNS trigger LANGUAGE plpgsql AS $fn$
+    BEGIN
+     RAISE EXCEPTION 'Opportunity stage history is append-only';
+    END
+   $fn$`,
+  `CREATE TRIGGER opportunity_stage_event_no_update BEFORE UPDATE ON opportunity_stage_events FOR EACH ROW EXECUTE FUNCTION wimblo_opportunity_stage_event_append_only()`,
+  `CREATE TRIGGER opportunity_stage_event_no_delete BEFORE DELETE ON opportunity_stage_events FOR EACH ROW EXECUTE FUNCTION wimblo_opportunity_stage_event_append_only()`,
+  ...['pipelines','pipeline_stages','leads','opportunities','opportunity_stage_events'].flatMap(table=>[
    `ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`,
    `ALTER TABLE ${table} FORCE ROW LEVEL SECURITY`,
    `CREATE POLICY ${table}_tenant_isolation ON ${table} USING (tenant_id = wimblo_current_tenant()) WITH CHECK (tenant_id = wimblo_current_tenant())`

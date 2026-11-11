@@ -57,7 +57,7 @@ export function createProductionApp({config,controlPool,tenantPool,clock=()=>new
   const origin=req.get('Origin');
   if(origin&&origin!==config.appOrigin)return res.status(403).json({error:'Origin is not allowed.',code:'ORIGIN_REFUSED'});
   if(origin===config.appOrigin){res.setHeader('Access-Control-Allow-Origin',config.appOrigin);res.setHeader('Access-Control-Allow-Credentials','true');res.vary('Origin');}
-  if(req.method==='OPTIONS'){res.setHeader('Access-Control-Allow-Methods','GET,POST');res.setHeader('Access-Control-Allow-Headers','Content-Type,X-CSRF-Token');return res.status(204).end();}
+  if(req.method==='OPTIONS'){res.setHeader('Access-Control-Allow-Methods','GET,POST,PATCH');res.setHeader('Access-Control-Allow-Headers','Content-Type,X-CSRF-Token');return res.status(204).end();}
   next();
  });
  app.use(express.json({limit:'64kb',strict:true,type:'application/json'}));

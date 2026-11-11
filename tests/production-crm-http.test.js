@@ -44,8 +44,8 @@ test('staff can create person and organization parties, then read their tenant-s
     listParties:async input=>{calls.push(['listParties',input]);return [party];}
   };
   const app=buildApp(service);
-  const person=await request(app,'/api/crm/people',{method:'POST',body:{partyId:party.partyId,displayName:'Ada Lovelace',firstName:'Ada',lastName:'Lovelace'}});
-  const organization=await request(app,'/api/crm/organizations',{method:'POST',body:{displayName:'Wimblo Test Systems',legalName:'Wimblo Test Systems LLC'}});
+  const person=await request(app,'/api/crm/people',{method:'POST',body:{partyId:party.partyId,displayName:'Ada Lovelace',status:'inactive',firstName:'Ada',lastName:'Lovelace'}});
+  const organization=await request(app,'/api/crm/organizations',{method:'POST',body:{displayName:'Wimblo Test Systems',status:'merged',legalName:'Wimblo Test Systems LLC'}});
   const list=await request(app,'/api/crm/parties?type=person');
   const detail=await request(app,`/api/crm/parties/${party.partyId}`);
   assert.equal(person.status,201);
@@ -54,6 +54,24 @@ test('staff can create person and organization parties, then read their tenant-s
   assert.equal(detail.status,200);
   assert.equal(calls[0][1].tenantId,tenantId);
   assert.equal(calls[0][1].actorRole,'staff');
+  assert.equal(calls[0][1].status,'inactive');
+  assert.equal(calls[1][1].status,'merged');
+});
+
+test('party update preserves expectedVersion and contact identity comes only from the path',async()=>{
+  const calls=[];
+  const service={
+    updateParty:async input=>{calls.push(['updateParty',input]);return {...party,displayName:input.displayName,version:2};},
+    createContact:async input=>{calls.push(['createContact',input]);return {contactId:randomUUID(),partyId:input.partyId,type:input.type};}
+  };
+  const app=buildApp(service);
+  const update=await request(app,`/api/crm/parties/${party.partyId}`,{method:'PATCH',body:{displayName:'Ada Byron',expectedVersion:1}});
+  const contact=await request(app,`/api/crm/parties/${party.partyId}/contacts`,{method:'POST',body:{type:'email',value:'ada@example.invalid'}});
+  assert.equal(update.status,200);
+  assert.equal(contact.status,201);
+  assert.equal(calls[0][1].expectedVersion,1);
+  assert.equal(calls[0][1].partyId,party.partyId);
+  assert.equal(calls[1][1].partyId,party.partyId);
 });
 
 test('viewer reads work but viewer writes are refused before the service',async()=>{

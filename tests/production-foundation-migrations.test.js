@@ -23,15 +23,15 @@ const ORIGINAL_CHECKSUMS=Object.freeze([
 
 const recorded=list=>list.map(({version,name,checksum})=>({version,name,checksum}));
 
-test('production foundation appends contiguous migrations 6 through 13 without rewriting versions 1 through 5',()=>{
-  assert.equal(SCHEMA_VERSION,13);
-  assert.deepEqual(MIGRATIONS.map(entry=>entry.version),[1,2,3,4,5,6,7,8,9,10,11,12,13]);
+test('production foundation appends contiguous migrations 6 through 14 without rewriting versions 1 through 5',()=>{
+  assert.equal(SCHEMA_VERSION,14);
+  assert.deepEqual(MIGRATIONS.map(entry=>entry.version),[1,2,3,4,5,6,7,8,9,10,11,12,13,14]);
   assert.deepEqual(MIGRATIONS.slice(0,5).map(entry=>entry.checksum),ORIGINAL_CHECKSUMS);
 
   const plan=planMigrations(recorded(MIGRATIONS.slice(0,5)));
   assert.equal(plan.currentVersion,5);
-  assert.equal(plan.targetVersion,13);
-  assert.deepEqual(plan.pending.map(entry=>entry.version),[6,7,8,9,10,11,12,13]);
+  assert.equal(plan.targetVersion,14);
+  assert.deepEqual(plan.pending.map(entry=>entry.version),[6,7,8,9,10,11,12,13,14]);
 });
 
 test('a failed production-foundation migration rolls back without recording its ledger row',async()=>{

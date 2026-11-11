@@ -56,6 +56,23 @@ test('repository creates one person party and its typed subtype in one transacti
   assert.equal(f.calls.at(-1).sql,'COMMIT');
 });
 
+test('repository persists requested lifecycle status for new people and organizations',async()=>{
+  const personId=randomUUID(),organizationId=randomUUID();
+  const personFixture=scriptedPool(sql=>sql.includes('INSERT INTO parties')?{rows:[{...personRow(personId),status:'inactive'}],rowCount:1}:sql.includes('INSERT INTO people')?{rows:[{first_name:'Ada',middle_name:null,last_name:'Lovelace',preferred_name:null,birth_date:null,is_deceased:false}],rowCount:1}:{rows:[],rowCount:0});
+  const personRepository=createCrmRepository({tenantPool:personFixture.pool,clock});
+  const person=await personRepository.createPerson({tenantId,partyId:personId,displayName:'Ada',status:'inactive',firstName:'Ada',lastName:'Lovelace'});
+  const personInsert=personFixture.calls.find(call=>call.sql.includes('/*party:insert*/'));
+  assert.equal(person.status,'inactive');
+  assert.equal(personInsert.values.includes('inactive'),true);
+
+  const organizationFixture=scriptedPool(sql=>sql.includes('INSERT INTO parties')?{rows:[{...organizationRow(organizationId),status:'merged'}],rowCount:1}:sql.includes('INSERT INTO organizations')?{rows:[{legal_name:'Wimblo Test Systems LLC',domain:null,industry:null,employee_count:null,founded_on:null}],rowCount:1}:{rows:[],rowCount:0});
+  const organizationRepository=createCrmRepository({tenantPool:organizationFixture.pool,clock});
+  const organization=await organizationRepository.createOrganization({tenantId,partyId:organizationId,displayName:'Wimblo',status:'merged',legalName:'Wimblo Test Systems LLC'});
+  const organizationInsert=organizationFixture.calls.find(call=>call.sql.includes('/*party:insert*/'));
+  assert.equal(organization.status,'merged');
+  assert.equal(organizationInsert.values.includes('merged'),true);
+});
+
 test('repository creates organization parties with exact organization attributes',async()=>{
   const partyId=randomUUID();
   const f=scriptedPool(sql=>sql.includes('INSERT INTO parties')?{rows:[organizationRow(partyId)],rowCount:1}:sql.includes('INSERT INTO organizations')?{rows:[{legal_name:'Wimblo Test Systems LLC',domain:'wimblo.test',industry:'technology',employee_count:12,founded_on:'2020-01-02'}],rowCount:1}:{rows:[],rowCount:0});

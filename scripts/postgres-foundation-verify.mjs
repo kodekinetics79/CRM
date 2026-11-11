@@ -88,9 +88,9 @@ async function main(){
   const controlPool=createPostgresPool({connectionString:databaseUrl(database,controlRole,controlPassword),max:2,applicationName:'wimblo-foundation-control'});
   pools.push(owner,tenantPool,controlPool);
 
-  await runStep('explicit migrations apply versions 1 through 13',async()=>{
+  await runStep('explicit migrations apply versions 1 through 14',async()=>{
     const result=await owner.withAdminSession(session=>applyMigrations(session));
-    assert(result.currentVersion===13&&SCHEMA_VERSION===13,'schema did not reach version 13');
+    assert(result.currentVersion===14&&SCHEMA_VERSION===14,'schema did not reach version 14');
     assert(result.applied.map(entry=>entry.version).join(',')===MIGRATIONS.map(entry=>entry.version).join(','),'migration order differs');
     for(const sql of applicationRoleGrants(tenantRole))await owner.withAdminSession(session=>session.query(sql));
     for(const sql of controlPlaneRoleGrants(controlRole))await owner.withAdminSession(session=>session.query(sql));
@@ -161,6 +161,9 @@ async function main(){
       await session.query('INSERT INTO organizations(tenant_id,party_id,legal_name) VALUES($1,$2,$3)',[tenantA,personId,'Wrong subtype']);
     }),PERSISTENCE_CODES.INVALID,'person subtype used for an organization row');
     await expectFailure(()=>tenantPool.withTransaction(tenantA,async session=>{
+      await session.query("UPDATE parties SET party_type='organization' WHERE tenant_id=$1 AND party_id=$2",[tenantA,personId]);
+    }),PERSISTENCE_CODES.INVALID,'party type mutation');
+    await expectFailure(()=>tenantPool.withTransaction(tenantA,async session=>{
       await session.query('INSERT INTO contact_points(tenant_id,contact_id,party_id,type,normalized_value,display_value) VALUES($1,$2,$3,$4,$5,$6)',[tenantA,randomUUID(),personId,'email','ada@example.invalid','ada@example.invalid']);
     }),PERSISTENCE_CODES.CONFLICT,'duplicate normalized contact');
     await expectFailure(()=>tenantPool.withTransaction(tenantA,async session=>{
@@ -178,6 +181,52 @@ async function main(){
     await expectFailure(()=>tenantPool.withAdminSession(session=>session.query('SELECT COUNT(*) FROM parties')),PERSISTENCE_CODES.ISOLATION,'unscoped CRM read');
     await expectFailure(()=>controlPool.withAdminSession(session=>session.query('SELECT COUNT(*) FROM parties')),PERSISTENCE_CODES.ISOLATION,'control-role CRM read');
     return 'typed-subtype=refused, duplicate-contact=refused, self-link=refused, cross-read=0, unscoped/control=refused';
+  });
+
+  await runStep('production sales tables enforce pipelines, opportunities and tenant isolation',async()=>{
+    const salesPartyId=randomUUID(),pipelineId=randomUUID(),openStageId=randomUUID(),wonStageId=randomUUID(),lostStageId=randomUUID();
+    const leadId=randomUUID(),opportunityId=randomUUID(),otherPipelineId=randomUUID(),otherStageId=randomUUID();
+    const tenantBPartyId=randomUUID(),tenantBPipelineId=randomUUID(),tenantBStageId=randomUUID(),tenantBLeadId=randomUUID(),tenantBOpportunityId=randomUUID();
+    await tenantPool.withTransaction(tenantA,async session=>{
+      await session.query("INSERT INTO parties(tenant_id,party_id,party_type,display_name) VALUES($1,$2,'person',$3)",[tenantA,salesPartyId,'Sales verifier']);
+      await session.query('INSERT INTO people(tenant_id,party_id,first_name,last_name) VALUES($1,$2,$3,$4)',[tenantA,salesPartyId,'Sales','Verifier']);
+      await session.query('INSERT INTO pipelines(tenant_id,pipeline_id,name,is_default) VALUES($1,$2,$3,true)',[tenantA,pipelineId,'Default Sales Pipeline']);
+      await session.query('INSERT INTO pipeline_stages(tenant_id,stage_id,pipeline_id,name,kind,position,probability) VALUES($1,$2,$3,$4,$5,$6,$7)',[tenantA,openStageId,pipelineId,'Discovery','open',1,10]);
+      await session.query('INSERT INTO pipeline_stages(tenant_id,stage_id,pipeline_id,name,kind,position,probability) VALUES($1,$2,$3,$4,$5,$6,$7)',[tenantA,wonStageId,pipelineId,'Won','won',2,100]);
+      await session.query('INSERT INTO pipeline_stages(tenant_id,stage_id,pipeline_id,name,kind,position,probability) VALUES($1,$2,$3,$4,$5,$6,$7)',[tenantA,lostStageId,pipelineId,'Lost','lost',3,0]);
+      await session.query('INSERT INTO leads(tenant_id,lead_id,party_id,pipeline_id,stage_id,source,expected_value_cents,currency,probability,expected_close_date) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[
+        tenantA,leadId,salesPartyId,pipelineId,openStageId,'web',12500,'USD',10,'2026-12-31'
+      ]);
+      await session.query('INSERT INTO opportunities(tenant_id,opportunity_id,party_id,pipeline_id,stage_id,lead_id,name,amount_cents,currency,probability,expected_close_date) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',[
+        tenantA,opportunityId,salesPartyId,pipelineId,openStageId,leadId,'Ada expansion',12500,'USD',10,'2026-12-31'
+      ]);
+    });
+    await expectFailure(()=>tenantPool.withTransaction(tenantA,async session=>{
+      await session.query('INSERT INTO pipelines(tenant_id,pipeline_id,name,is_default) VALUES($1,$2,$3,true)',[tenantA,otherPipelineId,'Duplicate default']);
+    }),PERSISTENCE_CODES.CONFLICT,'second default pipeline');
+    await tenantPool.withTransaction(tenantA,async session=>{
+      await session.query('INSERT INTO pipelines(tenant_id,pipeline_id,name,is_default) VALUES($1,$2,$3,false)',[tenantA,otherPipelineId,'Secondary pipeline']);
+      await session.query("INSERT INTO pipeline_stages(tenant_id,stage_id,pipeline_id,name,kind,position,probability) VALUES($1,$2,$3,'Other open','open',1,10)",[tenantA,otherStageId,otherPipelineId]);
+    });
+    await expectFailure(()=>tenantPool.withTransaction(tenantA,async session=>{
+      await session.query('INSERT INTO leads(tenant_id,lead_id,party_id,pipeline_id,stage_id,source,expected_value_cents,currency,probability,expected_close_date) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[
+        tenantA,randomUUID(),salesPartyId,pipelineId,otherStageId,'web',12500,'USD',10,'2026-12-31'
+      ]);
+    }),PERSISTENCE_CODES.INVALID,'stage from another pipeline');
+    await tenantPool.withTransaction(tenantB,async session=>{
+      await session.query("INSERT INTO parties(tenant_id,party_id,party_type,display_name) VALUES($1,$2,'person',$3)",[tenantB,tenantBPartyId,'Tenant B sales verifier']);
+      await session.query('INSERT INTO people(tenant_id,party_id,first_name,last_name) VALUES($1,$2,$3,$4)',[tenantB,tenantBPartyId,'Tenant B','Verifier']);
+      await session.query('INSERT INTO pipelines(tenant_id,pipeline_id,name,is_default) VALUES($1,$2,$3,true)',[tenantB,tenantBPipelineId,'Tenant B default']);
+      await session.query("INSERT INTO pipeline_stages(tenant_id,stage_id,pipeline_id,name,kind,position,probability) VALUES($1,$2,$3,'Discovery','open',1,10)",[tenantB,tenantBStageId,tenantBPipelineId]);
+      await session.query('INSERT INTO leads(tenant_id,lead_id,party_id,pipeline_id,stage_id,source,expected_value_cents,currency,probability,expected_close_date) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[tenantB,tenantBLeadId,tenantBPartyId,tenantBPipelineId,tenantBStageId,'web',100,'USD',10,'2026-12-31']);
+      await session.query('INSERT INTO opportunities(tenant_id,opportunity_id,party_id,pipeline_id,stage_id,lead_id,name,amount_cents,currency,probability,expected_close_date) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',[tenantB,tenantBOpportunityId,tenantBPartyId,tenantBPipelineId,tenantBStageId,tenantBLeadId,'Tenant B opportunity',100,'USD',10,'2026-12-31']);
+    });
+    const own=await tenantPool.withTenantSession(tenantA,session=>session.query('SELECT opportunity_id::text FROM opportunities'));
+    const cross=await tenantPool.withTenantSession(tenantA,session=>session.query('SELECT opportunity_id::text FROM opportunities WHERE opportunity_id=$1',[tenantBOpportunityId]));
+    assert(own.rowCount===1&&cross.rowCount===0,'sales tenant isolation hid or exposed the wrong opportunity rows');
+    await expectFailure(()=>tenantPool.withAdminSession(session=>session.query('SELECT COUNT(*) FROM opportunities')),PERSISTENCE_CODES.ISOLATION,'unscoped sales read');
+    await expectFailure(()=>controlPool.withAdminSession(session=>session.query('SELECT COUNT(*) FROM opportunities')),PERSISTENCE_CODES.ISOLATION,'control-role sales read');
+    return 'default-pipeline=unique, cross-pipeline-stage=refused, cross-tenant-read=0, unscoped/control=refused';
   });
 
   await tenantPool.withTransaction(tenantA,session=>session.query("INSERT INTO wimblo_platform.tenant_modules(tenant_id,module_key,state) VALUES($1,'core','enabled')",[tenantA]));

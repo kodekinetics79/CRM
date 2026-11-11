@@ -5,6 +5,10 @@ const uuid=z.string().uuid();
 const partySchema=z.object({
   partyId:uuid.optional(),displayName:z.string().trim().min(1).max(200),status:z.enum(['active','inactive','merged']).optional()
 });
+const partyUpdateSchema=z.object({
+  displayName:z.string().trim().min(1).max(200).optional(),status:z.enum(['active','inactive','merged']).optional(),
+  expectedVersion:z.number().int().min(1)
+});
 const personSchema=partySchema.extend({
   firstName:z.string().trim().min(1).max(120),middleName:z.string().trim().min(1).max(120).optional().nullable(),
   lastName:z.string().trim().min(1).max(160),preferredName:z.string().trim().min(1).max(160).optional().nullable(),
@@ -16,7 +20,7 @@ const organizationSchema=partySchema.extend({
   foundedOn:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable()
 });
 const contactSchema=z.object({
-  contactId:uuid.optional(),partyId:uuid,type:z.enum(['email','phone','address','website']),
+  contactId:uuid.optional(),type:z.enum(['email','phone','address','website']),
   value:z.string().trim().min(1).max(500),displayValue:z.string().trim().min(1).max(500).optional(),
   isPrimary:z.boolean().optional(),verifiedAt:z.string().datetime().optional().nullable()
 });
@@ -24,6 +28,28 @@ const relationshipSchema=z.object({
   relationshipId:uuid.optional(),fromPartyId:uuid,toPartyId:uuid,type:z.enum(['employee','owner','member','parent','partner','other']),
   status:z.enum(['active','ended','merged']).optional(),effectiveFrom:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   effectiveTo:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable()
+});
+const stageSchema=z.object({
+  stageId:uuid,name:z.string().trim().min(1).max(160),kind:z.enum(['open','won','lost']),
+  position:z.number().int().min(1).max(100),probability:z.number().int().min(0).max(100)
+});
+const defaultPipelineSchema=z.object({
+  pipelineId:uuid.optional(),name:z.string().trim().min(1).max(200),stages:z.array(stageSchema).min(3).max(100)
+});
+const leadSchema=z.object({
+  leadId:uuid.optional(),partyId:uuid,pipelineId:uuid,stageId:uuid,source:z.string().trim().min(1).max(120),
+  expectedValueCents:z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),currency:z.string().trim().length(3),
+  probability:z.number().int().min(0).max(100),expectedCloseDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  ownerIdentityId:uuid.optional().nullable()
+});
+const convertLeadSchema=z.object({
+  opportunityId:uuid.optional(),expectedVersion:z.number().int().min(1),
+  name:z.string().trim().min(1).max(200),amountCents:z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+  currency:z.string().trim().length(3),probability:z.number().int().min(0).max(100),
+  expectedCloseDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+});
+const opportunityStageSchema=z.object({
+  stageId:uuid,expectedVersion:z.number().int().min(1)
 });
 
 const parse=(schema,value)=>{
@@ -38,6 +64,14 @@ const parseQuery=(req)=>{
   if(!Number.isSafeInteger(limit)||limit<1||limit>100)persistenceFail(PERSISTENCE_CODES.INVALID,'Limit must be between 1 and 100.');
   if(!Number.isSafeInteger(offset)||offset<0)persistenceFail(PERSISTENCE_CODES.INVALID,'Offset must be zero or a positive integer.');
   return {type:type??null,search:typeof req.query.search==='string'?req.query.search.trim()||null:null,limit,offset};
+};
+const parseSalesQuery=(req,allowedStatuses)=>{
+  const status=req.query.status;
+  const limit=Number(req.query.limit??50),offset=Number(req.query.offset??0);
+  if(status!==undefined&&!allowedStatuses.includes(status))persistenceFail(PERSISTENCE_CODES.INVALID,'Status is invalid.');
+  if(!Number.isSafeInteger(limit)||limit<1||limit>100)persistenceFail(PERSISTENCE_CODES.INVALID,'Limit must be between 1 and 100.');
+  if(!Number.isSafeInteger(offset)||offset<0)persistenceFail(PERSISTENCE_CODES.INVALID,'Offset must be zero or a positive integer.');
+  return {status:status??null,limit,offset};
 };
 
 export function installCrmRoutes(app,{crmService,requireTenantSession,requireCsrf,requireRecentAuthentication}={}){
@@ -62,10 +96,17 @@ export function installCrmRoutes(app,{crmService,requireTenantSession,requireCsr
   app.get('/api/crm/parties/:partyId',...read,async(req,res)=>res.json({party:await crmService.getParty({partyId:req.params.partyId,...context(req)})}));
   app.post('/api/crm/people',...write,async(req,res)=>res.status(201).json({party:await crmService.createPerson({...parse(personSchema,req.body),...context(req)})}));
   app.post('/api/crm/organizations',...write,async(req,res)=>res.status(201).json({party:await crmService.createOrganization({...parse(organizationSchema,req.body),...context(req)})}));
-  app.patch('/api/crm/parties/:partyId',...write,async(req,res)=>res.json({party:await crmService.updateParty({...parse(partySchema,req.body),partyId:req.params.partyId,...context(req)})}));
+  app.patch('/api/crm/parties/:partyId',...write,async(req,res)=>res.json({party:await crmService.updateParty({...parse(partyUpdateSchema,req.body),partyId:req.params.partyId,...context(req)})}));
   app.get('/api/crm/parties/:partyId/contacts',...read,async(req,res)=>res.json({contacts:await crmService.listContacts({...parseQuery(req),partyId:req.params.partyId,...context(req)})}));
   app.post('/api/crm/parties/:partyId/contacts',...write,async(req,res)=>res.status(201).json({contact:await crmService.createContact({...parse(contactSchema,req.body),partyId:req.params.partyId,...context(req)})}));
   app.get('/api/crm/relationships',...read,async(req,res)=>res.json({relationships:await crmService.listRelationships({...parseQuery(req),...context(req)})}));
   app.post('/api/crm/relationships',...write,async(req,res)=>res.status(201).json({relationship:await crmService.createRelationship({...parse(relationshipSchema,req.body),...context(req)})}));
+  app.get('/api/crm/pipelines',...read,async(req,res)=>res.json({pipelines:await crmService.listPipelines({...parseSalesQuery(req,[]),...context(req)})}));
+  app.post('/api/crm/pipelines/default',...write,async(req,res)=>res.status(201).json({pipeline:await crmService.ensureDefaultPipeline({...parse(defaultPipelineSchema,req.body),...context(req)})}));
+  app.get('/api/crm/leads',...read,async(req,res)=>res.json({leads:await crmService.listLeads({...parseSalesQuery(req,['new','working','qualified','converted','disqualified']),...context(req)})}));
+  app.post('/api/crm/leads',...write,async(req,res)=>res.status(201).json({lead:await crmService.createLead({...parse(leadSchema,req.body),...context(req)})}));
+  app.post('/api/crm/leads/:leadId/convert',...write,async(req,res)=>res.status(201).json(await crmService.convertLead({...parse(convertLeadSchema,req.body),leadId:req.params.leadId,...context(req)})));
+  app.get('/api/crm/opportunities',...read,async(req,res)=>res.json({opportunities:await crmService.listOpportunities({...parseSalesQuery(req,['open','won','lost']),...context(req)})}));
+  app.post('/api/crm/opportunities/:opportunityId/stage',...write,async(req,res)=>res.json({opportunity:await crmService.changeOpportunityStage({...parse(opportunityStageSchema,req.body),opportunityId:req.params.opportunityId,...context(req)})}));
   return crmService;
 }

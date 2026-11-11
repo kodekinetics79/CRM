@@ -19,15 +19,15 @@ const CRM_TABLES=Object.freeze([
 ]);
 
 test('canonical CRM migration 13 appends without rewriting the certified foundation',()=>{
-  assert.equal(SCHEMA_VERSION,13);
-  assert.deepEqual(MIGRATIONS.map(entry=>entry.version),[
+  assert.ok(SCHEMA_VERSION>=13);
+  assert.deepEqual(MIGRATIONS.slice(0,13).map(entry=>entry.version),[
     1,2,3,4,5,6,7,8,9,10,11,12,13
   ]);
   const certified=MIGRATIONS.slice(0,12);
   const plan=planMigrations(certified.map(({version,name,checksum})=>({version,name,checksum})));
   assert.equal(plan.currentVersion,12);
-  assert.equal(plan.targetVersion,13);
-  assert.deepEqual(plan.pending.map(entry=>entry.version),[13]);
+  assert.ok(plan.targetVersion>=13);
+  assert.equal(plan.pending[0]?.version,13);
 });
 
 test('migration 13 defines typed party subtypes, normalized contacts and composite tenant links',()=>{
@@ -47,6 +47,8 @@ test('migration 13 defines typed party subtypes, normalized contacts and composi
   assert.match(sql,/party_event_no_update/);
   assert.match(sql,/party_event_no_delete/);
   assert.match(sql,/wimblo_party_subtype_matches/);
+  assert.match(sql,/CREATE TRIGGER party_type_immutable BEFORE UPDATE OF party_type ON parties/);
+  assert.match(sql,/Party type is immutable/);
 });
 
 test('every CRM table is tenant-owned, forced-RLS and indexed for core lookups',()=>{
@@ -67,11 +69,13 @@ test('every CRM table is tenant-owned, forced-RLS and indexed for core lookups',
 test('application and control roles receive distinct least-privilege CRM access',()=>{
   const tenant=applicationRoleGrants('wimblo_app');
   const control=controlPlaneRoleGrants('wimblo_control');
-  for(const table of CRM_TABLES){
+  for(const table of CRM_TABLES.filter(table=>table!=='party_events')){
     assert.ok(tenant.includes(`GRANT SELECT, INSERT, UPDATE, DELETE ON ${table} TO wimblo_app`),table);
     assert.ok(control.includes(`REVOKE ALL PRIVILEGES ON ${table} FROM wimblo_control`),table);
     assert.equal(control.some(sql=>sql.startsWith('GRANT SELECT, INSERT, UPDATE, DELETE')&&sql.includes(table)),false,table);
   }
+  assert.ok(tenant.includes('GRANT SELECT, INSERT ON party_events TO wimblo_app'));
+  assert.equal(tenant.some(sql=>sql.includes('party_events')&&/UPDATE|DELETE/.test(sql)),false);
   assert.equal([...tenant,...control].some(sql=>/GRANT ALL|SUPERUSER|BYPASSRLS/.test(sql)),false);
 });
 
