@@ -29,6 +29,10 @@ function scriptedPool(responder){
     const text=String(sql).trim();
     calls.push({sql:text,values});
     if(['BEGIN','COMMIT','ROLLBACK'].includes(text))return {rows:[],rowCount:0};
+    if(text.includes('/*subject:register*/')){
+      const [registeredTenantId,subjectId,subjectType]=values;
+      return {rows:[{tenant_id:registeredTenantId,subject_id:subjectId,subject_type:subjectType,party_id:null,lead_id:subjectType==='lead'?subjectId:null,opportunity_id:subjectType==='opportunity'?subjectId:null}],rowCount:1};
+    }
     const response=responder(text,values,calls);
     if(!response)throw new Error(`Unexpected sales query: ${text}`);
     return response;

@@ -24,8 +24,25 @@ test('timeline merges safe canonical facts in stable keyset order',async()=>{
  const call=f.calls.find(entry=>entry.sql.includes('/*timeline:list*/'));
  assert.match(call.sql,/UNION ALL/);
  assert.match(call.sql,/occurred_at DESC,source_rank DESC,source_key DESC,source_version DESC/);
+ assert.match(call.sql,/recorded_at <= \$3::timestamptz/);
+ assert.match(call.sql,/created_at AS recorded_at,summary FROM crm_activities/);
+ assert.match(call.sql,/recorded_at,'Task ' \|\| action FROM crm_task_events/);
  assert.equal(call.values[0],tenantId);
  assert.equal(call.values[1],subjectId);
+});
+
+test('timeline continuation keeps the first page asOf so later backdated inserts cannot enter',async()=>{
+ const rows=[
+  {source_kind:'activity',source_rank:5,source_key:randomUUID(),source_version:1,occurred_at:'2026-11-12T02:00:00.000Z',summary:'One'},
+  {source_kind:'activity',source_rank:5,source_key:randomUUID(),source_version:1,occurred_at:'2026-11-12T01:00:00.000Z',summary:'Two'}
+ ];
+ const f=poolWithRows(rows),repository=createCrmRepository({tenantPool:f.pool,clock});
+ const first=await repository.listTimeline({tenantId,subjectId,limit:1});
+ await repository.listTimeline({tenantId,subjectId,limit:1,cursor:first.nextCursor});
+ const timelineCalls=f.calls.filter(entry=>entry.sql.includes('/*timeline:list*/'));
+ assert.equal(timelineCalls.length,2);
+ assert.equal(timelineCalls[0].values[2],timelineCalls[1].values[2]);
+ assert.match(timelineCalls[1].sql,/recorded_at <= \$3::timestamptz/);
 });
 
 test('timeline cursor is bound to tenant and subject and malformed cursors fail generically',async()=>{
@@ -35,4 +52,20 @@ test('timeline cursor is bound to tenant and subject and malformed cursors fail 
   await assert.rejects(()=>repository.listTimeline({tenantId,subjectId,limit:1,cursor}),error=>error.code===PERSISTENCE_CODES.INVALID&&/cursor/i.test(error.message));
  }
  assert.equal(first.items.length,0);
+});
+
+test('timeline cursor strictly rejects invalid timestamps, ranks, keys and versions before SQL',async()=>{
+ const f=poolWithRows([]),repository=createCrmRepository({tenantPool:f.pool,clock});
+ const valid={tenantId,subjectId,asOf:now,lastAt:'2026-11-12T02:00:00.000Z',lastRank:5,lastKey:randomUUID(),lastVersion:1};
+ const invalid=[
+  {...valid,asOf:'not-a-date'},
+  {...valid,lastAt:'2026-99-99T00:00:00.000Z'},
+  {...valid,lastRank:0},
+  {...valid,lastRank:6},
+  {...valid,lastKey:'not-a-uuid'},
+  {...valid,lastVersion:0},
+  {...valid,lastAt:'2026-11-13T00:00:00.000Z'}
+ ];
+ for(const value of invalid){const cursor=Buffer.from(JSON.stringify(value)).toString('base64url');await assert.rejects(()=>repository.listTimeline({tenantId,subjectId,limit:1,cursor}),error=>error.code===PERSISTENCE_CODES.INVALID&&/cursor/i.test(error.message));}
+ assert.equal(f.calls.length,0);
 });

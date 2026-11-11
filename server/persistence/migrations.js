@@ -704,6 +704,15 @@ export const MIGRATIONS=Object.freeze([
    SELECT tenant_id,lead_id,'lead',lead_id,owner_identity_id,created_at,updated_at FROM leads`,
   `INSERT INTO crm_subjects(tenant_id,subject_id,subject_type,opportunity_id,owner_identity_id,created_at,updated_at)
    SELECT tenant_id,opportunity_id,'opportunity',opportunity_id,owner_identity_id,created_at,updated_at FROM opportunities`,
+  `CREATE FUNCTION wimblo_crm_subject_identity_immutable() RETURNS trigger LANGUAGE plpgsql AS $fn$
+    BEGIN
+     IF NEW.subject_type IS DISTINCT FROM OLD.subject_type OR NEW.party_id IS DISTINCT FROM OLD.party_id OR NEW.lead_id IS DISTINCT FROM OLD.lead_id OR NEW.opportunity_id IS DISTINCT FROM OLD.opportunity_id THEN
+      RAISE EXCEPTION 'CRM subject identity is immutable' USING ERRCODE='23514';
+     END IF;
+     RETURN NEW;
+    END
+   $fn$`,
+  `CREATE TRIGGER crm_subject_identity_immutable BEFORE UPDATE OF subject_type,party_id,lead_id,opportunity_id ON crm_subjects FOR EACH ROW EXECUTE FUNCTION wimblo_crm_subject_identity_immutable()`,
   `CREATE TABLE crm_activities(
     tenant_id uuid NOT NULL,
     activity_id uuid NOT NULL,
@@ -747,6 +756,7 @@ export const MIGRATIONS=Object.freeze([
     actor_identity_id uuid NOT NULL,
     details jsonb NOT NULL DEFAULT '{}'::jsonb,
     occurred_at timestamptz NOT NULL,
+    recorded_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (tenant_id, event_id),
     FOREIGN KEY (tenant_id, subject_id, task_id) REFERENCES crm_tasks(tenant_id, subject_id, task_id) ON DELETE RESTRICT,
     FOREIGN KEY (tenant_id, actor_identity_id) REFERENCES wimblo_platform.memberships(tenant_id, identity_id) ON DELETE RESTRICT
@@ -772,6 +782,7 @@ export const MIGRATIONS=Object.freeze([
     body text NOT NULL CHECK (char_length(body) BETWEEN 1 AND 10000),
     actor_identity_id uuid NOT NULL,
     occurred_at timestamptz NOT NULL,
+    recorded_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (tenant_id, note_id, revision),
     FOREIGN KEY (tenant_id, subject_id, note_id) REFERENCES crm_notes(tenant_id, subject_id, note_id) ON DELETE RESTRICT,
     FOREIGN KEY (tenant_id, actor_identity_id) REFERENCES wimblo_platform.memberships(tenant_id, identity_id) ON DELETE RESTRICT
@@ -787,6 +798,7 @@ export const MIGRATIONS=Object.freeze([
     size_bytes bigint NOT NULL CHECK (size_bytes > 0),
     actor_identity_id uuid NOT NULL,
     occurred_at timestamptz NOT NULL,
+    recorded_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (tenant_id, link_id),
     FOREIGN KEY (tenant_id, subject_id) REFERENCES crm_subjects(tenant_id, subject_id) ON DELETE RESTRICT,
     FOREIGN KEY (tenant_id, object_id, object_revision) REFERENCES object_metadata(tenant_id, object_id, revision) ON DELETE RESTRICT,
@@ -801,6 +813,7 @@ export const MIGRATIONS=Object.freeze([
     to_owner_identity_id uuid,
     actor_identity_id uuid NOT NULL,
     occurred_at timestamptz NOT NULL,
+    recorded_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (tenant_id, event_id),
     CHECK (from_owner_identity_id IS DISTINCT FROM to_owner_identity_id),
     FOREIGN KEY (tenant_id, subject_id) REFERENCES crm_subjects(tenant_id, subject_id) ON DELETE RESTRICT,

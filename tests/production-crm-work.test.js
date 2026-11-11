@@ -33,7 +33,27 @@ test('migration 15 adds typed CRM subjects and canonical work facts with forced 
  assert.match(sql,/INSERT INTO crm_subjects.*FROM parties/s);
  assert.match(sql,/INSERT INTO crm_subjects.*FROM leads/s);
  assert.match(sql,/INSERT INTO crm_subjects.*FROM opportunities/s);
+ assert.match(sql,/CREATE TRIGGER crm_subject_identity_immutable BEFORE UPDATE OF subject_type,party_id,lead_id,opportunity_id ON crm_subjects/);
  for(const name of ['crm_activity_append_only','crm_task_event_append_only','crm_note_revision_append_only','crm_attachment_link_append_only','crm_ownership_event_append_only'])assert.match(sql,new RegExp(name));
+});
+
+test('subject registration refuses cross-type UUID collisions and accepts an exact existing identity',async()=>{
+ const pipelineId=randomUUID(),stageId=randomUUID(),leadId=randomUUID(),partyId=randomUUID();
+ const leadRow={tenant_id:tenantId,lead_id:leadId,party_id:partyId,pipeline_id:pipelineId,stage_id:stageId,source:'web',status:'new',owner_identity_id:null,expected_value_cents:100,currency:'USD',probability:10,expected_close_date:'2026-12-31',converted_opportunity_id:null,version:1,created_at:now,updated_at:now};
+ const make=registeredType=>scriptedPool(sql=>{
+  if(sql.includes('/*pipeline-stage:get*/'))return {rows:[{tenant_id:tenantId,stage_id:stageId,pipeline_id:pipelineId,kind:'open'}],rowCount:1};
+  if(sql.includes('/*lead:insert*/'))return {rows:[leadRow],rowCount:1};
+  if(sql.includes('/*subject:register*/'))return {rows:[],rowCount:0};
+  if(sql.includes('/*subject:registered*/'))return {rows:[{tenant_id:tenantId,subject_id:leadId,subject_type:registeredType,party_id:registeredType==='party'?leadId:null,lead_id:registeredType==='lead'?leadId:null,opportunity_id:null}],rowCount:1};
+  return {rows:[],rowCount:0};
+ });
+ const input={tenantId,leadId,partyId,pipelineId,stageId,source:'web',expectedValueCents:100,currency:'USD',probability:10,expectedCloseDate:'2026-12-31'};
+ const collision=make('party');
+ await assert.rejects(()=>createCrmRepository({tenantPool:collision.pool,clock}).createLead(input),error=>error.code===PERSISTENCE_CODES.CONFLICT);
+ assert.equal(collision.calls.at(-1).sql,'ROLLBACK');
+ const exact=make('lead');
+ assert.equal((await createCrmRepository({tenantPool:exact.pool,clock}).createLead(input)).leadId,leadId);
+ assert.equal(exact.calls.at(-1).sql,'COMMIT');
 });
 
 test('work grants retain append-only facts and deny control-plane access',()=>{

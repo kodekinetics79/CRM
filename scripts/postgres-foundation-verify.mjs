@@ -5,6 +5,7 @@
 
 import {randomUUID} from 'node:crypto';
 import {createControlRepository} from '../server/production/controlRepository.js';
+import {createCrmRepository} from '../server/production/crmRepository.js';
 import {createJobRepository} from '../server/production/jobRepository.js';
 import {
   MIGRATIONS,
@@ -234,7 +235,7 @@ async function main(){
   });
 
   await runStep('CRM work facts enforce ownership, append-only history, attachment integrity and atomic reminders',async()=>{
-    const partyId=randomUUID(),subjectId=partyId,activityId=randomUUID(),taskId=randomUUID(),objectId=`verify-${randomUUID()}`,linkId=randomUUID();
+    const partyId=randomUUID(),otherPartyId=randomUUID(),subjectId=partyId,activityId=randomUUID(),timelineFirstId=randomUUID(),timelineOlderId=randomUUID(),timelineLateId=randomUUID(),taskId=randomUUID(),objectId=`verify-${randomUUID()}`,linkId=randomUUID();
     await owner.withAdminSession(async session=>{
       await session.query("INSERT INTO wimblo_platform.global_identities(identity_id,normalized_email,display_name,password_hash) VALUES($1,'foundation@example.invalid','Foundation verifier','not-a-real-login-hash') ON CONFLICT (identity_id) DO NOTHING",[identityId]);
       await session.query("INSERT INTO wimblo_platform.memberships(membership_id,tenant_id,identity_id,role,status) VALUES($1,$2,$3,'owner','active'),($4,$5,$3,'viewer','active') ON CONFLICT (tenant_id,identity_id) DO NOTHING",[randomUUID(),tenantA,identityId,randomUUID(),tenantB]);
@@ -242,12 +243,22 @@ async function main(){
     await tenantPool.withTransaction(tenantA,async session=>{
       await session.query("INSERT INTO parties(tenant_id,party_id,party_type,display_name) VALUES($1,$2,'person','Work verifier')",[tenantA,partyId]);
       await session.query("INSERT INTO people(tenant_id,party_id,first_name,last_name) VALUES($1,$2,'Work','Verifier')",[tenantA,partyId]);
+      await session.query("INSERT INTO parties(tenant_id,party_id,party_type,display_name) VALUES($1,$2,'person','Other work verifier')",[tenantA,otherPartyId]);
+      await session.query("INSERT INTO people(tenant_id,party_id,first_name,last_name) VALUES($1,$2,'Other','Verifier')",[tenantA,otherPartyId]);
       await session.query("INSERT INTO crm_subjects(tenant_id,subject_id,subject_type,party_id,owner_identity_id) VALUES($1,$2,'party',$2,$3)",[tenantA,subjectId,identityId]);
       await session.query("INSERT INTO crm_activities(tenant_id,activity_id,subject_id,activity_type,summary,actor_identity_id,occurred_at) VALUES($1,$2,$3,'call','Verified call',$4,now())",[tenantA,activityId,subjectId,identityId]);
+      await session.query("INSERT INTO crm_activities(tenant_id,activity_id,subject_id,activity_type,summary,actor_identity_id,occurred_at) VALUES($1,$2,$3,'call','Timeline first',$4,'2098-12-31T00:00:00.000Z'),($1,$5,$3,'call','Timeline older',$4,'2098-12-29T00:00:00.000Z')",[tenantA,timelineFirstId,subjectId,identityId,timelineOlderId]);
       await session.query("INSERT INTO crm_tasks(tenant_id,task_id,subject_id,title,status,owner_identity_id) VALUES($1,$2,$3,'Verify reminder','open',$4)",[tenantA,taskId,subjectId,identityId]);
       await session.query("INSERT INTO object_metadata(tenant_id,object_id,revision,object_key,provider,bucket,namespace,region,residency_profile,custody,content_type,size_bytes,sha256,ciphertext_sha256,encryption_algorithm,encryption_key_id,state) VALUES($1,$2,1,$3,'memory','private','crm','us-east-1','north-america','provider-managed-key','application/pdf',10,$4,$4,'AES-256-GCM','verify','active')",[tenantA,objectId,`tenants/${tenantA}/crm/${objectId}`,'a'.repeat(64)]);
       await session.query("INSERT INTO crm_attachment_links(tenant_id,link_id,subject_id,object_id,object_revision,file_name,content_type,size_bytes,actor_identity_id,occurred_at) VALUES($1,$2,$3,$4,1,'verify.pdf','application/pdf',10,$5,now())",[tenantA,linkId,subjectId,objectId,identityId]);
     });
+    await expectFailure(()=>tenantPool.withTransaction(tenantA,session=>session.query('UPDATE crm_subjects SET party_id=$3 WHERE tenant_id=$1 AND subject_id=$2',[tenantA,subjectId,otherPartyId])),PERSISTENCE_CODES.INVALID,'CRM subject identity mutation');
+    const timelineRepository=createCrmRepository({tenantPool,clock:()=>new Date('2099-01-01T00:00:00.000Z')});
+    const firstTimelinePage=await timelineRepository.listTimeline({tenantId:tenantA,subjectId,limit:1});
+    assert(firstTimelinePage.items[0]?.id===timelineFirstId&&firstTimelinePage.nextCursor,'timeline first page did not establish the expected cursor');
+    await tenantPool.withTransaction(tenantA,session=>session.query("INSERT INTO crm_activities(tenant_id,activity_id,subject_id,activity_type,summary,actor_identity_id,occurred_at,created_at) VALUES($1,$2,$3,'call','Inserted after page one',$4,'2098-12-30T00:00:00.000Z','2099-01-02T00:00:00.000Z')",[tenantA,timelineLateId,subjectId,identityId]));
+    const secondTimelinePage=await timelineRepository.listTimeline({tenantId:tenantA,subjectId,limit:1,cursor:firstTimelinePage.nextCursor});
+    assert(secondTimelinePage.items[0]?.id===timelineOlderId&&!secondTimelinePage.items.some(item=>item.id===timelineLateId),'backdated fact inserted after asOf changed timeline continuation');
     await expectFailure(()=>tenantPool.withTransaction(tenantA,session=>session.query("UPDATE crm_activities SET summary='changed' WHERE tenant_id=$1 AND activity_id=$2",[tenantA,activityId])),null,'activity history update');
     await expectFailure(()=>tenantPool.withTransaction(tenantA,session=>session.query("UPDATE crm_tasks SET status='completed' WHERE tenant_id=$1 AND task_id=$2",[tenantA,taskId])),PERSISTENCE_CODES.INVALID,'completed task without timestamp');
     const cross=await tenantPool.withTenantSession(tenantB,session=>session.query('SELECT subject_id FROM crm_subjects WHERE subject_id=$1',[subjectId]));
@@ -261,7 +272,7 @@ async function main(){
     const rolledBack=await tenantPool.withTenantSession(tenantA,session=>session.query('SELECT (SELECT COUNT(*) FROM crm_tasks WHERE task_id=$1)::int AS tasks,(SELECT COUNT(*) FROM wimblo_platform.durable_jobs WHERE idempotency_key=$2)::int AS jobs',[rollbackTask,rollbackKey]));
     assert(rolledBack.rows[0].tasks===0&&rolledBack.rows[0].jobs===0,'task or reminder survived transaction rollback');
     await expectFailure(()=>controlPool.withAdminSession(session=>session.query('SELECT COUNT(*) FROM crm_tasks')),PERSISTENCE_CODES.ISOLATION,'control-role CRM task read');
-    return 'append-only=refused, completion=consistent, attachment=active-revision, cross-tenant=0, reminder-rollback=clean';
+    return 'subject-identity=immutable, timeline-asof=stable, append-only=refused, completion=consistent, attachment=active-revision, cross-tenant=0, reminder-rollback=clean';
   });
 
   await tenantPool.withTransaction(tenantA,session=>session.query("INSERT INTO wimblo_platform.tenant_modules(tenant_id,module_key,state) VALUES($1,'core','enabled')",[tenantA]));

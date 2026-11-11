@@ -193,11 +193,19 @@ export function createCrmRepository({tenantPool,jobRepository=null,clock=timesta
 
   async function registerSubject(session,{tenantId,subjectId,subjectType,ownerIdentityId=null}){
     const column=subjectType==='party'?'party_id':subjectType==='lead'?'lead_id':'opportunity_id';
-    await session.query(
+    const inserted=await session.query(
       `/*subject:register*/ INSERT INTO crm_subjects(tenant_id,subject_id,subject_type,${column},owner_identity_id,created_at,updated_at)
-       VALUES($1,$2,$3,$2,$4,$5::timestamptz,$5::timestamptz) ON CONFLICT (tenant_id,subject_id) DO NOTHING`,
+       VALUES($1,$2,$3,$2,$4,$5::timestamptz,$5::timestamptz) ON CONFLICT (tenant_id,subject_id) DO NOTHING
+       RETURNING tenant_id,subject_id,subject_type,party_id,lead_id,opportunity_id`,
       [tenantId,subjectId,subjectType,ownerIdentityId,now()]
     );
+    if(inserted.rowCount)return;
+    const {rows:[existing]}=await session.query(
+      `/*subject:registered*/ SELECT tenant_id,subject_id,subject_type,party_id,lead_id,opportunity_id
+       FROM crm_subjects WHERE tenant_id=$1 AND subject_id=$2 FOR SHARE`,
+      [tenantId,subjectId]
+    );
+    if(!existing||existing.subject_type!==subjectType||existing[column]!==subjectId)persistenceFail(PERSISTENCE_CODES.CONFLICT,'CRM subject identity collision.');
   }
 
   async function getSubjectWithSession(session,tenant,subjectId,{lock=false}={}){
@@ -715,7 +723,13 @@ export function createCrmRepository({tenantPool,jobRepository=null,clock=timesta
 
   function decodeCursor(value,tenant,subject){
     if(value==null)return null;
-    try{if(typeof value!=='string'||value.length>1500)throw new Error();const parsed=JSON.parse(Buffer.from(value,'base64url').toString('utf8'));if(parsed.tenantId!==tenant||parsed.subjectId!==subject||!parsed.asOf||!parsed.lastAt||!Number.isInteger(parsed.lastRank)||typeof parsed.lastKey!=='string'||!Number.isInteger(parsed.lastVersion))throw new Error();return parsed;}catch{persistenceFail(PERSISTENCE_CODES.INVALID,'Timeline cursor is invalid.');}
+    try{
+      if(typeof value!=='string'||value.length>1500)throw new Error();
+      const parsed=JSON.parse(Buffer.from(value,'base64url').toString('utf8'));
+      const validInstant=candidate=>typeof candidate==='string'&&!Number.isNaN(Date.parse(candidate))&&new Date(candidate).toISOString()===candidate;
+      if(parsed.tenantId!==tenant||parsed.subjectId!==subject||!validInstant(parsed.asOf)||!validInstant(parsed.lastAt)||parsed.lastAt>parsed.asOf||!Number.isInteger(parsed.lastRank)||parsed.lastRank<1||parsed.lastRank>5||typeof parsed.lastKey!=='string'||!UUID.test(parsed.lastKey)||!Number.isSafeInteger(parsed.lastVersion)||parsed.lastVersion<1)throw new Error();
+      return parsed;
+    }catch{persistenceFail(PERSISTENCE_CODES.INVALID,'Timeline cursor is invalid.');}
   }
 
   async function listTimeline({tenantId,subjectId,limit=50,cursor=null}){
@@ -724,13 +738,13 @@ export function createCrmRepository({tenantPool,jobRepository=null,clock=timesta
       await getSubjectWithSession(session,tenant,subject);
       const {rows}=await session.query(`/*timeline:list*/
        WITH timeline AS (
-        SELECT 'activity'::text source_kind,5 source_rank,activity_id::text source_key,1 source_version,occurred_at,summary FROM crm_activities WHERE tenant_id=$1 AND subject_id=$2
-        UNION ALL SELECT 'task',4,event_id::text,1,occurred_at,'Task ' || action FROM crm_task_events WHERE tenant_id=$1 AND subject_id=$2
-        UNION ALL SELECT 'note',3,note_id::text,revision,occurred_at,'Note revised' FROM crm_note_revisions WHERE tenant_id=$1 AND subject_id=$2
-        UNION ALL SELECT 'attachment',2,link_id::text,object_revision,occurred_at,'Attachment: ' || file_name FROM crm_attachment_links WHERE tenant_id=$1 AND subject_id=$2
-        UNION ALL SELECT 'ownership',1,event_id::text,1,occurred_at,'Owner changed' FROM crm_ownership_events WHERE tenant_id=$1 AND subject_id=$2
+        SELECT 'activity'::text source_kind,5 source_rank,activity_id::text source_key,1 source_version,occurred_at,created_at AS recorded_at,summary FROM crm_activities WHERE tenant_id=$1 AND subject_id=$2
+        UNION ALL SELECT 'task',4,event_id::text,1,occurred_at,recorded_at,'Task ' || action FROM crm_task_events WHERE tenant_id=$1 AND subject_id=$2
+        UNION ALL SELECT 'note',3,note_id::text,revision,occurred_at,recorded_at,'Note revised' FROM crm_note_revisions WHERE tenant_id=$1 AND subject_id=$2
+        UNION ALL SELECT 'attachment',2,link_id::text,object_revision,occurred_at,recorded_at,'Attachment: ' || file_name FROM crm_attachment_links WHERE tenant_id=$1 AND subject_id=$2
+        UNION ALL SELECT 'ownership',1,event_id::text,1,occurred_at,recorded_at,'Owner changed' FROM crm_ownership_events WHERE tenant_id=$1 AND subject_id=$2
        ) SELECT source_kind,source_rank,source_key,source_version,occurred_at,summary FROM timeline
-       WHERE occurred_at <= $3::timestamptz AND ($4::timestamptz IS NULL OR (occurred_at,source_rank,source_key,source_version) < ($4::timestamptz,$5::integer,$6::text,$7::integer))
+       WHERE recorded_at <= $3::timestamptz AND occurred_at <= $3::timestamptz AND ($4::timestamptz IS NULL OR (occurred_at,source_rank,source_key,source_version) < ($4::timestamptz,$5::integer,$6::text,$7::integer))
        ORDER BY occurred_at DESC,source_rank DESC,source_key DESC,source_version DESC LIMIT $8`,[tenant,subject,asOf,decoded?.lastAt??null,decoded?.lastRank??null,decoded?.lastKey??null,decoded?.lastVersion??null,take+1]);
       const page=rows.slice(0,take).map(row=>({kind:row.source_kind,id:row.source_key,version:Number(row.source_version),occurredAt:row.occurred_at,summary:row.summary}));
       const more=rows.length>take,last=page.at(-1);
