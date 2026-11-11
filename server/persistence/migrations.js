@@ -408,6 +408,10 @@ export const MIGRATIONS=Object.freeze([
     SELECT t.tenant_id,t.status,t.lifecycle_version FROM public.tenants t WHERE t.tenant_id=requested_tenant
    $fn$`,
   `REVOKE ALL ON FUNCTION wimblo_platform.tenant_state(uuid) FROM PUBLIC`
+ ]),
+ migration(10,'durable-job-claim-access-paths',[
+  `CREATE INDEX durable_jobs_due_claim_v2 ON wimblo_platform.durable_jobs(tenant_id, queue, available_at, priority DESC, created_at, job_id) WHERE state IN ('ready','retry_wait')`,
+  `CREATE INDEX durable_jobs_expired_claim_v2 ON wimblo_platform.durable_jobs(tenant_id, queue, lease_expires_at, job_id) WHERE state = 'leased'`
  ])
 ]);
 

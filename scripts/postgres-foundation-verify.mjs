@@ -5,6 +5,7 @@
 
 import {randomUUID} from 'node:crypto';
 import {createControlRepository} from '../server/production/controlRepository.js';
+import {createJobRepository} from '../server/production/jobRepository.js';
 import {
   MIGRATIONS,
   SCHEMA_VERSION,
@@ -87,9 +88,9 @@ async function main(){
   const controlPool=createPostgresPool({connectionString:databaseUrl(database,controlRole,controlPassword),max:2,applicationName:'wimblo-foundation-control'});
   pools.push(owner,tenantPool,controlPool);
 
-  await runStep('explicit migrations apply versions 1 through 9',async()=>{
+  await runStep('explicit migrations apply versions 1 through 10',async()=>{
     const result=await owner.withAdminSession(session=>applyMigrations(session));
-    assert(result.currentVersion===9&&SCHEMA_VERSION===9,'schema did not reach version 9');
+    assert(result.currentVersion===10&&SCHEMA_VERSION===10,'schema did not reach version 10');
     assert(result.applied.map(entry=>entry.version).join(',')===MIGRATIONS.map(entry=>entry.version).join(','),'migration order differs');
     for(const sql of applicationRoleGrants(tenantRole))await owner.withAdminSession(session=>session.query(sql));
     for(const sql of controlPlaneRoleGrants(controlRole))await owner.withAdminSession(session=>session.query(sql));
@@ -134,6 +135,29 @@ async function main(){
 
   await tenantPool.withTransaction(tenantA,session=>session.query("INSERT INTO wimblo_platform.tenant_modules(tenant_id,module_key,state) VALUES($1,'core','enabled')",[tenantA]));
   await tenantPool.withTransaction(tenantB,session=>session.query("INSERT INTO wimblo_platform.tenant_modules(tenant_id,module_key,state) VALUES($1,'core','enabled')",[tenantB]));
+
+  await runStep('durable jobs claim concurrently, recover expired leases and fence stale completion',async()=>{
+    let clockMs=Date.parse('2026-11-11T12:00:00.000Z');
+    const jobs=createJobRepository({tenantPool,clock:()=>new Date(clockMs),leaseMs:1_000,retryBaseMs:100,retryMaxMs:200});
+    const first=await jobs.enqueue({tenantId:tenantA,kind:'verify.job',idempotencyKey:'verify-one',payload:{sequence:1}});
+    const replay=await jobs.enqueue({tenantId:tenantA,kind:'verify.job',idempotencyKey:'verify-one',payload:{sequence:999}});
+    const second=await jobs.enqueue({tenantId:tenantA,kind:'verify.job',idempotencyKey:'verify-two',payload:{sequence:2}});
+    const otherTenant=await jobs.enqueue({tenantId:tenantB,kind:'verify.job',idempotencyKey:'verify-one',payload:{sequence:3}});
+    assert(first.jobId===replay.jobId&&replay.payload.sequence===1,'tenant idempotency replay overwrote or duplicated the original job');
+    assert(otherTenant.jobId!==first.jobId,'idempotency key leaked across tenants');
+    const [a,b]=await Promise.all([jobs.claim({tenantId:tenantA,workerId:'verify-worker-a'}),jobs.claim({tenantId:tenantA,workerId:'verify-worker-b'})]);
+    assert(a.length===1&&b.length===1&&a[0].jobId!==b[0].jobId,'concurrent claims did not receive distinct rows');
+    assert((await jobs.claim({tenantId:tenantA,workerId:'verify-worker-c'})).length===0,'already leased rows were claimed twice');
+    const stale=a[0];clockMs+=1_001;
+    const [reclaimed]=await jobs.claim({tenantId:tenantA,workerId:'verify-worker-c'});
+    assert(reclaimed.jobId===stale.jobId&&reclaimed.attempts===2,'expired lease was not reclaimed as the next attempt');
+    const completed=await jobs.complete({...reclaimed,workerId:'verify-worker-c'});
+    assert(completed.state==='completed','reclaimed job did not complete');
+    await expectFailure(()=>jobs.complete({...stale,workerId:'verify-worker-a'}),PERSISTENCE_CODES.CONFLICT,'stale job completion');
+    const attemptRows=await tenantPool.withTenantSession(tenantA,session=>session.query('SELECT attempt,outcome,error_code FROM wimblo_platform.durable_job_attempts WHERE job_id=$1 ORDER BY attempt',[stale.jobId]));
+    assert(attemptRows.rowCount===2&&attemptRows.rows[0].error_code==='LEASE_EXPIRED'&&attemptRows.rows[1].outcome==='completed','attempt ledger did not preserve lease recovery');
+    return `distinct-claims=2, recovered-attempt=${reclaimed.attempts}, schema=${SCHEMA_VERSION}, second=${second.jobId.slice(0,8)}`;
+  });
 
   await runStep('two tenants cannot read or write each other module rows',async()=>{
     const own=await tenantPool.withTenantSession(tenantA,session=>session.query('SELECT tenant_id::text FROM wimblo_platform.tenant_modules'));

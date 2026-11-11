@@ -23,15 +23,15 @@ const ORIGINAL_CHECKSUMS=Object.freeze([
 
 const recorded=list=>list.map(({version,name,checksum})=>({version,name,checksum}));
 
-test('production foundation appends contiguous migrations 6 through 9 without rewriting versions 1 through 5',()=>{
-  assert.equal(SCHEMA_VERSION,9);
-  assert.deepEqual(MIGRATIONS.map(entry=>entry.version),[1,2,3,4,5,6,7,8,9]);
+test('production foundation appends contiguous migrations 6 through 10 without rewriting versions 1 through 5',()=>{
+  assert.equal(SCHEMA_VERSION,10);
+  assert.deepEqual(MIGRATIONS.map(entry=>entry.version),[1,2,3,4,5,6,7,8,9,10]);
   assert.deepEqual(MIGRATIONS.slice(0,5).map(entry=>entry.checksum),ORIGINAL_CHECKSUMS);
 
   const plan=planMigrations(recorded(MIGRATIONS.slice(0,5)));
   assert.equal(plan.currentVersion,5);
-  assert.equal(plan.targetVersion,9);
-  assert.deepEqual(plan.pending.map(entry=>entry.version),[6,7,8,9]);
+  assert.equal(plan.targetVersion,10);
+  assert.deepEqual(plan.pending.map(entry=>entry.version),[6,7,8,9,10]);
 });
 
 test('a failed production-foundation migration rolls back without recording its ledger row',async()=>{
@@ -84,6 +84,10 @@ test('foundation migrations create control identity, module, job and lifecycle b
   assert.match(lifecycle,/NOT VALID/);
   assert.match(lifecycle,/VALIDATE CONSTRAINT/);
   assert.match(lifecycle,/status <> 'deletion_scheduled' OR deletion_scheduled_at IS NOT NULL/);
+
+  const queueIndexes=byVersion.get(10);
+  assert.match(queueIndexes,/durable_jobs_due_claim_v2[\s\S]*tenant_id, queue, available_at[\s\S]*WHERE state IN \('ready','retry_wait'\)/);
+  assert.match(queueIndexes,/durable_jobs_expired_claim_v2[\s\S]*tenant_id, queue, lease_expires_at[\s\S]*WHERE state = 'leased'/);
 });
 
 test('tenant and control-plane grants are distinct, least-privilege and identifier-safe',async()=>{
