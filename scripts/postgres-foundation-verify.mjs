@@ -98,7 +98,6 @@ async function main(){
 
   await owner.withAdminSession(async session=>{
     await session.query('INSERT INTO tenants(tenant_id,name,residency_profile,database_region,storage_region) VALUES($1,$2,$3,$4,$5),($6,$7,$3,$4,$5)',[tenantA,'Foundation tenant A','north-america','us-east-1','us-east-1',tenantB,'Foundation tenant B']);
-    await session.query("INSERT INTO wimblo_platform.module_catalog(module_key,display_name,contract_version) VALUES('crm','CRM Core',1)");
   });
 
   await runStep('expanded tenant lifecycle accepts closed and requires a scheduled deletion date',async()=>{
@@ -133,15 +132,15 @@ async function main(){
     return `forced=${expected.length}`;
   });
 
-  await tenantPool.withTransaction(tenantA,session=>session.query("INSERT INTO wimblo_platform.tenant_modules(tenant_id,module_key,state) VALUES($1,'crm','enabled')",[tenantA]));
-  await tenantPool.withTransaction(tenantB,session=>session.query("INSERT INTO wimblo_platform.tenant_modules(tenant_id,module_key,state) VALUES($1,'crm','enabled')",[tenantB]));
+  await tenantPool.withTransaction(tenantA,session=>session.query("INSERT INTO wimblo_platform.tenant_modules(tenant_id,module_key,state) VALUES($1,'core','enabled')",[tenantA]));
+  await tenantPool.withTransaction(tenantB,session=>session.query("INSERT INTO wimblo_platform.tenant_modules(tenant_id,module_key,state) VALUES($1,'core','enabled')",[tenantB]));
 
   await runStep('two tenants cannot read or write each other module rows',async()=>{
     const own=await tenantPool.withTenantSession(tenantA,session=>session.query('SELECT tenant_id::text FROM wimblo_platform.tenant_modules'));
     assert(own.rowCount===1&&own.rows[0].tenant_id===tenantA,'tenant A did not see exactly its own row');
     const cross=await tenantPool.withTenantSession(tenantA,session=>session.query('SELECT tenant_id::text FROM wimblo_platform.tenant_modules WHERE tenant_id=$1',[tenantB]));
     assert(cross.rowCount===0,'tenant A read tenant B module state');
-    await expectFailure(()=>tenantPool.withTransaction(tenantA,session=>session.query("UPDATE wimblo_platform.tenant_modules SET state='suspended' WHERE tenant_id=$1 AND module_key='crm' RETURNING tenant_id",[tenantB])).then(result=>{
+    await expectFailure(()=>tenantPool.withTransaction(tenantA,session=>session.query("UPDATE wimblo_platform.tenant_modules SET state='suspended' WHERE tenant_id=$1 AND module_key='core' RETURNING tenant_id",[tenantB])).then(result=>{
       if(result.rowCount===0)throw Object.assign(new Error('cross-tenant update was hidden by RLS'),{code:PERSISTENCE_CODES.ISOLATION});
       return result;
     }),PERSISTENCE_CODES.ISOLATION,'cross-tenant write');

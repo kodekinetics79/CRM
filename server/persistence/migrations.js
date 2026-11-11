@@ -298,10 +298,15 @@ export const MIGRATIONS=Object.freeze([
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
    )`,
+  `INSERT INTO wimblo_platform.module_catalog(module_key,display_name,contract_version,dependencies) VALUES
+    ('core','CRM Core',1,'[]'::jsonb),('sales','Sales',1,'["core"]'::jsonb),('marketing','Marketing',1,'["core"]'::jsonb),
+    ('service','Service',1,'["core"]'::jsonb),('events','Events',1,'["core"]'::jsonb),('membership','Membership',1,'["core"]'::jsonb),
+    ('fundraising','Fundraising',1,'["core","membership"]'::jsonb),('grants','Grants',1,'["core"]'::jsonb),('volunteer','Volunteer',1,'["core"]'::jsonb),
+    ('payments','Payments',1,'["core"]'::jsonb),('intelligence','Intelligence',1,'["core"]'::jsonb)`,
   `CREATE TABLE wimblo_platform.tenant_modules(
     tenant_id uuid NOT NULL REFERENCES tenants(tenant_id) ON DELETE RESTRICT,
     module_key text NOT NULL REFERENCES wimblo_platform.module_catalog(module_key) ON DELETE RESTRICT,
-    state text NOT NULL CHECK (state IN ('disabled','enabled','suspended')),
+    state text NOT NULL CHECK (state IN ('disabled','enabled','suspended','retiring')),
     config jsonb NOT NULL DEFAULT '{}'::jsonb,
     version integer NOT NULL DEFAULT 1 CHECK (version >= 1),
     enabled_at timestamptz,
