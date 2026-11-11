@@ -1,3 +1,5 @@
+> Current release verification: **1,474/1,474 tests pass**, the Vite production build passes, and `npm audit` reports zero known vulnerabilities. Commit `cb56128` is live at [wimblo.vercel.app](https://wimblo.vercel.app) as a synthetic, resettable client evaluator. It is not production: use no real data, expect changes to reset when the backend restarts, and do not treat the deployment as buyer acceptance or external-provider evidence. Earlier checkpoints below are historical.
+
 > Latest marketing-response pass: **755/755tests pass** (35.60s), build passes (1.25s). TEST_ONLY read-only Mailchimp member identity, sticky marketing-only response suppressions, current statistics snapshots, signed tenant callbacks, private reports and eight-ledger recovery are locally verified. Built synthetic member/unsubscribe/stale-read/statistics and mobile journeys passed. See [MARKETING-RESPONSES-RELEASE.md](MARKETING-RESPONSES-RELEASE.md). A7.8/A7.9 are Partial; actual account/source/volume acceptance and sending remain open. Current inventory:46local basic/33partial/2missing/3external evidence. Earlier checkpoints below are historical.
 
 > Latest hosted-giving pass: **717/717 tests pass** (31.06s), build passes (1.27s). TEST_ONLY checkout/request replay custody, signed tenant callbacks, fresh payment checks, explicit one-gift recording, refund/dispute review, private evidence reports and recovery are verified with mocked provider data. Built synthetic desktop/mobile journeys passed. See [HOSTED-GIVING-RELEASE.md](HOSTED-GIVING-RELEASE.md). A2.8/A3.1/A3.2/A8.9 are Partial; executed provider acceptance and production operations remain open. Current inventory:46 local basic /31 partial /4 missing /3 external evidence. Earlier checkpoints below are historical.
@@ -22,13 +24,19 @@
 
 > Requirements-depth checkpoint: all 84 scored criteria reviewed; 46 local basic / 24 partial / 11 missing / 3 external evidence. Latest integrated verification: 477/477 tests and build pass. See [REQUIREMENTS-DEPTH-AUDIT.md](REQUIREMENTS-DEPTH-AUDIT.md) for accurate scope, limits and closure order. Local basic coverage is not production or buyer acceptance.
 
-# Wimblo 0.5.0 local release
+# Wimblo 0.5.0 evaluator release
 
-Wimblo is an independently branded nonprofit CRM by Kode Kinetics, currently available as a functional local evaluator pilot built using Node.js 24, React, Vite, Express, and SQLite. It demonstrates connected workflows with synthetic records and persistent local data. Wimblo is the product identity throughout the application.
+Wimblo is an independently branded nonprofit CRM by Kode Kinetics, available as both a functional local evaluator and a public synthetic client evaluator built using Node.js 24, React, Vite, Express, and SQLite. It demonstrates connected workflows with synthetic records. The local evaluator retains its separate local database; the public evaluator deliberately resets its temporary data when the backend restarts. Wimblo is the product identity throughout the application.
 
 This release is suitable for reviewing workflows and identifying implementation gaps. It is not a production deployment or evidence of FERPA, PCI, SOC 2, ISO 27001, or Learn Platform approval. It does not replace the RFP's required three years of relevant experience and three qualifying references.
 
-Current release: **0.5.0 — requirements-first local implementation**. Current inventory: **51 Local / 30 Partial / 0 Missing / 3 Evidence required** across 84 criteria, with **zero criteria accepted by the buyer**. [Current requirements matrix](CURRENT-RFP-REQUIREMENTS-MATRIX.md), [closure progress](REQUIREMENTS-CLOSURE-PROGRESS.md) and [requirements-first sequence](REQUIREMENTS-FIRST-CLOSURE.md) distinguish actual workflows, limits and remaining acceptance. Earlier phase reports/release ZIPs are historical. Default product/workspace identity is Wimblo; known legacy defaults migrate while customized organization settings/business records are preserved. This source is captured in the local 0.5.0 release commit and review package; consult the external handover note for its commit and checksum. No 0.5.0 cloud deployment is claimed.
+Current release: **0.5.0 — requirements-first evaluator implementation**. Current inventory: **51 Local / 30 Partial / 0 Missing / 3 Evidence required** across 84 criteria, with **zero criteria accepted by the buyer**. [Current requirements matrix](CURRENT-RFP-REQUIREMENTS-MATRIX.md), [closure progress](REQUIREMENTS-CLOSURE-PROGRESS.md) and [requirements-first sequence](REQUIREMENTS-FIRST-CLOSURE.md) distinguish actual workflows, limits and remaining acceptance. Earlier phase reports/release ZIPs are historical. Default product/workspace identity is Wimblo; known legacy defaults migrate while customized organization settings/business records are preserved. The public deployment is an HTTPS-only, synthetic, resettable evaluator and is not a durable production CRM.
+
+## Hosted client evaluator
+
+Open [wimblo.vercel.app](https://wimblo.vercel.app) to review the current synthetic evaluator. Vercel serves the frontend and proxies its `/api` path to the isolated Render evaluation service. Secure cookies, exact-origin checks and HTTPS enforcement are enabled. No paid persistent disk or production database is attached.
+
+Use only the demo accounts below and never enter real client, donor, payment, employee or student data. The hosted evaluator intentionally discards all changes whenever its backend restarts. Live provider sending, payment processing, durable hosting, production recovery, buyer acceptance and institutional approval remain separate work.
 
 ## Run from this repository
 
@@ -70,7 +78,7 @@ For source development, use `npm run server` and `npm run dev` in separate termi
 | Staff | `staff@foundation.example` | `FoundationDemo!2026` | Routine record entry and operations |
 | Board viewer | `board@foundation.example` | `FoundationDemo!2026` | Read-only review |
 
-These shared credentials are only for the synthetic local demo. Do not use them for real records or a public deployment.
+These shared credentials are only for the synthetic local or hosted evaluator. Do not use them for real records or any production deployment.
 
 ## What to evaluate
 
@@ -99,7 +107,7 @@ npm run build
 npm test
 ```
 
-The build generates the frontend in `dist/`. The test command runs the repository's automated checks; its output is the current source of truth for results. The current integrated 0.5.0 source passed **325/325 tests**, zero failures/skips, in 10.8 seconds, followed by a successful production build in 1.13 seconds. The earlier 290/296/316 checkpoints are historical; focused runs overlap and must not be summed. See [CURRENT-RELEASE-EVIDENCE.md](CURRENT-RELEASE-EVIDENCE.md), [VERIFICATION.md](VERIFICATION.md) and [closure progress](REQUIREMENTS-CLOSURE-PROGRESS.md) for scope and remaining acceptance.
+The build generates the frontend in `dist/`. The test command runs the repository's automated checks; its output is the current source of truth for results. Commit `cb56128` passed **1,474/1,474 tests**, zero failures/skips, in 212.5 seconds, followed by a successful Vite production build and a zero-vulnerability `npm audit`. Earlier numbered checkpoints are historical; focused runs overlap and must not be summed. See [CURRENT-RELEASE-EVIDENCE.md](CURRENT-RELEASE-EVIDENCE.md), [VERIFICATION.md](VERIFICATION.md) and [closure progress](REQUIREMENTS-CLOSURE-PROGRESS.md) for scope and remaining acceptance.
 
 ## Production-mode configuration
 
