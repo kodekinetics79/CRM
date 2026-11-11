@@ -10,6 +10,7 @@
     "start": "NODE_ENV=production node server/index.js",
     "start:evaluation": "NODE_ENV=evaluation node server/index.js",
     "test": "node --test --test-concurrency=4 tests/*.test.js",
+    "test:discipline": "node scripts/tdd-gate.mjs",
     "evaluate": "node scripts/evaluate.mjs",
     "verify:postgres": "node scripts/postgres-verify.mjs"
   },
