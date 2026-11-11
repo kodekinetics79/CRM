@@ -45,7 +45,7 @@
 
 - Task 1: complete after fix round 1/5 and scoped re-review PASS.
 - Task 2: complete after fix round 1/5 and scoped re-review PASS.
-- Task 3: implementation verified locally; independent review pending.
+- Task 3: complete after fix round 1/5 and scoped re-review PASS.
 - Task 4: pending.
 - Task 5: pending.
 - Task 6: pending.
@@ -63,4 +63,6 @@ Task 2: implementation checkpoint `efc1472` — extended RED 11/17 passed, final
 
 Task 2: fix round 1/5 (3 addressed, 0 open — commits `efc1472..cfb0232`; composite opportunity/pipeline history FK; deterministic stage order; advisory-lock-sensitive concurrency test). RED 12/14; GREEN 14/14; production foundation 105/105 plus real PostgreSQL verification passed; scoped re-review PASS.
 
-Task 3: RED 0/9; focused 46/46; production foundation 117/117 plus real PostgreSQL schema 15, 32 forced-RLS tables and work/reminder negatives; full suite 1,591/1,591; build passed; audit 0; independent review pending.
+Task 3: implementation checkpoint `ccd0007` — RED 0/9; focused 46/46; production foundation 117/117 plus real PostgreSQL schema 15, 32 forced-RLS tables and work/reminder negatives; full suite 1,591/1,591; build passed; audit 0. Independent review found five concrete gaps.
+
+Task 3: fix round 1/5 (5 addressed, 0 open — commits `ccd0007..d7fbaaf`; exact subject registration; immutable subject identity; recorded-time timeline snapshot; strict cursor validation; complete mutation HTTP coverage). RED 10/15; GREEN 15/15; compatibility 22/22; production foundation 120/120; full suite 1,594/1,594; scoped re-review PASS.
