@@ -52,6 +52,7 @@ test('repository creates one person party and its typed subtype in one transacti
   });
   assert.ok(f.calls.some(call=>call.sql.includes('/*party:insert*/ INSERT INTO parties')));
   assert.ok(f.calls.some(call=>call.sql.includes('/*person:insert*/ INSERT INTO people')));
+  assert.ok(f.calls.some(call=>call.sql.includes('/*subject:register*/ INSERT INTO crm_subjects')));
   assert.ok(f.calls.some(call=>call.sql.includes('/*party-event:insert*/ INSERT INTO party_events')));
   assert.equal(f.calls.at(-1).sql,'COMMIT');
 });

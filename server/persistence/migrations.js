@@ -673,6 +673,166 @@ export const MIGRATIONS=Object.freeze([
    `ALTER TABLE ${table} FORCE ROW LEVEL SECURITY`,
    `CREATE POLICY ${table}_tenant_isolation ON ${table} USING (tenant_id = wimblo_current_tenant()) WITH CHECK (tenant_id = wimblo_current_tenant())`
   ])
+ ]),
+ migration(15,'production-crm-work-and-timeline',[
+  `CREATE TABLE crm_subjects(
+    tenant_id uuid NOT NULL REFERENCES tenants(tenant_id) ON DELETE RESTRICT,
+    subject_id uuid NOT NULL,
+    subject_type text NOT NULL CHECK (subject_type IN ('party','lead','opportunity')),
+    party_id uuid,
+    lead_id uuid,
+    opportunity_id uuid,
+    owner_identity_id uuid,
+    version integer NOT NULL DEFAULT 1 CHECK (version >= 1),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, subject_id),
+    CHECK ((subject_type='party' AND party_id IS NOT NULL AND lead_id IS NULL AND opportunity_id IS NULL)
+      OR (subject_type='lead' AND party_id IS NULL AND lead_id IS NOT NULL AND opportunity_id IS NULL)
+      OR (subject_type='opportunity' AND party_id IS NULL AND lead_id IS NULL AND opportunity_id IS NOT NULL)),
+    FOREIGN KEY (tenant_id, party_id) REFERENCES parties(tenant_id, party_id) ON DELETE RESTRICT,
+    FOREIGN KEY (tenant_id, lead_id) REFERENCES leads(tenant_id, lead_id) ON DELETE RESTRICT,
+    FOREIGN KEY (tenant_id, opportunity_id) REFERENCES opportunities(tenant_id, opportunity_id) ON DELETE RESTRICT,
+    FOREIGN KEY (tenant_id, owner_identity_id) REFERENCES wimblo_platform.memberships(tenant_id, identity_id) ON DELETE RESTRICT,
+    UNIQUE (tenant_id, party_id),
+    UNIQUE (tenant_id, lead_id),
+    UNIQUE (tenant_id, opportunity_id)
+   )`,
+  `INSERT INTO crm_subjects(tenant_id,subject_id,subject_type,party_id,created_at,updated_at)
+   SELECT tenant_id,party_id,'party',party_id,created_at,updated_at FROM parties`,
+  `INSERT INTO crm_subjects(tenant_id,subject_id,subject_type,lead_id,owner_identity_id,created_at,updated_at)
+   SELECT tenant_id,lead_id,'lead',lead_id,owner_identity_id,created_at,updated_at FROM leads`,
+  `INSERT INTO crm_subjects(tenant_id,subject_id,subject_type,opportunity_id,owner_identity_id,created_at,updated_at)
+   SELECT tenant_id,opportunity_id,'opportunity',opportunity_id,owner_identity_id,created_at,updated_at FROM opportunities`,
+  `CREATE TABLE crm_activities(
+    tenant_id uuid NOT NULL,
+    activity_id uuid NOT NULL,
+    subject_id uuid NOT NULL,
+    activity_type text NOT NULL CHECK (activity_type IN ('call','meeting','email','message','other')),
+    summary text NOT NULL CHECK (char_length(summary) BETWEEN 1 AND 500),
+    outcome text CHECK (outcome IS NULL OR char_length(outcome) BETWEEN 1 AND 2000),
+    actor_identity_id uuid NOT NULL,
+    occurred_at timestamptz NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, activity_id),
+    FOREIGN KEY (tenant_id, subject_id) REFERENCES crm_subjects(tenant_id, subject_id) ON DELETE RESTRICT,
+    FOREIGN KEY (tenant_id, actor_identity_id) REFERENCES wimblo_platform.memberships(tenant_id, identity_id) ON DELETE RESTRICT
+   )`,
+  `CREATE TABLE crm_tasks(
+    tenant_id uuid NOT NULL,
+    task_id uuid NOT NULL,
+    subject_id uuid NOT NULL,
+    title text NOT NULL CHECK (char_length(title) BETWEEN 1 AND 300),
+    details text CHECK (details IS NULL OR char_length(details) BETWEEN 1 AND 4000),
+    status text NOT NULL DEFAULT 'open' CHECK (status IN ('open','in_progress','completed','cancelled')),
+    owner_identity_id uuid NOT NULL,
+    due_at timestamptz,
+    reminder_at timestamptz,
+    completed_at timestamptz,
+    version integer NOT NULL DEFAULT 1 CHECK (version >= 1),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, task_id),
+    CHECK ((status = 'completed') = (completed_at IS NOT NULL)),
+    FOREIGN KEY (tenant_id, subject_id) REFERENCES crm_subjects(tenant_id, subject_id) ON DELETE RESTRICT,
+    FOREIGN KEY (tenant_id, owner_identity_id) REFERENCES wimblo_platform.memberships(tenant_id, identity_id) ON DELETE RESTRICT,
+    UNIQUE (tenant_id, subject_id, task_id)
+   )`,
+  `CREATE TABLE crm_task_events(
+    tenant_id uuid NOT NULL,
+    event_id uuid NOT NULL,
+    task_id uuid NOT NULL,
+    subject_id uuid NOT NULL,
+    action text NOT NULL CHECK (action IN ('created','updated','completed','reopened','cancelled')),
+    actor_identity_id uuid NOT NULL,
+    details jsonb NOT NULL DEFAULT '{}'::jsonb,
+    occurred_at timestamptz NOT NULL,
+    PRIMARY KEY (tenant_id, event_id),
+    FOREIGN KEY (tenant_id, subject_id, task_id) REFERENCES crm_tasks(tenant_id, subject_id, task_id) ON DELETE RESTRICT,
+    FOREIGN KEY (tenant_id, actor_identity_id) REFERENCES wimblo_platform.memberships(tenant_id, identity_id) ON DELETE RESTRICT
+   )`,
+  `CREATE TABLE crm_notes(
+    tenant_id uuid NOT NULL,
+    note_id uuid NOT NULL,
+    subject_id uuid NOT NULL,
+    title text NOT NULL CHECK (char_length(title) BETWEEN 1 AND 300),
+    current_revision integer NOT NULL DEFAULT 1 CHECK (current_revision >= 1),
+    version integer NOT NULL DEFAULT 1 CHECK (version >= 1),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, note_id),
+    FOREIGN KEY (tenant_id, subject_id) REFERENCES crm_subjects(tenant_id, subject_id) ON DELETE RESTRICT,
+    UNIQUE (tenant_id, subject_id, note_id)
+   )`,
+  `CREATE TABLE crm_note_revisions(
+    tenant_id uuid NOT NULL,
+    note_id uuid NOT NULL,
+    revision integer NOT NULL CHECK (revision >= 1),
+    subject_id uuid NOT NULL,
+    body text NOT NULL CHECK (char_length(body) BETWEEN 1 AND 10000),
+    actor_identity_id uuid NOT NULL,
+    occurred_at timestamptz NOT NULL,
+    PRIMARY KEY (tenant_id, note_id, revision),
+    FOREIGN KEY (tenant_id, subject_id, note_id) REFERENCES crm_notes(tenant_id, subject_id, note_id) ON DELETE RESTRICT,
+    FOREIGN KEY (tenant_id, actor_identity_id) REFERENCES wimblo_platform.memberships(tenant_id, identity_id) ON DELETE RESTRICT
+   )`,
+  `CREATE TABLE crm_attachment_links(
+    tenant_id uuid NOT NULL,
+    link_id uuid NOT NULL,
+    subject_id uuid NOT NULL,
+    object_id text NOT NULL,
+    object_revision integer NOT NULL CHECK (object_revision >= 1),
+    file_name text NOT NULL CHECK (char_length(file_name) BETWEEN 1 AND 255),
+    content_type text NOT NULL CHECK (char_length(content_type) BETWEEN 1 AND 200),
+    size_bytes bigint NOT NULL CHECK (size_bytes > 0),
+    actor_identity_id uuid NOT NULL,
+    occurred_at timestamptz NOT NULL,
+    PRIMARY KEY (tenant_id, link_id),
+    FOREIGN KEY (tenant_id, subject_id) REFERENCES crm_subjects(tenant_id, subject_id) ON DELETE RESTRICT,
+    FOREIGN KEY (tenant_id, object_id, object_revision) REFERENCES object_metadata(tenant_id, object_id, revision) ON DELETE RESTRICT,
+    FOREIGN KEY (tenant_id, actor_identity_id) REFERENCES wimblo_platform.memberships(tenant_id, identity_id) ON DELETE RESTRICT,
+    UNIQUE (tenant_id, subject_id, object_id, object_revision)
+   )`,
+  `CREATE TABLE crm_ownership_events(
+    tenant_id uuid NOT NULL,
+    event_id uuid NOT NULL,
+    subject_id uuid NOT NULL,
+    from_owner_identity_id uuid,
+    to_owner_identity_id uuid,
+    actor_identity_id uuid NOT NULL,
+    occurred_at timestamptz NOT NULL,
+    PRIMARY KEY (tenant_id, event_id),
+    CHECK (from_owner_identity_id IS DISTINCT FROM to_owner_identity_id),
+    FOREIGN KEY (tenant_id, subject_id) REFERENCES crm_subjects(tenant_id, subject_id) ON DELETE RESTRICT,
+    FOREIGN KEY (tenant_id, from_owner_identity_id) REFERENCES wimblo_platform.memberships(tenant_id, identity_id) ON DELETE RESTRICT,
+    FOREIGN KEY (tenant_id, to_owner_identity_id) REFERENCES wimblo_platform.memberships(tenant_id, identity_id) ON DELETE RESTRICT,
+    FOREIGN KEY (tenant_id, actor_identity_id) REFERENCES wimblo_platform.memberships(tenant_id, identity_id) ON DELETE RESTRICT
+   )`,
+  `CREATE INDEX crm_subjects_type ON crm_subjects(tenant_id, subject_type, subject_id)`,
+  `CREATE INDEX crm_activities_timeline ON crm_activities(tenant_id, subject_id, occurred_at DESC, activity_id DESC)`,
+  `CREATE INDEX crm_tasks_worklist ON crm_tasks(tenant_id, owner_identity_id, status, due_at, task_id) WHERE status IN ('open','in_progress')`,
+  `CREATE INDEX crm_task_events_timeline ON crm_task_events(tenant_id, subject_id, occurred_at DESC, event_id DESC)`,
+  `CREATE INDEX crm_note_revisions_timeline ON crm_note_revisions(tenant_id, subject_id, occurred_at DESC, note_id DESC, revision DESC)`,
+  `CREATE INDEX crm_attachment_links_timeline ON crm_attachment_links(tenant_id, subject_id, occurred_at DESC, link_id DESC)`,
+  `CREATE INDEX crm_ownership_events_timeline ON crm_ownership_events(tenant_id, subject_id, occurred_at DESC, event_id DESC)`,
+  `CREATE FUNCTION wimblo_crm_work_append_only() RETURNS trigger LANGUAGE plpgsql AS $fn$
+    BEGIN RAISE EXCEPTION 'CRM work history is append-only'; END
+   $fn$`,
+  ...[
+   ['crm_activities','crm_activity_append_only'],
+   ['crm_task_events','crm_task_event_append_only'],
+   ['crm_note_revisions','crm_note_revision_append_only'],
+   ['crm_attachment_links','crm_attachment_link_append_only'],
+   ['crm_ownership_events','crm_ownership_event_append_only']
+  ].flatMap(([table,name])=>[
+   `CREATE TRIGGER ${name}_update BEFORE UPDATE ON ${table} FOR EACH ROW EXECUTE FUNCTION wimblo_crm_work_append_only()`,
+   `CREATE TRIGGER ${name}_delete BEFORE DELETE ON ${table} FOR EACH ROW EXECUTE FUNCTION wimblo_crm_work_append_only()`
+  ]),
+  ...['crm_subjects','crm_activities','crm_tasks','crm_task_events','crm_notes','crm_note_revisions','crm_attachment_links','crm_ownership_events'].flatMap(table=>[
+   `ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`,
+   `ALTER TABLE ${table} FORCE ROW LEVEL SECURITY`,
+   `CREATE POLICY ${table}_tenant_isolation ON ${table} USING (tenant_id = wimblo_current_tenant()) WITH CHECK (tenant_id = wimblo_current_tenant())`
+  ])
  ])
 ]);
 

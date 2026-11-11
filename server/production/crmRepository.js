@@ -12,6 +12,8 @@ const PIPELINE_STATUSES=new Set(['active','retired']);
 const STAGE_KINDS=new Set(['open','won','lost']);
 const LEAD_STATUSES=new Set(['new','working','qualified','converted','disqualified']);
 const OPPORTUNITY_STATUSES=new Set(['open','won','lost']);
+const ACTIVITY_TYPES=new Set(['call','meeting','email','message','other']);
+const TASK_STATUSES=new Set(['open','in_progress','completed','cancelled']);
 
 const fail=(message)=>persistenceFail(PERSISTENCE_CODES.INVALID,message);
 const uuid=(value,label)=>{
@@ -39,6 +41,7 @@ const version=(value)=>{if(!Number.isSafeInteger(value)||value<1)fail('Expected 
 const count=(value,label,max)=>{if(!Number.isSafeInteger(value)||value<1||value>max)fail(`${label} must be between 1 and ${max}.`);return value;};
 const safeOffset=(value)=>{if(!Number.isSafeInteger(value)||value<0)fail('Offset must be zero or a positive integer.');return value;};
 const timestamp=()=>new Date().toISOString();
+const instant=(value,label)=>{const parsed=new Date(value);if(Number.isNaN(parsed.getTime()))fail(`${label} must be a valid timestamp.`);return parsed.toISOString();};
 const currency=value=>{
   const out=typeof value==='string'?value.trim().toUpperCase():'';
   if(!/^[A-Z]{3}$/.test(out))fail('Currency must be an uppercase three-letter ISO code.');
@@ -178,11 +181,42 @@ const mapOpportunity=row=>row?{
   createdAt:row.created_at,
   updatedAt:row.updated_at
 }:null;
+const mapSubject=row=>row?{tenantId:row.tenant_id,subjectId:row.subject_id,subjectType:row.subject_type,ownerIdentityId:row.owner_identity_id??null,version:Number(row.version),createdAt:row.created_at,updatedAt:row.updated_at}:null;
+const mapTask=row=>row?{tenantId:row.tenant_id,taskId:row.task_id,subjectId:row.subject_id,title:row.title,details:row.details??null,status:row.status,ownerIdentityId:row.owner_identity_id,dueAt:row.due_at??null,reminderAt:row.reminder_at??null,completedAt:row.completed_at??null,version:Number(row.version),createdAt:row.created_at,updatedAt:row.updated_at}:null;
+const mapNote=row=>row?{tenantId:row.tenant_id,noteId:row.note_id,subjectId:row.subject_id,title:row.title,currentRevision:Number(row.current_revision),version:Number(row.version),createdAt:row.created_at,updatedAt:row.updated_at}:null;
+const mapAttachment=row=>row?{tenantId:row.tenant_id,linkId:row.link_id,subjectId:row.subject_id,objectId:row.object_id,objectRevision:Number(row.object_revision),fileName:row.file_name,contentType:row.content_type,sizeBytes:Number(row.size_bytes),actorIdentityId:row.actor_identity_id,occurredAt:row.occurred_at}:null;
 
-export function createCrmRepository({tenantPool,clock=timestamp}={}){
+export function createCrmRepository({tenantPool,jobRepository=null,clock=timestamp}={}){
   if(!tenantPool||typeof tenantPool.withTenantSession!=='function'||typeof tenantPool.withTransaction!=='function')persistenceFail(PERSISTENCE_CODES.INVALID,'A tenant PostgreSQL pool is required.');
   if(typeof clock!=='function')persistenceFail(PERSISTENCE_CODES.INVALID,'A clock function is required.');
   const now=()=>new Date(clock()).toISOString();
+
+  async function registerSubject(session,{tenantId,subjectId,subjectType,ownerIdentityId=null}){
+    const column=subjectType==='party'?'party_id':subjectType==='lead'?'lead_id':'opportunity_id';
+    await session.query(
+      `/*subject:register*/ INSERT INTO crm_subjects(tenant_id,subject_id,subject_type,${column},owner_identity_id,created_at,updated_at)
+       VALUES($1,$2,$3,$2,$4,$5::timestamptz,$5::timestamptz) ON CONFLICT (tenant_id,subject_id) DO NOTHING`,
+      [tenantId,subjectId,subjectType,ownerIdentityId,now()]
+    );
+  }
+
+  async function getSubjectWithSession(session,tenant,subjectId,{lock=false}={}){
+    const {rows:[row]}=await session.query(
+      `/*subject:${lock?'lock':'get'}*/ SELECT tenant_id,subject_id,subject_type,owner_identity_id,version,created_at,updated_at
+       FROM crm_subjects WHERE tenant_id=$1 AND subject_id=$2${lock?' FOR UPDATE':''}`,
+      [tenant,subjectId]
+    );
+    if(!row)persistenceFail(PERSISTENCE_CODES.NOT_FOUND,'CRM subject was not found.');
+    return row;
+  }
+
+  async function requireActiveMembership(session,tenant,identity){
+    const {rows:[row]}=await session.query(
+      `/*membership:active*/ SELECT identity_id FROM wimblo_platform.memberships WHERE tenant_id=$1 AND identity_id=$2 AND status='active'`,
+      [tenant,identity]
+    );
+    if(!row)persistenceFail(PERSISTENCE_CODES.ISOLATION,'Active tenant membership is required.');
+  }
 
   async function appendEvent(session,{tenantId,eventId=randomUUID(),targetType,targetId,action,actorIdentityId=null,details={}}){
     await session.query(
@@ -209,6 +243,7 @@ export function createCrmRepository({tenantPool,clock=timestamp}={}){
          RETURNING tenant_id,party_id,first_name,middle_name,last_name,preferred_name,birth_date,is_deceased`,
         [tenant,partyId,firstName,optionalText(input.middleName,'Middle name',120),lastName,optionalText(input.preferredName,'Preferred name',160),optionalDate(input.birthDate,'Birth date'),input.isDeceased===true]
       );
+      await registerSubject(session,{tenantId:tenant,subjectId:partyId,subjectType:'party'});
       await appendEvent(session,{tenantId:tenant,targetType:'party',targetId:partyId,action:'party.created',actorIdentityId:optionalUuid(input.actorIdentityId,'Actor identity ID'),details:{partyType:'person',displayName}});
       return {...mapParty(party),person:mapPerson(person)};
     });
@@ -233,6 +268,7 @@ export function createCrmRepository({tenantPool,clock=timestamp}={}){
          RETURNING tenant_id,party_id,legal_name,domain,industry,employee_count,founded_on`,
         [tenant,partyId,legalName,domain,industry,input.employeeCount??null,optionalDate(input.foundedOn,'Founded on')]
       );
+      await registerSubject(session,{tenantId:tenant,subjectId:partyId,subjectType:'party'});
       await appendEvent(session,{tenantId:tenant,targetType:'party',targetId:partyId,action:'party.created',actorIdentityId:optionalUuid(input.actorIdentityId,'Actor identity ID'),details:{partyType:'organization',displayName}});
       return {...mapParty(party),organization:mapOrganization(organization)};
     });
@@ -427,6 +463,7 @@ export function createCrmRepository({tenantPool,clock=timestamp}={}){
          RETURNING tenant_id,lead_id,party_id,pipeline_id,stage_id,source,status,owner_identity_id,expected_value_cents,currency,probability,expected_close_date,converted_opportunity_id,version,created_at,updated_at`,
         [tenant,leadId,partyId,pipelineId,stageId,source,'new',ownerIdentityId,expectedValueCents,money,chance,expectedCloseDate,now()]
       );
+      await registerSubject(session,{tenantId:tenant,subjectId:leadId,subjectType:'lead',ownerIdentityId});
       return mapLead(lead);
     });
   }
@@ -455,6 +492,7 @@ export function createCrmRepository({tenantPool,clock=timestamp}={}){
          RETURNING tenant_id,opportunity_id,party_id,pipeline_id,stage_id,lead_id,name,amount_cents,currency,probability,expected_close_date,status,owner_identity_id,version,created_at,updated_at`,
         [tenant,opportunityId,lead.party_id,lead.pipeline_id,lead.stage_id,leadId,name,amount,money,chance,expectedCloseDate,'open',lead.owner_identity_id,now()]
       );
+      await registerSubject(session,{tenantId:tenant,subjectId:opportunityId,subjectType:'opportunity',ownerIdentityId:lead.owner_identity_id});
       const {rows:[converted]}=await session.query(
         `/*lead:convert*/ UPDATE leads SET status='converted',converted_opportunity_id=$3,version=version+1,updated_at=$4::timestamptz
          WHERE tenant_id=$1 AND lead_id=$2
@@ -538,5 +576,168 @@ export function createCrmRepository({tenantPool,clock=timestamp}={}){
     return rows.map(mapOpportunity);
   }
 
-  return Object.freeze({createPerson,createOrganization,getParty,listParties,updateParty,createContact,listContacts,createRelationship,listRelationships,ensureDefaultPipeline,createLead,convertLead,changeOpportunityStage,listPipelines,listLeads,listOpportunities});
+  async function getSubjectType(tenantId,subjectId){
+    const tenant=uuid(tenantId,'Tenant ID'),subject=uuid(subjectId,'Subject ID');
+    return tenantPool.withTenantSession(tenant,async session=>(await getSubjectWithSession(session,tenant,subject)).subject_type);
+  }
+
+  async function getTaskSubject(tenantId,taskId){
+    const tenant=uuid(tenantId,'Tenant ID'),task=uuid(taskId,'Task ID');
+    const {rows:[row]}=await tenantPool.withTenantSession(tenant,session=>session.query(`/*task:subject*/ SELECT t.subject_id,s.subject_type FROM crm_tasks t JOIN crm_subjects s ON s.tenant_id=t.tenant_id AND s.subject_id=t.subject_id WHERE t.tenant_id=$1 AND t.task_id=$2`,[tenant,task]));
+    if(!row)persistenceFail(PERSISTENCE_CODES.NOT_FOUND,'Task was not found.');return {subjectId:row.subject_id,subjectType:row.subject_type};
+  }
+
+  async function getNoteSubject(tenantId,noteId){
+    const tenant=uuid(tenantId,'Tenant ID'),note=uuid(noteId,'Note ID');
+    const {rows:[row]}=await tenantPool.withTenantSession(tenant,session=>session.query(`/*note:subject*/ SELECT n.subject_id,s.subject_type FROM crm_notes n JOIN crm_subjects s ON s.tenant_id=n.tenant_id AND s.subject_id=n.subject_id WHERE n.tenant_id=$1 AND n.note_id=$2`,[tenant,note]));
+    if(!row)persistenceFail(PERSISTENCE_CODES.NOT_FOUND,'Note was not found.');return {subjectId:row.subject_id,subjectType:row.subject_type};
+  }
+
+  async function createActivity(input){
+    const tenant=uuid(input.tenantId,'Tenant ID'),activityId=uuid(input.activityId??randomUUID(),'Activity ID'),subjectId=uuid(input.subjectId,'Subject ID'),actor=uuid(input.actorIdentityId,'Actor identity ID');
+    const type=oneOf(input.activityType,ACTIVITY_TYPES,'Activity type'),summary=text(input.summary,'Activity summary',500),outcome=optionalText(input.outcome,'Activity outcome',2000),occurredAt=instant(input.occurredAt??now(),'Activity occurrence');
+    return tenantPool.withTransaction(tenant,async session=>{
+      await getSubjectWithSession(session,tenant,subjectId);await requireActiveMembership(session,tenant,actor);
+      const {rows:[row]}=await session.query(
+        `/*activity:insert*/ INSERT INTO crm_activities(tenant_id,activity_id,subject_id,activity_type,summary,outcome,actor_identity_id,occurred_at,created_at)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8::timestamptz,$9::timestamptz)
+         RETURNING tenant_id,activity_id,subject_id,activity_type,summary,outcome,actor_identity_id,occurred_at,created_at`,
+        [tenant,activityId,subjectId,type,summary,outcome,actor,occurredAt,now()]
+      );
+      return {tenantId:row.tenant_id,activityId:row.activity_id,subjectId:row.subject_id,activityType:row.activity_type,summary:row.summary,outcome:row.outcome??null,actorIdentityId:row.actor_identity_id,occurredAt:row.occurred_at,createdAt:row.created_at};
+    });
+  }
+
+  async function appendTaskEvent(session,{tenant,taskId,subjectId,action,actor,details={}}){
+    await session.query(
+      `/*task-event:insert*/ INSERT INTO crm_task_events(tenant_id,event_id,task_id,subject_id,action,actor_identity_id,details,occurred_at)
+       VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8::timestamptz)`,
+      [tenant,randomUUID(),taskId,subjectId,action,actor,JSON.stringify(details),now()]
+    );
+  }
+
+  async function enqueueReminder(session,{tenant,taskId,subjectId,taskVersion,reminderAt}){
+    if(!reminderAt)return;
+    if(!jobRepository||typeof jobRepository.enqueueInTransaction!=='function')persistenceFail(PERSISTENCE_CODES.INVALID,'Task reminders require the durable job repository.');
+    await jobRepository.enqueueInTransaction(session,{tenantId:tenant,kind:'crm.task_reminder',idempotencyKey:`crm.task-reminder:${taskId}:${taskVersion}`,payload:{taskId,subjectId,expectedTaskVersion:taskVersion},availableAt:reminderAt});
+  }
+
+  async function createTask(input){
+    const tenant=uuid(input.tenantId,'Tenant ID'),taskId=uuid(input.taskId??randomUUID(),'Task ID'),subjectId=uuid(input.subjectId,'Subject ID'),owner=uuid(input.ownerIdentityId,'Owner identity ID'),actor=uuid(input.actorIdentityId,'Actor identity ID');
+    const title=text(input.title,'Task title',300),details=optionalText(input.details,'Task details',4000),dueAt=input.dueAt==null?null:instant(input.dueAt,'Task due time'),reminderAt=input.reminderAt==null?null:instant(input.reminderAt,'Task reminder time');
+    return tenantPool.withTransaction(tenant,async session=>{
+      await getSubjectWithSession(session,tenant,subjectId);await requireActiveMembership(session,tenant,owner);await requireActiveMembership(session,tenant,actor);
+      const created=now();
+      const {rows:[row]}=await session.query(
+        `/*task:insert*/ INSERT INTO crm_tasks(tenant_id,task_id,subject_id,title,details,status,owner_identity_id,due_at,reminder_at,created_at,updated_at)
+         VALUES($1,$2,$3,$4,$5,'open',$6,$7::timestamptz,$8::timestamptz,$9::timestamptz,$9::timestamptz) RETURNING *`,
+        [tenant,taskId,subjectId,title,details,owner,dueAt,reminderAt,created]
+      );
+      await appendTaskEvent(session,{tenant,taskId,subjectId,action:'created',actor,details:{status:'open'}});
+      await enqueueReminder(session,{tenant,taskId,subjectId,taskVersion:Number(row.version),reminderAt});
+      return mapTask(row);
+    });
+  }
+
+  async function updateTask(input){
+    const tenant=uuid(input.tenantId,'Tenant ID'),taskId=uuid(input.taskId,'Task ID'),expected=version(input.expectedVersion),actor=uuid(input.actorIdentityId,'Actor identity ID');
+    if(input.title===undefined&&input.details===undefined&&input.status===undefined&&input.ownerIdentityId===undefined&&input.dueAt===undefined&&input.reminderAt===undefined)fail('Task update requires at least one change.');
+    return tenantPool.withTransaction(tenant,async session=>{
+      const {rows:[current]}=await session.query(`/*task:lock*/ SELECT * FROM crm_tasks WHERE tenant_id=$1 AND task_id=$2 FOR UPDATE`,[tenant,taskId]);
+      if(!current)persistenceFail(PERSISTENCE_CODES.NOT_FOUND,'Task was not found.');
+      if(Number(current.version)!==expected)persistenceFail(PERSISTENCE_CODES.CONFLICT,'Task version conflict. Reload before retrying.');
+      await requireActiveMembership(session,tenant,actor);
+      const owner=input.ownerIdentityId===undefined?current.owner_identity_id:uuid(input.ownerIdentityId,'Owner identity ID');if(owner!==current.owner_identity_id)await requireActiveMembership(session,tenant,owner);
+      const status=input.status===undefined?current.status:oneOf(input.status,TASK_STATUSES,'Task status');
+      const completedAt=status==='completed'?(current.completed_at??now()):null;
+      const reminderAt=input.reminderAt===undefined?current.reminder_at:input.reminderAt===null?null:instant(input.reminderAt,'Task reminder time');
+      const {rows:[row]}=await session.query(
+        `/*task:update*/ UPDATE crm_tasks SET title=$3,details=$4,status=$5,owner_identity_id=$6,due_at=$7::timestamptz,reminder_at=$8::timestamptz,completed_at=$9::timestamptz,version=version+1,updated_at=$10::timestamptz
+         WHERE tenant_id=$1 AND task_id=$2 AND version=$11 RETURNING *`,
+        [tenant,taskId,input.title===undefined?current.title:text(input.title,'Task title',300),input.details===undefined?current.details:optionalText(input.details,'Task details',4000),status,owner,input.dueAt===undefined?current.due_at:input.dueAt===null?null:instant(input.dueAt,'Task due time'),reminderAt,completedAt,now(),expected]
+      );
+      if(!row)persistenceFail(PERSISTENCE_CODES.CONFLICT,'Task version conflict. Reload before retrying.');
+      const action=current.status!=='completed'&&status==='completed'?'completed':current.status==='completed'&&status!=='completed'?'reopened':current.status!=='cancelled'&&status==='cancelled'?'cancelled':'updated';
+      await appendTaskEvent(session,{tenant,taskId,subjectId:current.subject_id,action,actor,details:{status}});
+      await enqueueReminder(session,{tenant,taskId,subjectId:current.subject_id,taskVersion:Number(row.version),reminderAt:status==='completed'||status==='cancelled'?null:reminderAt});
+      return mapTask(row);
+    });
+  }
+
+  async function createNote(input){
+    const tenant=uuid(input.tenantId,'Tenant ID'),noteId=uuid(input.noteId??randomUUID(),'Note ID'),subjectId=uuid(input.subjectId,'Subject ID'),actor=uuid(input.actorIdentityId,'Actor identity ID'),title=text(input.title,'Note title',300),body=text(input.body,'Note body',10000);
+    return tenantPool.withTransaction(tenant,async session=>{
+      await getSubjectWithSession(session,tenant,subjectId);await requireActiveMembership(session,tenant,actor);
+      const at=now();
+      const {rows:[note]}=await session.query(`/*note:insert*/ INSERT INTO crm_notes(tenant_id,note_id,subject_id,title,created_at,updated_at) VALUES($1,$2,$3,$4,$5::timestamptz,$5::timestamptz) RETURNING *`,[tenant,noteId,subjectId,title,at]);
+      await session.query(`/*note-revision:insert*/ INSERT INTO crm_note_revisions(tenant_id,note_id,revision,subject_id,body,actor_identity_id,occurred_at) VALUES($1,$2,1,$3,$4,$5,$6::timestamptz)`,[tenant,noteId,subjectId,body,actor,at]);
+      return mapNote(note);
+    });
+  }
+
+  async function reviseNote(input){
+    const tenant=uuid(input.tenantId,'Tenant ID'),noteId=uuid(input.noteId,'Note ID'),expected=version(input.expectedVersion),actor=uuid(input.actorIdentityId,'Actor identity ID'),body=text(input.body,'Note body',10000);
+    return tenantPool.withTransaction(tenant,async session=>{
+      const {rows:[note]}=await session.query(`/*note:lock*/ SELECT * FROM crm_notes WHERE tenant_id=$1 AND note_id=$2 FOR UPDATE`,[tenant,noteId]);
+      if(!note)persistenceFail(PERSISTENCE_CODES.NOT_FOUND,'Note was not found.');
+      if(Number(note.version)!==expected)persistenceFail(PERSISTENCE_CODES.CONFLICT,'Note version conflict. Reload before retrying.');
+      await requireActiveMembership(session,tenant,actor);const next=Number(note.current_revision)+1,at=now();
+      await session.query(`/*note-revision:insert*/ INSERT INTO crm_note_revisions(tenant_id,note_id,revision,subject_id,body,actor_identity_id,occurred_at) VALUES($1,$2,$3,$4,$5,$6,$7::timestamptz) RETURNING *`,[tenant,noteId,next,note.subject_id,body,actor,at]);
+      const {rows:[updated]}=await session.query(`/*note:update*/ UPDATE crm_notes SET current_revision=$3,version=version+1,updated_at=$4::timestamptz WHERE tenant_id=$1 AND note_id=$2 AND version=$5 RETURNING *`,[tenant,noteId,next,at,expected]);
+      return mapNote(updated);
+    });
+  }
+
+  async function linkAttachment(input){
+    const tenant=uuid(input.tenantId,'Tenant ID'),linkId=uuid(input.linkId??randomUUID(),'Attachment link ID'),subjectId=uuid(input.subjectId,'Subject ID'),actor=uuid(input.actorIdentityId,'Actor identity ID');
+    const objectId=text(input.objectId,'Object ID',500),objectRevision=version(input.objectRevision),fileName=text(input.fileName,'File name',255);
+    return tenantPool.withTransaction(tenant,async session=>{
+      await getSubjectWithSession(session,tenant,subjectId);await requireActiveMembership(session,tenant,actor);
+      const {rows:[object]}=await session.query(`/*object:active*/ SELECT tenant_id,object_id,revision,content_type,size_bytes,state FROM object_metadata WHERE tenant_id=$1 AND object_id=$2 AND revision=$3 AND state='active' FOR SHARE`,[tenant,objectId,objectRevision]);
+      if(!object)persistenceFail(PERSISTENCE_CODES.NOT_FOUND,'Active object revision was not found.');
+      const {rows:[row]}=await session.query(`/*attachment:insert*/ INSERT INTO crm_attachment_links(tenant_id,link_id,subject_id,object_id,object_revision,file_name,content_type,size_bytes,actor_identity_id,occurred_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::timestamptz) RETURNING *`,[tenant,linkId,subjectId,objectId,objectRevision,fileName,object.content_type,object.size_bytes,actor,now()]);
+      return mapAttachment(row);
+    });
+  }
+
+  async function changeSubjectOwner(input){
+    const tenant=uuid(input.tenantId,'Tenant ID'),subjectId=uuid(input.subjectId,'Subject ID'),owner=optionalUuid(input.newOwnerIdentityId,'Owner identity ID'),expected=version(input.expectedVersion),actor=uuid(input.actorIdentityId,'Actor identity ID');
+    return tenantPool.withTransaction(tenant,async session=>{
+      const current=await getSubjectWithSession(session,tenant,subjectId,{lock:true});
+      if(Number(current.version)!==expected)persistenceFail(PERSISTENCE_CODES.CONFLICT,'Subject version conflict. Reload before retrying.');
+      await requireActiveMembership(session,tenant,actor);if(owner)await requireActiveMembership(session,tenant,owner);
+      if((current.owner_identity_id??null)===owner)fail('Subject owner must change.');
+      const {rows:[updated]}=await session.query(`/*subject:owner-update*/ UPDATE crm_subjects SET owner_identity_id=$3,version=version+1,updated_at=$4::timestamptz WHERE tenant_id=$1 AND subject_id=$2 AND version=$5 RETURNING *`,[tenant,subjectId,owner,now(),expected]);
+      await session.query(`/*ownership-event:insert*/ INSERT INTO crm_ownership_events(tenant_id,event_id,subject_id,from_owner_identity_id,to_owner_identity_id,actor_identity_id,occurred_at) VALUES($1,$2,$3,$4,$5,$6,$7::timestamptz)`,[tenant,randomUUID(),subjectId,current.owner_identity_id,owner,actor,now()]);
+      return mapSubject(updated);
+    });
+  }
+
+  function decodeCursor(value,tenant,subject){
+    if(value==null)return null;
+    try{if(typeof value!=='string'||value.length>1500)throw new Error();const parsed=JSON.parse(Buffer.from(value,'base64url').toString('utf8'));if(parsed.tenantId!==tenant||parsed.subjectId!==subject||!parsed.asOf||!parsed.lastAt||!Number.isInteger(parsed.lastRank)||typeof parsed.lastKey!=='string'||!Number.isInteger(parsed.lastVersion))throw new Error();return parsed;}catch{persistenceFail(PERSISTENCE_CODES.INVALID,'Timeline cursor is invalid.');}
+  }
+
+  async function listTimeline({tenantId,subjectId,limit=50,cursor=null}){
+    const tenant=uuid(tenantId,'Tenant ID'),subject=uuid(subjectId,'Subject ID'),take=count(limit,'Limit',100),decoded=decodeCursor(cursor,tenant,subject),asOf=decoded?.asOf??now();
+    return tenantPool.withTenantSession(tenant,async session=>{
+      await getSubjectWithSession(session,tenant,subject);
+      const {rows}=await session.query(`/*timeline:list*/
+       WITH timeline AS (
+        SELECT 'activity'::text source_kind,5 source_rank,activity_id::text source_key,1 source_version,occurred_at,summary FROM crm_activities WHERE tenant_id=$1 AND subject_id=$2
+        UNION ALL SELECT 'task',4,event_id::text,1,occurred_at,'Task ' || action FROM crm_task_events WHERE tenant_id=$1 AND subject_id=$2
+        UNION ALL SELECT 'note',3,note_id::text,revision,occurred_at,'Note revised' FROM crm_note_revisions WHERE tenant_id=$1 AND subject_id=$2
+        UNION ALL SELECT 'attachment',2,link_id::text,object_revision,occurred_at,'Attachment: ' || file_name FROM crm_attachment_links WHERE tenant_id=$1 AND subject_id=$2
+        UNION ALL SELECT 'ownership',1,event_id::text,1,occurred_at,'Owner changed' FROM crm_ownership_events WHERE tenant_id=$1 AND subject_id=$2
+       ) SELECT source_kind,source_rank,source_key,source_version,occurred_at,summary FROM timeline
+       WHERE occurred_at <= $3::timestamptz AND ($4::timestamptz IS NULL OR (occurred_at,source_rank,source_key,source_version) < ($4::timestamptz,$5::integer,$6::text,$7::integer))
+       ORDER BY occurred_at DESC,source_rank DESC,source_key DESC,source_version DESC LIMIT $8`,[tenant,subject,asOf,decoded?.lastAt??null,decoded?.lastRank??null,decoded?.lastKey??null,decoded?.lastVersion??null,take+1]);
+      const page=rows.slice(0,take).map(row=>({kind:row.source_kind,id:row.source_key,version:Number(row.source_version),occurredAt:row.occurred_at,summary:row.summary}));
+      const more=rows.length>take,last=page.at(-1);
+      const nextCursor=more&&last?Buffer.from(JSON.stringify({tenantId:tenant,subjectId:subject,asOf,lastAt:last.occurredAt,lastRank:Number(rows[take-1].source_rank),lastKey:last.id,lastVersion:last.version})).toString('base64url'):null;
+      return {items:page,nextCursor,asOf};
+    });
+  }
+
+  return Object.freeze({createPerson,createOrganization,getParty,listParties,updateParty,createContact,listContacts,createRelationship,listRelationships,ensureDefaultPipeline,createLead,convertLead,changeOpportunityStage,listPipelines,listLeads,listOpportunities,getSubjectType,getTaskSubject,getNoteSubject,createActivity,createTask,updateTask,createNote,reviseNote,linkAttachment,changeSubjectOwner,listTimeline});
 }

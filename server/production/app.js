@@ -9,6 +9,7 @@ import {createSessionService} from './sessionService.js';
 import {createModuleService} from './moduleService.js';
 import {createCrmRepository} from './crmRepository.js';
 import {createCrmService} from './crmService.js';
+import {createJobRepository} from './jobRepository.js';
 import {installCrmRoutes} from './crmRoutes.js';
 import {installProductionAuthRoutes} from './authRoutes.js';
 import {installModuleRoutes} from './moduleRoutes.js';
@@ -35,7 +36,8 @@ function createRateLimit({clock,limit=10,windowMs=5*60_000,maxKeys=10_000}){
 function defaultServices({config,controlPool,tenantPool,clock}){
  const repository=createControlRepository({pool:controlPool,clock:()=>new Date(nowMs(clock))});
  const moduleService=createModuleService({tenantPool,clock:()=>new Date(nowMs(clock))});
- const crmRepository=createCrmRepository({tenantPool,clock:()=>new Date(nowMs(clock))});
+ const jobRepository=createJobRepository({tenantPool,clock:()=>new Date(nowMs(clock))});
+ const crmRepository=createCrmRepository({tenantPool,jobRepository,clock:()=>new Date(nowMs(clock))});
  return {
   identityService:createIdentityService({repository,passwordHash,verifyPassword,invitationSecret:derivedSecret(config.sessionSecret,'invitation-signing'),clock:()=>new Date(nowMs(clock))}),
   mfaService:createGlobalMfaService({repository,key:config.mfaEncryptionKey,clock:()=>nowMs(clock),issuer:'Wimblo'}),

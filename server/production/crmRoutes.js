@@ -51,6 +51,22 @@ const convertLeadSchema=z.object({
 const opportunityStageSchema=z.object({
   stageId:uuid,expectedVersion:z.number().int().min(1)
 });
+const activitySchema=z.object({
+  activityId:uuid.optional(),activityType:z.enum(['call','meeting','email','message','other']),summary:z.string().trim().min(1).max(500),
+  outcome:z.string().trim().min(1).max(2000).optional().nullable(),occurredAt:z.string().datetime().optional()
+});
+const taskSchema=z.object({
+  taskId:uuid.optional(),title:z.string().trim().min(1).max(300),details:z.string().trim().min(1).max(4000).optional().nullable(),
+  ownerIdentityId:uuid,dueAt:z.string().datetime().optional().nullable(),reminderAt:z.string().datetime().optional().nullable()
+});
+const taskUpdateSchema=z.object({
+  expectedVersion:z.number().int().min(1),title:z.string().trim().min(1).max(300).optional(),details:z.string().trim().min(1).max(4000).optional().nullable(),
+  status:z.enum(['open','in_progress','completed','cancelled']).optional(),ownerIdentityId:uuid.optional(),dueAt:z.string().datetime().optional().nullable(),reminderAt:z.string().datetime().optional().nullable()
+});
+const noteSchema=z.object({noteId:uuid.optional(),title:z.string().trim().min(1).max(300),body:z.string().trim().min(1).max(10000)});
+const noteRevisionSchema=z.object({expectedVersion:z.number().int().min(1),body:z.string().trim().min(1).max(10000)});
+const attachmentSchema=z.object({linkId:uuid.optional(),objectId:z.string().trim().min(1).max(500),objectRevision:z.number().int().min(1),fileName:z.string().trim().min(1).max(255)});
+const ownerSchema=z.object({newOwnerIdentityId:uuid.nullable(),expectedVersion:z.number().int().min(1)});
 
 const parse=(schema,value)=>{
   const result=schema.safeParse(value);
@@ -108,5 +124,16 @@ export function installCrmRoutes(app,{crmService,requireTenantSession,requireCsr
   app.post('/api/crm/leads/:leadId/convert',...write,async(req,res)=>res.status(201).json(await crmService.convertLead({...parse(convertLeadSchema,req.body),leadId:req.params.leadId,...context(req)})));
   app.get('/api/crm/opportunities',...read,async(req,res)=>res.json({opportunities:await crmService.listOpportunities({...parseSalesQuery(req,['open','won','lost']),...context(req)})}));
   app.post('/api/crm/opportunities/:opportunityId/stage',...write,async(req,res)=>res.json({opportunity:await crmService.changeOpportunityStage({...parse(opportunityStageSchema,req.body),opportunityId:req.params.opportunityId,...context(req)})}));
+  app.post('/api/crm/subjects/:subjectId/activities',...write,async(req,res)=>res.status(201).json({activity:await crmService.createActivity({...parse(activitySchema,req.body),subjectId:req.params.subjectId,...context(req)})}));
+  app.post('/api/crm/subjects/:subjectId/tasks',...write,async(req,res)=>res.status(201).json({task:await crmService.createTask({...parse(taskSchema,req.body),subjectId:req.params.subjectId,...context(req)})}));
+  app.patch('/api/crm/tasks/:taskId',...write,async(req,res)=>res.json({task:await crmService.updateTask({...parse(taskUpdateSchema,req.body),taskId:req.params.taskId,...context(req)})}));
+  app.post('/api/crm/subjects/:subjectId/notes',...write,async(req,res)=>res.status(201).json({note:await crmService.createNote({...parse(noteSchema,req.body),subjectId:req.params.subjectId,...context(req)})}));
+  app.post('/api/crm/notes/:noteId/revisions',...write,async(req,res)=>res.status(201).json({note:await crmService.reviseNote({...parse(noteRevisionSchema,req.body),noteId:req.params.noteId,...context(req)})}));
+  app.post('/api/crm/subjects/:subjectId/attachments',...write,async(req,res)=>res.status(201).json({attachment:await crmService.linkAttachment({...parse(attachmentSchema,req.body),subjectId:req.params.subjectId,...context(req)})}));
+  app.patch('/api/crm/subjects/:subjectId/owner',...write,async(req,res)=>res.json({subject:await crmService.changeSubjectOwner({...parse(ownerSchema,req.body),subjectId:req.params.subjectId,...context(req)})}));
+  app.get('/api/crm/subjects/:subjectId/timeline',...read,async(req,res)=>{
+    const limit=Number(req.query.limit??50);if(!Number.isSafeInteger(limit)||limit<1||limit>100)persistenceFail(PERSISTENCE_CODES.INVALID,'Limit must be between 1 and 100.');
+    res.json(await crmService.listTimeline({subjectId:req.params.subjectId,limit,cursor:typeof req.query.cursor==='string'?req.query.cursor:null,...context(req)}));
+  });
   return crmService;
 }

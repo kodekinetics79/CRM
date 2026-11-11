@@ -88,9 +88,9 @@ async function main(){
   const controlPool=createPostgresPool({connectionString:databaseUrl(database,controlRole,controlPassword),max:2,applicationName:'wimblo-foundation-control'});
   pools.push(owner,tenantPool,controlPool);
 
-  await runStep('explicit migrations apply versions 1 through 14',async()=>{
+  await runStep('explicit migrations apply versions 1 through 15',async()=>{
     const result=await owner.withAdminSession(session=>applyMigrations(session));
-    assert(result.currentVersion===14&&SCHEMA_VERSION===14,'schema did not reach version 14');
+    assert(result.currentVersion===15&&SCHEMA_VERSION===15,'schema did not reach version 15');
     assert(result.applied.map(entry=>entry.version).join(',')===MIGRATIONS.map(entry=>entry.version).join(','),'migration order differs');
     for(const sql of applicationRoleGrants(tenantRole))await owner.withAdminSession(session=>session.query(sql));
     for(const sql of controlPlaneRoleGrants(controlRole))await owner.withAdminSession(session=>session.query(sql));
@@ -233,6 +233,37 @@ async function main(){
     return 'default-pipeline=unique, cross-pipeline-stage=refused, cross-pipeline-history=refused, cross-tenant-read=0, unscoped/control=refused';
   });
 
+  await runStep('CRM work facts enforce ownership, append-only history, attachment integrity and atomic reminders',async()=>{
+    const partyId=randomUUID(),subjectId=partyId,activityId=randomUUID(),taskId=randomUUID(),objectId=`verify-${randomUUID()}`,linkId=randomUUID();
+    await owner.withAdminSession(async session=>{
+      await session.query("INSERT INTO wimblo_platform.global_identities(identity_id,normalized_email,display_name,password_hash) VALUES($1,'foundation@example.invalid','Foundation verifier','not-a-real-login-hash') ON CONFLICT (identity_id) DO NOTHING",[identityId]);
+      await session.query("INSERT INTO wimblo_platform.memberships(membership_id,tenant_id,identity_id,role,status) VALUES($1,$2,$3,'owner','active'),($4,$5,$3,'viewer','active') ON CONFLICT (tenant_id,identity_id) DO NOTHING",[randomUUID(),tenantA,identityId,randomUUID(),tenantB]);
+    });
+    await tenantPool.withTransaction(tenantA,async session=>{
+      await session.query("INSERT INTO parties(tenant_id,party_id,party_type,display_name) VALUES($1,$2,'person','Work verifier')",[tenantA,partyId]);
+      await session.query("INSERT INTO people(tenant_id,party_id,first_name,last_name) VALUES($1,$2,'Work','Verifier')",[tenantA,partyId]);
+      await session.query("INSERT INTO crm_subjects(tenant_id,subject_id,subject_type,party_id,owner_identity_id) VALUES($1,$2,'party',$2,$3)",[tenantA,subjectId,identityId]);
+      await session.query("INSERT INTO crm_activities(tenant_id,activity_id,subject_id,activity_type,summary,actor_identity_id,occurred_at) VALUES($1,$2,$3,'call','Verified call',$4,now())",[tenantA,activityId,subjectId,identityId]);
+      await session.query("INSERT INTO crm_tasks(tenant_id,task_id,subject_id,title,status,owner_identity_id) VALUES($1,$2,$3,'Verify reminder','open',$4)",[tenantA,taskId,subjectId,identityId]);
+      await session.query("INSERT INTO object_metadata(tenant_id,object_id,revision,object_key,provider,bucket,namespace,region,residency_profile,custody,content_type,size_bytes,sha256,ciphertext_sha256,encryption_algorithm,encryption_key_id,state) VALUES($1,$2,1,$3,'memory','private','crm','us-east-1','north-america','provider-managed-key','application/pdf',10,$4,$4,'AES-256-GCM','verify','active')",[tenantA,objectId,`tenants/${tenantA}/crm/${objectId}`,'a'.repeat(64)]);
+      await session.query("INSERT INTO crm_attachment_links(tenant_id,link_id,subject_id,object_id,object_revision,file_name,content_type,size_bytes,actor_identity_id,occurred_at) VALUES($1,$2,$3,$4,1,'verify.pdf','application/pdf',10,$5,now())",[tenantA,linkId,subjectId,objectId,identityId]);
+    });
+    await expectFailure(()=>tenantPool.withTransaction(tenantA,session=>session.query("UPDATE crm_activities SET summary='changed' WHERE tenant_id=$1 AND activity_id=$2",[tenantA,activityId])),null,'activity history update');
+    await expectFailure(()=>tenantPool.withTransaction(tenantA,session=>session.query("UPDATE crm_tasks SET status='completed' WHERE tenant_id=$1 AND task_id=$2",[tenantA,taskId])),PERSISTENCE_CODES.INVALID,'completed task without timestamp');
+    const cross=await tenantPool.withTenantSession(tenantB,session=>session.query('SELECT subject_id FROM crm_subjects WHERE subject_id=$1',[subjectId]));
+    assert(cross.rowCount===0,'CRM work subject leaked across tenants');
+    const rollbackTask=randomUUID(),rollbackKey=`crm.task-reminder:${rollbackTask}:1`,jobs=createJobRepository({tenantPool});
+    await expectFailure(()=>tenantPool.withTransaction(tenantA,async session=>{
+      await session.query("INSERT INTO crm_tasks(tenant_id,task_id,subject_id,title,status,owner_identity_id) VALUES($1,$2,$3,'Rollback reminder','open',$4)",[tenantA,rollbackTask,subjectId,identityId]);
+      await jobs.enqueueInTransaction(session,{tenantId:tenantA,kind:'crm.task_reminder',idempotencyKey:rollbackKey,payload:{taskId:rollbackTask,subjectId,expectedTaskVersion:1}});
+      throw new Error('force rollback');
+    }),null,'work reminder transaction rollback');
+    const rolledBack=await tenantPool.withTenantSession(tenantA,session=>session.query('SELECT (SELECT COUNT(*) FROM crm_tasks WHERE task_id=$1)::int AS tasks,(SELECT COUNT(*) FROM wimblo_platform.durable_jobs WHERE idempotency_key=$2)::int AS jobs',[rollbackTask,rollbackKey]));
+    assert(rolledBack.rows[0].tasks===0&&rolledBack.rows[0].jobs===0,'task or reminder survived transaction rollback');
+    await expectFailure(()=>controlPool.withAdminSession(session=>session.query('SELECT COUNT(*) FROM crm_tasks')),PERSISTENCE_CODES.ISOLATION,'control-role CRM task read');
+    return 'append-only=refused, completion=consistent, attachment=active-revision, cross-tenant=0, reminder-rollback=clean';
+  });
+
   await tenantPool.withTransaction(tenantA,session=>session.query("INSERT INTO wimblo_platform.tenant_modules(tenant_id,module_key,state) VALUES($1,'core','enabled')",[tenantA]));
   await tenantPool.withTransaction(tenantB,session=>session.query("INSERT INTO wimblo_platform.tenant_modules(tenant_id,module_key,state) VALUES($1,'core','enabled')",[tenantB]));
 
@@ -278,7 +309,7 @@ async function main(){
   });
 
   await runStep('control role can use platform identity tables but cannot read tenant business tables',async()=>{
-    await controlPool.withAdminSession(session=>session.query('INSERT INTO wimblo_platform.global_identities(identity_id,normalized_email,display_name,password_hash) VALUES($1,$2,$3,$4)',[identityId,'foundation@example.invalid','Foundation verifier','not-a-real-login-hash']));
+    await controlPool.withAdminSession(session=>session.query('INSERT INTO wimblo_platform.global_identities(identity_id,normalized_email,display_name,password_hash) VALUES($1,$2,$3,$4) ON CONFLICT (identity_id) DO NOTHING',[identityId,'foundation@example.invalid','Foundation verifier','not-a-real-login-hash']));
     const found=await controlPool.withAdminSession(session=>session.query('SELECT identity_id::text FROM wimblo_platform.global_identities WHERE identity_id=$1',[identityId]));
     assert(found.rowCount===1,'control role could not read its platform identity');
     await expectFailure(()=>controlPool.withAdminSession(session=>session.query('SELECT COUNT(*) FROM records')),PERSISTENCE_CODES.ISOLATION,'control-plane business read');

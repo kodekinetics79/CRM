@@ -30,6 +30,18 @@ export function createCrmService({repository,moduleService}={}){
   const readContext=async(tenantId,actorRole)=>{await requireCapability(tenantId,'read');requireReadRole(actorRole);};
   const salesWriteContext=async(tenantId,actorRole)=>{await requireSalesCapability(tenantId,'write');requireWriteRole(actorRole);};
   const salesReadContext=async(tenantId,actorRole)=>{await requireSalesCapability(tenantId,'read');requireReadRole(actorRole);};
+  const workContext=async(input,action)=>{
+    if(action==='read')await readContext(input.tenantId,input.actorRole);else await writeContext(input.tenantId,input.actorRole);
+    const subjectType=await repository.getSubjectType(input.tenantId,input.subjectId);
+    if(subjectType==='lead'||subjectType==='opportunity')await requireSalesCapability(input.tenantId,action);
+    return subjectType;
+  };
+  const artifactWorkContext=async(input,action,resolve)=>{
+    if(action==='read')await readContext(input.tenantId,input.actorRole);else await writeContext(input.tenantId,input.actorRole);
+    const subject=await resolve(input.tenantId,input.taskId??input.noteId);
+    if(subject.subjectType==='lead'||subject.subjectType==='opportunity')await requireSalesCapability(input.tenantId,action);
+    return subject;
+  };
 
   return Object.freeze({
     createPerson:async input=>{await writeContext(input.tenantId,input.actorRole);return repository.createPerson(input);},
@@ -47,6 +59,14 @@ export function createCrmService({repository,moduleService}={}){
     changeOpportunityStage:async input=>{await salesWriteContext(input.tenantId,input.actorRole);return repository.changeOpportunityStage(input);},
     listPipelines:async input=>{await salesReadContext(input.tenantId,input.actorRole);return repository.listPipelines(input.tenantId,input);},
     listLeads:async input=>{await salesReadContext(input.tenantId,input.actorRole);return repository.listLeads(input.tenantId,input);},
-    listOpportunities:async input=>{await salesReadContext(input.tenantId,input.actorRole);return repository.listOpportunities(input.tenantId,input);}
+    listOpportunities:async input=>{await salesReadContext(input.tenantId,input.actorRole);return repository.listOpportunities(input.tenantId,input);},
+    createActivity:async input=>{await workContext(input,'write');return repository.createActivity(input);},
+    createTask:async input=>{await workContext(input,'write');return repository.createTask(input);},
+    updateTask:async input=>{await artifactWorkContext(input,'write',repository.getTaskSubject);return repository.updateTask(input);},
+    createNote:async input=>{await workContext(input,'write');return repository.createNote(input);},
+    reviseNote:async input=>{await artifactWorkContext(input,'write',repository.getNoteSubject);return repository.reviseNote(input);},
+    linkAttachment:async input=>{await workContext(input,'write');return repository.linkAttachment(input);},
+    changeSubjectOwner:async input=>{await workContext(input,'write');return repository.changeSubjectOwner(input);},
+    listTimeline:async input=>{await workContext(input,'read');return repository.listTimeline(input);}
   });
 }

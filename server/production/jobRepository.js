@@ -30,18 +30,28 @@ export function createJobRepository({tenantPool,clock=()=>new Date(),leaseMs=30_
  const now=()=>instant(clock(),'Clock value');
  const conflict=action=>persistenceFail(PERSISTENCE_CODES.CONFLICT,`Job ${action} was refused because the lease is stale, expired or owned by another worker.`);
 
- async function enqueue({tenantId,jobId:id,queue='default',kind,idempotencyKey,payload,availableAt=now(),priority=0,maxAttempts=5}){
+ function normalizeEnqueue({tenantId,jobId:id,queue='default',kind,idempotencyKey,payload,availableAt=now(),priority=0,maxAttempts=5}){
   const tenant=assertTenantId(tenantId),identity=jobId(id),queueValue=queueName(queue),kindValue=kindName(kind),key=bounded(idempotencyKey,'Idempotency key',200),body=json(payload),due=instant(availableAt,'Job availability'),created=now();
   if(!Number.isSafeInteger(priority)||priority< -100||priority>100)persistenceFail(PERSISTENCE_CODES.INVALID,'Job priority must be between -100 and 100.');
   positive(maxAttempts,'Job maximum attempts',25);
-  return tenantPool.withTransaction(tenant,async session=>{
-   const {rows}=await session.query(`/*job:enqueue*/
+  return {tenant,identity,queueValue,kindValue,key,body,due,priority,maxAttempts,created};
+ }
+
+ async function enqueueInTransaction(session,input){
+  if(!session||typeof session.query!=='function')persistenceFail(PERSISTENCE_CODES.INVALID,'A transaction session is required to enqueue a job.');
+  const normalized=normalizeEnqueue(input);
+  const {tenant,identity,queueValue,kindValue,key,body,due,priority,maxAttempts,created}=normalized;
+  const {rows}=await session.query(`/*job:enqueue*/
     INSERT INTO wimblo_platform.durable_jobs(tenant_id,job_id,queue,kind,idempotency_key,payload,available_at,priority,max_attempts,created_at,updated_at)
     VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$10)
     ON CONFLICT (tenant_id,idempotency_key) DO UPDATE SET idempotency_key=EXCLUDED.idempotency_key
     RETURNING *`,[tenant,identity,queueValue,kindValue,key,body,due,priority,maxAttempts,created]);
-   return mapJob(rows[0]);
-  });
+  return mapJob(rows[0]);
+ }
+
+ async function enqueue(input){
+  const tenant=assertTenantId(input?.tenantId);
+  return tenantPool.withTransaction(tenant,session=>enqueueInTransaction(session,input));
  }
 
  async function claim({tenantId,queue='default',workerId,limit=1,kinds=null}){
@@ -142,5 +152,5 @@ export function createJobRepository({tenantPool,clock=()=>new Date(),leaseMs=30_
   if(!result.rowCount)conflict('retry');metrics.retries++;return mapJob(result.rows[0]);
  }
 
- return Object.freeze({enqueue,claim,heartbeat,complete,retry,deadLetter,getMetrics:()=>Object.freeze({...metrics})});
+ return Object.freeze({enqueue,enqueueInTransaction,claim,heartbeat,complete,retry,deadLetter,getMetrics:()=>Object.freeze({...metrics})});
 }

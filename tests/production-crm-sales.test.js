@@ -53,15 +53,15 @@ const stageRows=[
 const pipelineRow={tenant_id:tenantId,pipeline_id:pipelineId,name:'Default Sales Pipeline',is_default:true,status:'active',version:1,created_at:now,updated_at:now};
 
 test('sales migration 14 appends after the canonical party migration',()=>{
-  assert.equal(SCHEMA_VERSION,14);
-  assert.deepEqual(MIGRATIONS.map(entry=>entry.version),[
+  assert.ok(SCHEMA_VERSION>=14);
+  assert.deepEqual(MIGRATIONS.slice(0,14).map(entry=>entry.version),[
     1,2,3,4,5,6,7,8,9,10,11,12,13,14
   ]);
   const certified=MIGRATIONS.slice(0,13);
   const plan=planMigrations(certified.map(({version,name,checksum})=>({version,name,checksum})));
   assert.equal(plan.currentVersion,13);
-  assert.equal(plan.targetVersion,14);
-  assert.deepEqual(plan.pending.map(entry=>entry.version),[14]);
+  assert.ok(plan.targetVersion>=14);
+  assert.equal(plan.pending[0]?.version,14);
 });
 
 test('migration 14 defines pipelines, stages, leads, opportunities and append-only stage history',()=>{
@@ -211,6 +211,7 @@ test('repository creates leads with exact cents, currency and tenant-safe stage 
   assert.equal(lead.currency,'USD');
   const call=f.calls.find(item=>item.sql.includes('/*lead:insert*/ INSERT INTO leads'));
   assert.equal(call.values.includes('USD'),true);
+  assert.ok(f.calls.some(item=>item.sql.includes('/*subject:register*/ INSERT INTO crm_subjects')));
 });
 
 test('repository rejects terminal lead stages and unsafe cent amounts',async()=>{
@@ -237,6 +238,7 @@ test('repository converts a lead and creates its opportunity in one atomic trans
   assert.ok(f.calls.some(call=>call.sql.includes('/*opportunity:insert*/ INSERT INTO opportunities')));
   assert.ok(f.calls.some(call=>call.sql.includes('/*lead:convert*/ UPDATE leads')));
   assert.ok(f.calls.some(call=>call.sql.includes('/*stage-event:insert*/ INSERT INTO opportunity_stage_events')));
+  assert.ok(f.calls.some(call=>call.sql.includes('/*subject:register*/ INSERT INTO crm_subjects')));
   assert.equal(f.calls.at(-1).sql,'COMMIT');
 });
 
