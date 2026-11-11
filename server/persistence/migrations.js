@@ -198,6 +198,7 @@ export const MIGRATIONS=Object.freeze([
     UNIQUE (normalized_email)
    )`,
   `CREATE TABLE wimblo_platform.memberships(
+    membership_id uuid NOT NULL UNIQUE,
     tenant_id uuid NOT NULL REFERENCES tenants(tenant_id) ON DELETE RESTRICT,
     identity_id uuid NOT NULL REFERENCES wimblo_platform.global_identities(identity_id) ON DELETE RESTRICT,
     role text NOT NULL CHECK (role IN ('owner','admin','staff','viewer','helper')),

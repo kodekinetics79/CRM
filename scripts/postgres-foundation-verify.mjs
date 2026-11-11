@@ -4,6 +4,7 @@
 // named runtime roles. This script never accepts a production runtime URL.
 
 import {randomUUID} from 'node:crypto';
+import {createControlRepository} from '../server/production/controlRepository.js';
 import {
   MIGRATIONS,
   SCHEMA_VERSION,
@@ -27,6 +28,7 @@ const tenantPassword='wimblo-local-tenant';
 const controlPassword='wimblo-local-control';
 const tenantA=randomUUID();
 const tenantB=randomUUID();
+const tenantC=randomUUID();
 const identityId=randomUUID();
 
 const pools=[];
@@ -157,6 +159,52 @@ async function main(){
     assert(found.rowCount===1,'control role could not read its platform identity');
     await expectFailure(()=>controlPool.withAdminSession(session=>session.query('SELECT COUNT(*) FROM records')),PERSISTENCE_CODES.ISOLATION,'control-plane business read');
     return 'platform-read=1, business-read=refused';
+  });
+
+  await runStep('tenant role cannot read global identities',async()=>{
+    await expectFailure(()=>tenantPool.withAdminSession(session=>session.query('SELECT identity_id FROM wimblo_platform.global_identities')),PERSISTENCE_CODES.ISOLATION,'tenant global-identity read');
+    return 'global-identity-read=refused';
+  });
+
+  await runStep('asynchronous control repository preserves identity, membership, invitation, session and audit contracts',async()=>{
+    const repository=createControlRepository({pool:controlPool});
+    const repositoryIdentity=randomUUID();
+    const membershipA=randomUUID(),membershipB=randomUUID();
+    const invitationId=randomUUID(),invitationToken=`invite-${randomUUID()}`;
+    const sessionToken=`session-${randomUUID()}`;
+
+    const identity=await repository.createIdentity({identityId:repositoryIdentity,email:'  CONTROL@Example.Invalid ',displayName:'Control verifier',passwordHash:'not-a-login-hash'});
+    assert(identity.identityId===repositoryIdentity&&identity.normalizedEmail==='control@example.invalid','identity normalization or UUID changed');
+    await expectFailure(()=>repository.createIdentity({identityId:randomUUID(),email:'control@example.invalid',displayName:'Duplicate verifier',passwordHash:'not-a-login-hash'}),PERSISTENCE_CODES.CONFLICT,'normalized email duplicate');
+
+    const first=await repository.createMembership({membershipId:membershipA,tenantId:tenantA,identityId:repositoryIdentity,role:'owner'});
+    const second=await repository.createMembership({membershipId:membershipB,tenantId:tenantB,identityId:repositoryIdentity,role:'viewer'});
+    const memberships=await repository.listMemberships(repositoryIdentity,{status:'active'});
+    assert(memberships.length===2&&first.tenantId!==second.tenantId,'multi-tenant memberships were merged');
+    await expectFailure(()=>repository.changeMembership({membershipId:membershipA,role:'admin',expectedVersion:99}),PERSISTENCE_CODES.CONFLICT,'stale membership version');
+
+    const invitation=await repository.createInvitation({invitationId,tenantId:tenantA,token:invitationToken,email:'Invitee@Example.Invalid',role:'staff',createdBy:repositoryIdentity,expiresAt:new Date(Date.now()+60_000)});
+    assert(invitation.status==='pending'&&!Object.hasOwn(invitation,'tokenHash'),'invitation exposed token custody');
+    const tokenEvidence=await owner.withAdminSession(session=>session.query('SELECT token_hash FROM wimblo_platform.invitations WHERE invitation_id=$1',[invitationId]));
+    assert(tokenEvidence.rows[0].token_hash!==invitationToken&&tokenEvidence.rows[0].token_hash.length===64,'invitation token was not hashed');
+    const consumed=await repository.consumeInvitation({token:invitationToken,identityId:repositoryIdentity,expectedVersion:1});
+    assert(consumed.status==='consumed','invitation was not consumed once');
+
+    await repository.createSession({token:sessionToken,tenantId:tenantA,identityId:repositoryIdentity,membershipVersion:first.version,securityVersion:identity.securityVersion,mfaVerifiedAt:new Date(),expiresAt:new Date(Date.now()+60_000)});
+    const session=await repository.getSession(sessionToken);
+    assert(session.identityId===repositoryIdentity&&!Object.hasOwn(session,'tokenHash'),'session lookup exposed token custody');
+    const sessionEvidence=await owner.withAdminSession(db=>db.query('SELECT token_hash FROM wimblo_platform.opaque_sessions WHERE identity_id=$1',[repositoryIdentity]));
+    assert(sessionEvidence.rows[0].token_hash!==sessionToken&&sessionEvidence.rows[0].token_hash.length===64,'session token was not hashed');
+
+    const audit=await repository.appendAudit({identityId:repositoryIdentity,actorIdentityId:repositoryIdentity,action:'foundation.verified',targetType:'identity',targetId:repositoryIdentity});
+    await expectFailure(()=>controlPool.withAdminSession(db=>db.query('UPDATE wimblo_platform.control_audit SET action=$1 WHERE audit_id=$2',['tampered',audit.auditId])),PERSISTENCE_CODES.ISOLATION,'append-only audit update');
+
+    const rolledBackMembership=randomUUID();
+    await owner.withAdminSession(db=>db.query("INSERT INTO tenants(tenant_id,name,residency_profile,database_region,storage_region) VALUES($1,'Rollback tenant','north-america','us-east-1','us-east-1')",[tenantC]));
+    await expectFailure(()=>repository.createMembership({membershipId:rolledBackMembership,tenantId:tenantC,identityId:repositoryIdentity,role:'staff',actorIdentityId:randomUUID()}),PERSISTENCE_CODES.INVALID,'membership audit foreign-key rollback');
+    const rolledBack=await owner.withAdminSession(db=>db.query('SELECT membership_id FROM wimblo_platform.memberships WHERE membership_id=$1',[rolledBackMembership]));
+    assert(rolledBack.rowCount===0,'membership survived a failed same-transaction audit');
+    return 'identities=1, memberships=2, token-hashes=2, stale-write=refused, rollback=clean';
   });
 
   line('FOUNDATION VERIFICATION PASSED');
