@@ -196,7 +196,7 @@ async function main(){
     const atomic=await repository.acceptInvitationMembership({token:atomicToken,expectedVersion:1,identityId:atomicIdentity,membershipId:atomicMembership,newIdentity:{email:'atomic@example.invalid',displayName:'Atomic verifier',passwordHash:'not-a-login-hash'}});
     assert(atomic.identity.identityId===atomicIdentity&&atomic.membership.membershipId===atomicMembership&&atomic.invitation.status==='consumed','atomic invitation acceptance did not commit all records');
 
-    await repository.createSession({token:sessionToken,tenantId:tenantA,identityId:repositoryIdentity,membershipVersion:first.version,securityVersion:identity.securityVersion,mfaVerifiedAt:new Date(),expiresAt:new Date(Date.now()+60_000)});
+    await repository.createSession({token:sessionToken,csrfHash:'c'.repeat(64),tenantId:tenantA,identityId:repositoryIdentity,membershipVersion:first.version,securityVersion:identity.securityVersion,mfaVerifiedAt:new Date(),recentAuthenticatedAt:new Date(),expiresAt:new Date(Date.now()+60_000)});
     const session=await repository.getSession(sessionToken);
     assert(session.identityId===repositoryIdentity&&!Object.hasOwn(session,'tokenHash'),'session lookup exposed token custody');
     const sessionEvidence=await owner.withAdminSession(db=>db.query('SELECT token_hash FROM wimblo_platform.opaque_sessions WHERE identity_id=$1',[repositoryIdentity]));

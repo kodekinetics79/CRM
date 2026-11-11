@@ -229,11 +229,13 @@ export const MIGRATIONS=Object.freeze([
   `CREATE INDEX invitations_tenant_status ON wimblo_platform.invitations(tenant_id, status, expires_at)`,
   `CREATE TABLE wimblo_platform.opaque_sessions(
     token_hash char(64) PRIMARY KEY CHECK (token_hash ~ '^[a-f0-9]{64}$'),
+    csrf_hash char(64) NOT NULL CHECK (csrf_hash ~ '^[a-f0-9]{64}$'),
     tenant_id uuid NOT NULL,
     identity_id uuid NOT NULL,
     membership_version integer NOT NULL CHECK (membership_version >= 1),
     security_version integer NOT NULL CHECK (security_version >= 1),
-    mfa_verified_at timestamptz NOT NULL,
+    mfa_verified_at timestamptz,
+    recent_authenticated_at timestamptz NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
     expires_at timestamptz NOT NULL,
     revoked_at timestamptz,
@@ -395,7 +397,12 @@ export const MIGRATIONS=Object.freeze([
   `ALTER TABLE tenants ADD CONSTRAINT tenants_status_check CHECK (status IN ('active','suspended','export_pending','deletion_scheduled','legal_hold','closed')) NOT VALID`,
   `ALTER TABLE tenants VALIDATE CONSTRAINT tenants_status_check`,
   `ALTER TABLE tenants ADD CONSTRAINT tenants_lifecycle_dates_check CHECK (status <> 'deletion_scheduled' OR deletion_scheduled_at IS NOT NULL) NOT VALID`,
-  `ALTER TABLE tenants VALIDATE CONSTRAINT tenants_lifecycle_dates_check`
+  `ALTER TABLE tenants VALIDATE CONSTRAINT tenants_lifecycle_dates_check`,
+  `CREATE FUNCTION wimblo_platform.tenant_state(requested_tenant uuid) RETURNS TABLE(tenant_id uuid,status text,lifecycle_version integer)
+   LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $fn$
+    SELECT t.tenant_id,t.status,t.lifecycle_version FROM public.tenants t WHERE t.tenant_id=requested_tenant
+   $fn$`,
+  `REVOKE ALL ON FUNCTION wimblo_platform.tenant_state(uuid) FROM PUBLIC`
  ])
 ]);
 

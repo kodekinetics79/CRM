@@ -91,11 +91,13 @@ const mapChallenge=row=>row?{
 }:null;
 
 const mapSession=row=>row?{
+ csrfHash:row.csrf_hash,
  tenantId:row.tenant_id,
  identityId:row.identity_id,
  membershipVersion:Number(row.membership_version),
  securityVersion:Number(row.security_version),
  mfaVerifiedAt:iso(row.mfa_verified_at),
+ recentAuthenticatedAt:iso(row.recent_authenticated_at),
  createdAt:iso(row.created_at),
  expiresAt:iso(row.expires_at),
  revokedAt:iso(row.revoked_at)
@@ -444,14 +446,14 @@ export function createControlRepository({pool,clock=()=>new Date()}={}){
   return mapChallenge(rows[0]);
  }
 
- async function createSession({token,tenantId,identityId,membershipVersion,securityVersion,mfaVerifiedAt,expiresAt}){
+ async function createSession({token,csrfHash,tenantId,identityId,membershipVersion,securityVersion,mfaVerifiedAt,recentAuthenticatedAt,expiresAt}){
   const tenant=uuid(tenantId,'Tenant ID'),identity=uuid(identityId,'Identity ID'),at=currentTime();
   return transaction(async session=>{
    const {rows}=await session.query(
-    `INSERT INTO wimblo_platform.opaque_sessions(token_hash,tenant_id,identity_id,membership_version,security_version,mfa_verified_at,created_at,expires_at)
-     VALUES($1,$2,$3,$4,$5,$6::timestamptz,$7::timestamptz,$8::timestamptz)
-     RETURNING token_hash,tenant_id,identity_id,membership_version,security_version,mfa_verified_at,created_at,expires_at,revoked_at`,
-    [digest(token),tenant,identity,version(membershipVersion,'Membership version'),version(securityVersion,'Security version'),date(mfaVerifiedAt,'MFA verification timestamp'),at,date(expiresAt,'Session expiry')]);
+    `INSERT INTO wimblo_platform.opaque_sessions(token_hash,csrf_hash,tenant_id,identity_id,membership_version,security_version,mfa_verified_at,recent_authenticated_at,created_at,expires_at)
+     VALUES($1,$2,$3,$4,$5,$6,$7::timestamptz,$8::timestamptz,$9::timestamptz,$10::timestamptz)
+     RETURNING token_hash,csrf_hash,tenant_id,identity_id,membership_version,security_version,mfa_verified_at,recent_authenticated_at,created_at,expires_at,revoked_at`,
+    [digest(token),hash(csrfHash),tenant,identity,version(membershipVersion,'Membership version'),version(securityVersion,'Security version'),nullableDate(mfaVerifiedAt),date(recentAuthenticatedAt,'Recent authentication timestamp'),at,date(expiresAt,'Session expiry')]);
    await appendAuditWith(session,{tenantId:tenant,identityId:identity,actorIdentityId:identity,action:'session.created',targetType:'session',targetId:rows[0].token_hash.slice(0,12),at});
    return mapSession(rows[0]);
   });
@@ -459,7 +461,7 @@ export function createControlRepository({pool,clock=()=>new Date()}={}){
 
  async function getSession(token){
   const {rows}=await read(session=>session.query(
-   `SELECT token_hash,tenant_id,identity_id,membership_version,security_version,mfa_verified_at,created_at,expires_at,revoked_at
+   `SELECT token_hash,csrf_hash,tenant_id,identity_id,membership_version,security_version,mfa_verified_at,recent_authenticated_at,created_at,expires_at,revoked_at
     FROM wimblo_platform.opaque_sessions WHERE token_hash=$1`,[digest(token)]));
   return mapSession(rows[0]);
  }
@@ -475,11 +477,16 @@ export function createControlRepository({pool,clock=()=>new Date()}={}){
   });
  }
 
+ async function getTenantState(tenantId){
+  const {rows}=await read(session=>session.query('SELECT tenant_id,status,lifecycle_version FROM wimblo_platform.tenant_state($1)',[uuid(tenantId,'Tenant ID')]));
+  return rows[0]?{tenantId:rows[0].tenant_id,status:rows[0].status,lifecycleVersion:Number(rows[0].lifecycle_version)}:null;
+ }
+
  return Object.freeze({
   createIdentity,findIdentityByEmail,getIdentity,changeIdentity,
   createMembership,getMembership,listMemberships,listTenantMemberships,changeMembership,
   createInvitation,getInvitation,consumeInvitation,acceptInvitationMembership,revokeInvitation,
   getMfaState,putMfaState,replaceRecoveryCodes,consumeRecoveryCode,countRecoveryCodes,createMfaChallenge,getMfaChallenge,updateMfaChallenge,
-  createSession,getSession,revokeSessions,appendAudit
+  createSession,getSession,revokeSessions,getTenantState,appendAudit
  });
 }

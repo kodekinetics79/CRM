@@ -62,6 +62,7 @@ export function controlPlaneRoleGrants(role){
   ...CONTROL_PLANE_TABLES.map(table=>`GRANT SELECT, INSERT, UPDATE, DELETE ON ${table} TO ${name}`),
   `GRANT SELECT, INSERT ON wimblo_platform.control_audit TO ${name}`,
   `GRANT USAGE, SELECT ON SEQUENCE wimblo_platform.control_audit_audit_id_seq TO ${name}`,
+  `GRANT EXECUTE ON FUNCTION wimblo_platform.tenant_state(uuid) TO ${name}`,
   `GRANT SELECT ON ${MIGRATION_LEDGER_TABLE} TO ${name}`
  ];
 }
