@@ -225,6 +225,18 @@ export function createControlRepository({pool,clock=()=>new Date()}={}){
   return rows.map(mapMembership);
  }
 
+ async function listTenantMemberships(tenantId,{status=null,role=null}={}){
+  const tenant=uuid(tenantId,'Tenant ID');
+  if(status!==null)oneOf(status,MEMBERSHIP_STATUSES,'Membership status');
+  if(role!==null)oneOf(role,ROLES,'Membership role');
+  const {rows}=await read(session=>session.query(
+   `SELECT membership_id,tenant_id,identity_id,role,status,version,created_at,updated_at
+    FROM wimblo_platform.memberships
+    WHERE tenant_id=$1 AND ($2::text IS NULL OR status=$2) AND ($3::text IS NULL OR role=$3)
+    ORDER BY created_at,membership_id`,[tenant,status,role]));
+  return rows.map(mapMembership);
+ }
+
  async function changeMembership({membershipId,role,status,expectedVersion,actorIdentityId=null}){
   const member=uuid(membershipId,'Membership ID'),expected=version(expectedVersion),at=currentTime();
   if(role===undefined&&status===undefined)fail('Membership change requires role or status.');
@@ -256,6 +268,14 @@ export function createControlRepository({pool,clock=()=>new Date()}={}){
   });
  }
 
+ async function getInvitation(invitationId){
+  const {rows}=await read(session=>session.query(
+   `SELECT invitation_id,tenant_id,normalized_email,role,status,created_by,consumed_by,expires_at,consumed_at,revoked_at,version,created_at
+    FROM wimblo_platform.invitations WHERE invitation_id=$1`,[uuid(invitationId,'Invitation ID')]));
+  if(!rows[0])persistenceFail(PERSISTENCE_CODES.NOT_FOUND,'Invitation was not found.');
+  return mapInvitation(rows[0]);
+ }
+
  async function consumeInvitation({token,identityId,expectedVersion}){
   const identity=uuid(identityId,'Identity ID'),expected=version(expectedVersion),at=currentTime();
   return transaction(async session=>{
@@ -268,6 +288,51 @@ export function createControlRepository({pool,clock=()=>new Date()}={}){
    const mapped=mapInvitation(rows[0]);
    await appendAuditWith(session,{tenantId:mapped.tenantId,identityId:identity,actorIdentityId:identity,action:'invitation.consumed',targetType:'invitation',targetId:mapped.invitationId,at});
    return mapped;
+  });
+ }
+
+ async function acceptInvitationMembership({token,expectedVersion,identityId,membershipId,newIdentity=null}){
+  const identity=uuid(identityId,'Identity ID'),member=uuid(membershipId,'Membership ID'),expected=version(expectedVersion),at=currentTime();
+  return transaction(async session=>{
+   const invitationResult=await session.query(
+    `SELECT invitation_id,tenant_id,normalized_email,role,status,created_by,consumed_by,expires_at,consumed_at,revoked_at,version,created_at
+     FROM wimblo_platform.invitations
+     WHERE token_hash=$1 AND status='pending' AND expires_at>$2::timestamptz AND version=$3 FOR UPDATE`,
+    [digest(token),at,expected]);
+   if(!invitationResult.rows[0])persistenceFail(PERSISTENCE_CODES.CONFLICT,'Invitation is expired, consumed, revoked or changed.');
+   let invitation=mapInvitation(invitationResult.rows[0]);
+   let identityRow;
+   if(newIdentity){
+    if(email(newIdentity.email)!==invitation.normalizedEmail)persistenceFail(PERSISTENCE_CODES.CONFLICT,'Invitation email no longer matches the new identity.');
+    const created=await session.query(
+     `INSERT INTO wimblo_platform.global_identities(identity_id,normalized_email,display_name,password_hash,status,created_at,updated_at)
+      VALUES($1,$2,$3,$4,'active',$5::timestamptz,$5::timestamptz)
+      RETURNING identity_id,normalized_email,display_name,password_hash,status,security_version,created_at,updated_at`,
+     [identity,invitation.normalizedEmail,text(newIdentity.displayName,'Display name',200),text(newIdentity.passwordHash,'Password hash',4096),at]);
+    identityRow=created.rows[0];
+   }else{
+    const existing=await session.query(
+     `SELECT identity_id,normalized_email,display_name,password_hash,status,security_version,created_at,updated_at
+      FROM wimblo_platform.global_identities WHERE identity_id=$1 FOR UPDATE`,[identity]);
+    identityRow=existing.rows[0];
+    if(!identityRow||identityRow.status!=='active'||identityRow.normalized_email!==invitation.normalizedEmail)persistenceFail(PERSISTENCE_CODES.CONFLICT,'Invitation identity no longer matches an active account.');
+   }
+   const consumed=await session.query(
+    `UPDATE wimblo_platform.invitations SET status='consumed',consumed_by=$2,consumed_at=$3::timestamptz,version=version+1
+     WHERE invitation_id=$1 AND status='pending' AND version=$4
+     RETURNING invitation_id,tenant_id,normalized_email,role,status,created_by,consumed_by,expires_at,consumed_at,revoked_at,version,created_at`,
+    [invitation.invitationId,identity,at,expected]);
+   if(!consumed.rows[0])persistenceFail(PERSISTENCE_CODES.CONFLICT,'Invitation changed during acceptance.');
+   invitation=mapInvitation(consumed.rows[0]);
+   const membershipResult=await session.query(
+    `INSERT INTO wimblo_platform.memberships(membership_id,tenant_id,identity_id,role,status,created_at,updated_at)
+     VALUES($1,$2,$3,$4,'active',$5::timestamptz,$5::timestamptz)
+     RETURNING membership_id,tenant_id,identity_id,role,status,version,created_at,updated_at`,
+    [member,invitation.tenantId,identity,invitation.role,at]);
+   if(newIdentity)await appendAuditWith(session,{identityId:identity,actorIdentityId:identity,action:'identity.created',targetType:'identity',targetId:identity,at});
+   await appendAuditWith(session,{tenantId:invitation.tenantId,identityId:identity,actorIdentityId:identity,action:'invitation.consumed',targetType:'invitation',targetId:invitation.invitationId,at});
+   await appendAuditWith(session,{tenantId:invitation.tenantId,identityId:identity,actorIdentityId:identity,action:'membership.created',targetType:'membership',targetId:member,at});
+   return {identity:mapIdentity(identityRow),membership:mapMembership(membershipResult.rows[0]),invitation};
   });
  }
 
@@ -405,8 +470,8 @@ export function createControlRepository({pool,clock=()=>new Date()}={}){
 
  return Object.freeze({
   createIdentity,findIdentityByEmail,getIdentity,changeIdentity,
-  createMembership,getMembership,listMemberships,changeMembership,
-  createInvitation,consumeInvitation,revokeInvitation,
+  createMembership,getMembership,listMemberships,listTenantMemberships,changeMembership,
+  createInvitation,getInvitation,consumeInvitation,acceptInvitationMembership,revokeInvitation,
   getMfaState,putMfaState,replaceRecoveryCodes,consumeRecoveryCode,createMfaChallenge,getMfaChallenge,updateMfaChallenge,
   createSession,getSession,revokeSessions,appendAudit
  });

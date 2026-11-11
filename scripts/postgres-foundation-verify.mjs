@@ -190,6 +190,12 @@ async function main(){
     const consumed=await repository.consumeInvitation({token:invitationToken,identityId:repositoryIdentity,expectedVersion:1});
     assert(consumed.status==='consumed','invitation was not consumed once');
 
+    await owner.withAdminSession(db=>db.query("INSERT INTO tenants(tenant_id,name,residency_profile,database_region,storage_region) VALUES($1,'Atomic tenant','north-america','us-east-1','us-east-1')",[tenantC]));
+    const atomicIdentity=randomUUID(),atomicInvitation=randomUUID(),atomicMembership=randomUUID(),atomicToken=`atomic-${randomUUID()}`;
+    await repository.createInvitation({invitationId:atomicInvitation,tenantId:tenantC,token:atomicToken,email:'atomic@example.invalid',role:'staff',createdBy:repositoryIdentity,expiresAt:new Date(Date.now()+60_000)});
+    const atomic=await repository.acceptInvitationMembership({token:atomicToken,expectedVersion:1,identityId:atomicIdentity,membershipId:atomicMembership,newIdentity:{email:'atomic@example.invalid',displayName:'Atomic verifier',passwordHash:'not-a-login-hash'}});
+    assert(atomic.identity.identityId===atomicIdentity&&atomic.membership.membershipId===atomicMembership&&atomic.invitation.status==='consumed','atomic invitation acceptance did not commit all records');
+
     await repository.createSession({token:sessionToken,tenantId:tenantA,identityId:repositoryIdentity,membershipVersion:first.version,securityVersion:identity.securityVersion,mfaVerifiedAt:new Date(),expiresAt:new Date(Date.now()+60_000)});
     const session=await repository.getSession(sessionToken);
     assert(session.identityId===repositoryIdentity&&!Object.hasOwn(session,'tokenHash'),'session lookup exposed token custody');
@@ -200,8 +206,7 @@ async function main(){
     await expectFailure(()=>controlPool.withAdminSession(db=>db.query('UPDATE wimblo_platform.control_audit SET action=$1 WHERE audit_id=$2',['tampered',audit.auditId])),PERSISTENCE_CODES.ISOLATION,'append-only audit update');
 
     const rolledBackMembership=randomUUID();
-    await owner.withAdminSession(db=>db.query("INSERT INTO tenants(tenant_id,name,residency_profile,database_region,storage_region) VALUES($1,'Rollback tenant','north-america','us-east-1','us-east-1')",[tenantC]));
-    await expectFailure(()=>repository.createMembership({membershipId:rolledBackMembership,tenantId:tenantC,identityId:repositoryIdentity,role:'staff',actorIdentityId:randomUUID()}),PERSISTENCE_CODES.INVALID,'membership audit foreign-key rollback');
+    await expectFailure(()=>repository.createMembership({membershipId:rolledBackMembership,tenantId:tenantC,identityId:repositoryIdentity,role:'viewer',actorIdentityId:randomUUID()}),PERSISTENCE_CODES.INVALID,'membership audit foreign-key rollback');
     const rolledBack=await owner.withAdminSession(db=>db.query('SELECT membership_id FROM wimblo_platform.memberships WHERE membership_id=$1',[rolledBackMembership]));
     assert(rolledBack.rowCount===0,'membership survived a failed same-transaction audit');
     return 'identities=1, memberships=2, token-hashes=2, stale-write=refused, rollback=clean';
