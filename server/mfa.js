@@ -10,9 +10,15 @@ export function totp(secret,time=Date.now()){const step=Math.floor(time/30000);i
 function encryptionKey(input){if(Buffer.isBuffer(input))return input.length===32?Buffer.from(input):null;if(typeof input!=='string')return null;const value=input.trim();if(/^[a-f0-9]{64}$/i.test(value))return Buffer.from(value,'hex');if(/^[A-Za-z0-9+/]{43}=$/.test(value)){const bytes=Buffer.from(value,'base64');if(bytes.length===32&&bytes.toString('base64')===value)return bytes;}return null;}
 export const mfaAccountBinding=user=>hash(JSON.stringify([user.password_hash,user.role,user.active,user.version??1]));
 export function assertMfaEncryptionKey(key){if(!encryptionKey(key))throw new MfaError('Production requires a valid 32-byte MFA_ENCRYPTION_KEY (64 hex characters or canonical base64).',503);}
+export function createMfaSecretProtector(key){
+ const master=encryptionKey(key);if(!master)throw new MfaError('Production requires a valid 32-byte MFA_ENCRYPTION_KEY (64 hex characters or canonical base64).',503);
+ const encrypt=(secret,context)=>{const iv=randomBytes(12),cipher=createCipheriv('aes-256-gcm',master,iv);cipher.setAAD(Buffer.from('wimblo-mfa-v1:'+context));const encrypted=Buffer.concat([cipher.update(secret,'utf8'),cipher.final()]);return ['v1',iv.toString('base64'),cipher.getAuthTag().toString('base64'),encrypted.toString('base64')].join('.');};
+ const decrypt=(encoded,context)=>{try{const [version,iv,tag,ciphertext,...extra]=encoded.split('.');if(version!=='v1'||extra.length)throw Error();const decipher=createDecipheriv('aes-256-gcm',master,Buffer.from(iv,'base64'));decipher.setAAD(Buffer.from('wimblo-mfa-v1:'+context));decipher.setAuthTag(Buffer.from(tag,'base64'));return Buffer.concat([decipher.update(Buffer.from(ciphertext,'base64')),decipher.final()]).toString('utf8');}catch{throw new MfaError('MFA cannot read this account’s protected secret. Restore the configured encryption key.',503);}};
+ return Object.freeze({encrypt,decrypt});
+}
 const failed=(message,status=401)=>({error:new MfaError(message,status)});
 export function createMfaService({db,audit=()=>{},verifyPassword,key=process.env.MFA_ENCRYPTION_KEY,clock=Date.now,getAccount,revokeAccountSessions,roles=['admin','staff','viewer'],issuer='Wimblo'}){
- const validRoles=new Set(roles),master=encryptionKey(key),ttl=5*60*1000;
+ const validRoles=new Set(roles),master=encryptionKey(key),protector=master?createMfaSecretProtector(master):null,ttl=5*60*1000;
  db.exec(`CREATE TABLE IF NOT EXISTS mfa_settings(user_id TEXT PRIMARY KEY,enabled INTEGER NOT NULL DEFAULT 0,encrypted_secret TEXT,pending_secret TEXT,pending_expires INTEGER,pending_attempts INTEGER NOT NULL DEFAULT 0,pending_binding TEXT,last_step INTEGER NOT NULL DEFAULT -1,updated_at INTEGER NOT NULL);
  CREATE TABLE IF NOT EXISTS mfa_recovery(user_id TEXT NOT NULL,code_hash TEXT NOT NULL,consumed_at INTEGER,PRIMARY KEY(user_id,code_hash));
  CREATE TABLE IF NOT EXISTS mfa_challenges(token_hash TEXT PRIMARY KEY,user_id TEXT NOT NULL,expires INTEGER NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,account_binding TEXT NOT NULL);
@@ -23,8 +29,8 @@ export function createMfaService({db,audit=()=>{},verifyPassword,key=process.env
  const current=user=>{const found=typeof user?.id==='string'?(typeof getAccount==='function'?getAccount(user.id):db.prepare('SELECT * FROM users WHERE id=?').get(user.id)):null;if(!found||!found.active||!validRoles.has(found.role))throw new MfaError('This account cannot authenticate.',401);return found;};
  const binding=mfaAccountBinding;
  const settings=id=>db.prepare('SELECT * FROM mfa_settings WHERE user_id=?').get(id);
- const encrypt=(secret,id)=>{requireKey();const iv=randomBytes(12),cipher=createCipheriv('aes-256-gcm',master,iv);cipher.setAAD(Buffer.from('wimblo-mfa-v1:'+id));const encrypted=Buffer.concat([cipher.update(secret,'utf8'),cipher.final()]);return ['v1',iv.toString('base64'),cipher.getAuthTag().toString('base64'),encrypted.toString('base64')].join('.');};
- const decrypt=(encoded,id)=>{requireKey();try{const [version,iv,tag,ciphertext,...extra]=encoded.split('.');if(version!=='v1'||extra.length)throw Error();const decipher=createDecipheriv('aes-256-gcm',master,Buffer.from(iv,'base64'));decipher.setAAD(Buffer.from('wimblo-mfa-v1:'+id));decipher.setAuthTag(Buffer.from(tag,'base64'));return Buffer.concat([decipher.update(Buffer.from(ciphertext,'base64')),decipher.final()]).toString('utf8');}catch{throw new MfaError('MFA cannot read this account’s protected secret. Restore the configured encryption key.',503);}};
+ const encrypt=(secret,id)=>{requireKey();return protector.encrypt(secret,id);};
+ const decrypt=(encoded,id)=>{requireKey();return protector.decrypt(encoded,id);};
  const atom=fn=>{db.exec('BEGIN IMMEDIATE');let result;try{result=fn();db.exec('COMMIT');}catch(error){db.exec('ROLLBACK');throw error;}if(result?.error)throw result.error;return result;};
  const log=(user,action,details={})=>audit({id:user.id},action,'users',user.id,details);
  const reauth=(user,password)=>{if(typeof password!=='string'||password.length<1||password.length>200||typeof verifyPassword!=='function'||verifyPassword(password,user.password_hash)!==true)throw new MfaError('Confirm your current password.',401);};

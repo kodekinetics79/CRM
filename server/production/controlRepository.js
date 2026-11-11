@@ -409,6 +409,13 @@ export function createControlRepository({pool,clock=()=>new Date()}={}){
   });
  }
 
+ async function countRecoveryCodes(identityId){
+  const {rows}=await read(session=>session.query(
+   `SELECT COUNT(*)::integer AS count FROM wimblo_platform.mfa_recovery_codes WHERE identity_id=$1 AND used_at IS NULL`,
+   [uuid(identityId,'Identity ID')]));
+  return Number(rows[0]?.count??0);
+ }
+
  async function createMfaChallenge({challengeId,identityId,purpose,challengeHash,expiresAt}){
   const challenge=uuid(challengeId,'Challenge ID'),identity=uuid(identityId,'Identity ID'),at=currentTime();
   const {rows}=await read(session=>session.query(
@@ -472,7 +479,7 @@ export function createControlRepository({pool,clock=()=>new Date()}={}){
   createIdentity,findIdentityByEmail,getIdentity,changeIdentity,
   createMembership,getMembership,listMemberships,listTenantMemberships,changeMembership,
   createInvitation,getInvitation,consumeInvitation,acceptInvitationMembership,revokeInvitation,
-  getMfaState,putMfaState,replaceRecoveryCodes,consumeRecoveryCode,createMfaChallenge,getMfaChallenge,updateMfaChallenge,
+  getMfaState,putMfaState,replaceRecoveryCodes,consumeRecoveryCode,countRecoveryCodes,createMfaChallenge,getMfaChallenge,updateMfaChallenge,
   createSession,getSession,revokeSessions,appendAudit
  });
 }
