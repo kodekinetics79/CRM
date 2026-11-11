@@ -34,8 +34,9 @@ const fail = (status, message) => { const error = new Error(message); error.stat
 export function createPlatformApp({ rootDir, legacyDbPath, seedLegacy = true, tenantFactory, initialPlatformAdmin, mfaKey=process.env.MFA_ENCRYPTION_KEY, mfaClock=Date.now } = {}) {
   if (!rootDir || !legacyDbPath || typeof tenantFactory !== 'function') throw new Error('Platform requires rootDir, legacyDbPath and tenantFactory.');
   const production = process.env.NODE_ENV === 'production';
-  let productionOrigin;
-  if (production) { try { productionOrigin = new URL(process.env.APP_ORIGIN); } catch { throw new Error('Production platform requires an HTTPS APP_ORIGIN.'); } if (productionOrigin.protocol !== 'https:' || productionOrigin.origin !== process.env.APP_ORIGIN || productionOrigin.username || productionOrigin.password) throw new Error('Production platform requires an HTTPS APP_ORIGIN.'); }
+  const clientEvaluation=process.env.CLIENT_EVALUATION_MODE==='true',publicDeployment=production||clientEvaluation;
+  let publicOrigin;
+  if (publicDeployment) { try { publicOrigin = new URL(process.env.APP_ORIGIN); } catch { throw new Error('Public platform deployment requires an HTTPS APP_ORIGIN.'); } if (publicOrigin.protocol !== 'https:' || publicOrigin.origin !== process.env.APP_ORIGIN || publicOrigin.username || publicOrigin.password) throw new Error('Public platform deployment requires an HTTPS APP_ORIGIN.'); }
   if(production&&(seedLegacy||process.env.ALLOW_DEMO==='true'||process.env.EVALUATOR_MODE==='true'))throw new Error('Production platform cannot enable demonstration seed, ALLOW_DEMO or evaluator mode.');if(production)assertMfaEncryptionKey(mfaKey);
   const root = resolve(rootDir); mkdirSync(join(root, 'tenants'), { recursive: true });
   const db = openDatabase(join(root, 'platform.sqlite'));
@@ -93,7 +94,7 @@ export function createPlatformApp({ rootDir, legacyDbPath, seedLegacy = true, te
   for(const provider of ['hosted-giving','marketing-responses']){
   app.post('/api/'+provider+'/webhook/:tenantId',(req,res,next)=>{
     res.set('Cache-Control','no-store');
-    if(production&&!req.secure)return res.status(403).json({error:'HTTPS required'});
+    if(publicDeployment&&!req.secure)return res.status(403).json({error:'HTTPS required'});
     if(req.get('Origin'))return res.status(403).json({error:'Browser-origin callback denied'});
     const time=Date.now();for(const [key,value] of callbackAttempts)if(value.until<=time)callbackAttempts.delete(key);
     const key=provider+':'+(req.ip||'unknown');let rate=callbackAttempts.get(key);
@@ -112,9 +113,9 @@ export function createPlatformApp({ rootDir, legacyDbPath, seedLegacy = true, te
   }
   app.get('/healthz',(req,res)=>{res.set('Cache-Control','no-store');res.status(200).json({status:'ok'});});
   app.use(express.json({ limit: '2mb' }));
-  const allowed = new Set(production ? [productionOrigin.origin] : ['http://localhost:5174', 'http://127.0.0.1:5174', 'http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:4311', 'http://127.0.0.1:4311', 'http://localhost:4321', 'http://127.0.0.1:4321', ...(process.env.EVALUATOR_MODE === 'true' ? [`http://127.0.0.1:${process.env.PORT || 4321}`, `http://localhost:${process.env.PORT || 4321}`] : []), ...(process.env.APP_ORIGIN ? [process.env.APP_ORIGIN] : [])]);
-  app.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); if (production && !req.secure) return res.status(403).json({ error: 'HTTPS required' }); const origin = req.get('Origin'); if (origin && !allowed.has(origin)) return res.status(403).json({ error: 'Origin denied' }); if (origin) { res.set('Access-Control-Allow-Origin', origin); res.set('Access-Control-Allow-Credentials', 'true'); res.set('Vary', 'Origin'); res.set('Access-Control-Allow-Headers', 'Content-Type,X-CSRF-Token'); res.set('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS'); } if (req.method === 'OPTIONS') return res.sendStatus(204); next(); });
-  const cookies = { httpOnly: true, sameSite: 'strict', secure: production, path: '/', maxAge: 8 * 3600 * 1000 };
+  const allowed = new Set(publicDeployment ? [publicOrigin.origin] : ['http://localhost:5174', 'http://127.0.0.1:5174', 'http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:4311', 'http://127.0.0.1:4311', 'http://localhost:4321', 'http://127.0.0.1:4321', ...(process.env.EVALUATOR_MODE === 'true' ? [`http://127.0.0.1:${process.env.PORT || 4321}`, `http://localhost:${process.env.PORT || 4321}`] : []), ...(process.env.APP_ORIGIN ? [process.env.APP_ORIGIN] : [])]);
+  app.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); if (publicDeployment && !req.secure) return res.status(403).json({ error: 'HTTPS required' }); const origin = req.get('Origin'); if (origin && !allowed.has(origin)) return res.status(403).json({ error: 'Origin denied' }); if (origin) { res.set('Access-Control-Allow-Origin', origin); res.set('Access-Control-Allow-Credentials', 'true'); res.set('Vary', 'Origin'); res.set('Access-Control-Allow-Headers', 'Content-Type,X-CSRF-Token'); res.set('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS'); } if (req.method === 'OPTIONS') return res.sendStatus(204); next(); });
+  const cookies = { httpOnly: true, sameSite: 'strict', secure: publicDeployment, path: '/', maxAge: 8 * 3600 * 1000 };
   const router = express.Router();
   const configured = () => Boolean(db.prepare('SELECT 1 FROM administrators LIMIT 1').get());
   router.get('/config', (req, res) => res.json({ configured: configured() }));

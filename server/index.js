@@ -3,22 +3,23 @@ import { createApp } from './app.js';
 import express from 'express';
 import { fileURLToPath } from 'node:url';
 import { resolve, dirname } from 'node:path';
-import { existsSync } from 'node:fs';
+import { existsSync,rmSync,mkdirSync } from 'node:fs';
 import {resolveRuntimeConfig} from './runtimeConfig.js';
 import {configureHttpTimeouts} from './httpTimeouts.js';
 import {createObjectStorageFromEnv} from './objectStorage.js';
 import {hostedGivingConfigFromEnv} from './hostedGiving.js';
 import {marketingConfigFromEnv} from './mailchimp.js';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
-if(process.env.NODE_ENV==='production')process.umask(0o077);
-const {evaluator,production,port,host,built,dbPath:legacyDbPath,platformRoot}=resolveRuntimeConfig(process.env,root);
+const {evaluator,production,clientEvaluation,port,host,built,dbPath:legacyDbPath,platformRoot,evaluationRoot}=resolveRuntimeConfig(process.env,root);
+if(production||clientEvaluation)process.umask(0o077);
 if(built&&!existsSync(resolve(root,'dist/index.html')))throw new Error('Built frontend missing. Run npm run build before starting the built application.');
+if(clientEvaluation){rmSync(evaluationRoot,{recursive:true,force:true});mkdirSync(evaluationRoot,{recursive:true,mode:0o700});}
 const documentStorage=createObjectStorageFromEnv(process.env);
 const hostedGiving=hostedGivingConfigFromEnv(process.env);
 const marketingResponses=marketingConfigFromEnv(process.env);
 const app=createPlatformApp({rootDir:platformRoot,legacyDbPath,seedLegacy:!production,tenantFactory:options=>createApp({...options,hostedGiving:hostedGiving&&options.tenantId===hostedGiving.tenantId?hostedGiving:null,marketingResponses:marketingResponses&&options.tenantId===marketingResponses.tenantId?marketingResponses:null,documentStorage,documentTenantId:options.tenantId||'00000000-0000-4000-8000-000000000001'})});
 if(built){app.use(express.static(resolve(root,'dist')));app.get('/{*path}',(req,res)=>res.sendFile(resolve(root,'dist/index.html')));}
-const server=app.listen(port,host,()=>{console.log(`Wimblo ${evaluator?'local evaluator':'application'}: http://${host}:${port}`);if(evaluator)console.log('Synthetic demo only. Changes persist in the separate evaluator database. Press Ctrl+C to stop.');});
+const server=app.listen(port,host,()=>{console.log(`Wimblo ${clientEvaluation?'client evaluator':evaluator?'local evaluator':'application'}: http://${host}:${port}`);if(clientEvaluation)console.log('Synthetic resettable evaluation only. Do not enter real client data; all changes are discarded on restart.');else if(evaluator)console.log('Synthetic demo only. Changes persist in the separate evaluator database. Press Ctrl+C to stop.');});
 configureHttpTimeouts(server);
 server.on('error',error=>{console.error(error.code==='EADDRINUSE'?`Port ${port} is already in use. Set PORT to another local port and restart.`:'Unable to start Wimblo: '+error.message);app.locals.close();process.exitCode=1;});
 let closing=false;const shutdown=()=>{if(closing)return;closing=true;const deadline=setTimeout(()=>{server.closeAllConnections();app.locals.close();process.exit(1);},25000);deadline.unref();server.close(()=>{clearTimeout(deadline);app.locals.close();process.exit(0);});server.closeIdleConnections();};process.on('SIGINT',shutdown);process.on('SIGTERM',shutdown);

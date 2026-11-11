@@ -1,5 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "https://crm-xenz.onrender.com/api/:path*" }
+  ],
   "headers": [
     {
       "source": "/(.*)",
