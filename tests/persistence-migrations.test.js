@@ -89,10 +89,11 @@ test('each migration commits with its own ledger row, and a failure rolls that m
 test('tenant isolation is part of the schema: every tenant table is enabled, forced and policied',()=>{
  const isolation=MIGRATIONS.find(m=>m.name==='forced-row-level-tenant-isolation');
  assert.ok(isolation,'a tenant isolation migration must exist');
+ const statements=MIGRATIONS.flatMap(m=>m.statements);
  for(const table of TENANT_TABLES){
-  assert.ok(isolation.statements.includes(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`),`${table} row level security`);
-  assert.ok(isolation.statements.includes(`ALTER TABLE ${table} FORCE ROW LEVEL SECURITY`),`${table} forced row level security`);
-  assert.ok(isolation.statements.some(s=>s.startsWith(`CREATE POLICY ${table}_tenant_isolation`)&&s.includes('wimblo_current_tenant()')),`${table} tenant policy`);
+  assert.ok(statements.includes(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`),`${table} row level security`);
+  assert.ok(statements.includes(`ALTER TABLE ${table} FORCE ROW LEVEL SECURITY`),`${table} forced row level security`);
+  assert.ok(statements.some(s=>s.startsWith(`CREATE POLICY ${table}_tenant_isolation`)&&s.includes('wimblo_current_tenant()')),`${table} tenant policy`);
  }
  // The scoping function must refuse an unset scope rather than defaulting to one.
  const foundation=MIGRATIONS[0].statements.join('\n');

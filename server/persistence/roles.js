@@ -18,7 +18,10 @@
 import {PERSISTENCE_CODES,persistenceFail} from './contract.js';
 import {MIGRATION_LEDGER_TABLE} from './migrations.js';
 
-export const TENANT_TABLES=Object.freeze(['tenants','records','users','settings','audit_entries','gift_ledger','gift_allocations','object_metadata']);
+export const TENANT_TABLES=Object.freeze([
+ 'tenants','records','users','settings','audit_entries','gift_ledger','gift_allocations','object_metadata',
+ 'parties','people','organizations','contact_points','relationships','party_events'
+]);
 export const TENANT_FOUNDATION_TABLES=Object.freeze([
  'wimblo_platform.tenant_modules',
  'wimblo_platform.module_events',
@@ -58,6 +61,7 @@ export function controlPlaneRoleGrants(role){
  const name=identifier(role);
  return [
   `GRANT USAGE ON SCHEMA wimblo_platform TO ${name}`,
+  ...TENANT_TABLES.map(table=>`REVOKE ALL PRIVILEGES ON ${table} FROM ${name}`),
   ...TENANT_FOUNDATION_TABLES.map(table=>`REVOKE ALL PRIVILEGES ON ${table} FROM ${name}`),
   ...CONTROL_PLANE_TABLES.map(table=>`GRANT SELECT, INSERT, UPDATE, DELETE ON ${table} TO ${name}`),
   `GRANT SELECT, INSERT ON wimblo_platform.control_audit TO ${name}`,

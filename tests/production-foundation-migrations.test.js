@@ -23,15 +23,15 @@ const ORIGINAL_CHECKSUMS=Object.freeze([
 
 const recorded=list=>list.map(({version,name,checksum})=>({version,name,checksum}));
 
-test('production foundation appends contiguous migrations 6 through 12 without rewriting versions 1 through 5',()=>{
-  assert.equal(SCHEMA_VERSION,12);
-  assert.deepEqual(MIGRATIONS.map(entry=>entry.version),[1,2,3,4,5,6,7,8,9,10,11,12]);
+test('production foundation appends contiguous migrations 6 through 13 without rewriting versions 1 through 5',()=>{
+  assert.equal(SCHEMA_VERSION,13);
+  assert.deepEqual(MIGRATIONS.map(entry=>entry.version),[1,2,3,4,5,6,7,8,9,10,11,12,13]);
   assert.deepEqual(MIGRATIONS.slice(0,5).map(entry=>entry.checksum),ORIGINAL_CHECKSUMS);
 
   const plan=planMigrations(recorded(MIGRATIONS.slice(0,5)));
   assert.equal(plan.currentVersion,5);
-  assert.equal(plan.targetVersion,12);
-  assert.deepEqual(plan.pending.map(entry=>entry.version),[6,7,8,9,10,11,12]);
+  assert.equal(plan.targetVersion,13);
+  assert.deepEqual(plan.pending.map(entry=>entry.version),[6,7,8,9,10,11,12,13]);
 });
 
 test('a failed production-foundation migration rolls back without recording its ledger row',async()=>{
@@ -116,7 +116,7 @@ test('tenant and control-plane grants are distinct, least-privilege and identifi
     assert.ok(control.includes(`REVOKE ALL PRIVILEGES ON ${qualified} FROM wimblo_control`),table);
     assert.equal(control.some(sql=>sql.startsWith('GRANT SELECT, INSERT, UPDATE, DELETE')&&sql.includes(qualified)),false,table);
   }
-  assert.equal(control.some(sql=>/\b(records|gift_ledger|gift_allocations|object_metadata)\b/.test(sql)),false);
+  assert.equal(control.some(sql=>/^GRANT /.test(sql)&&/\b(records|gift_ledger|gift_allocations|object_metadata)\b/.test(sql)),false);
   assert.equal([...tenant,...control].some(sql=>/GRANT ALL|SUPERUSER|BYPASSRLS/.test(sql)),false);
   assert.throws(()=>controlPlaneRoleGrants('unsafe role'),/lower-case identifier/);
 

@@ -7,6 +7,9 @@ import {createIdentityService} from './identityService.js';
 import {createGlobalMfaService} from './mfaService.js';
 import {createSessionService} from './sessionService.js';
 import {createModuleService} from './moduleService.js';
+import {createCrmRepository} from './crmRepository.js';
+import {createCrmService} from './crmService.js';
+import {installCrmRoutes} from './crmRoutes.js';
 import {installProductionAuthRoutes} from './authRoutes.js';
 import {installModuleRoutes} from './moduleRoutes.js';
 
@@ -31,11 +34,15 @@ function createRateLimit({clock,limit=10,windowMs=5*60_000,maxKeys=10_000}){
 
 function defaultServices({config,controlPool,tenantPool,clock}){
  const repository=createControlRepository({pool:controlPool,clock:()=>new Date(nowMs(clock))});
+ const moduleService=createModuleService({tenantPool,clock:()=>new Date(nowMs(clock))});
+ const crmRepository=createCrmRepository({tenantPool,clock:()=>new Date(nowMs(clock))});
  return {
   identityService:createIdentityService({repository,passwordHash,verifyPassword,invitationSecret:derivedSecret(config.sessionSecret,'invitation-signing'),clock:()=>new Date(nowMs(clock))}),
   mfaService:createGlobalMfaService({repository,key:config.mfaEncryptionKey,clock:()=>nowMs(clock),issuer:'Wimblo'}),
   sessionService:createSessionService({repository,clock:()=>nowMs(clock),cookieName:config.cookieName}),
-  moduleService:createModuleService({tenantPool,clock:()=>new Date(nowMs(clock))})
+  moduleService,
+  crmRepository,
+  crmService:createCrmService({repository:crmRepository,moduleService})
  };
 }
 
@@ -59,6 +66,7 @@ export function createProductionApp({config,controlPool,tenantPool,clock=()=>new
  app.use(['/api/auth/login','/api/auth/mfa/verify'],createRateLimit({clock}));
  const auth=installProductionAuthRoutes(app,{identityService:resolved.identityService,mfaService:resolved.mfaService,sessionService:resolved.sessionService,appOrigin:config.appOrigin});
  app.locals.moduleService=resolved.moduleService;installModuleRoutes(app,{moduleService:resolved.moduleService,requireTenantSession:auth.requireTenantSession,requireCsrf:auth.requireCsrf,requireRecentAuthentication:auth.requireRecentAuthentication});
+ if(resolved.crmService)installCrmRoutes(app,{crmService:resolved.crmService,requireTenantSession:auth.requireTenantSession,requireCsrf:auth.requireCsrf,requireRecentAuthentication:auth.requireRecentAuthentication});
  app.use((req,res)=>res.status(404).json({error:'Not found.',code:'NOT_FOUND'}));
  app.use((error,req,res,next)=>{if(res.headersSent)return next(error);const candidate=error?.type==='entity.too.large'?413:error?.status,status=Number.isInteger(candidate)&&candidate>=400&&candidate<=599?candidate:500;const safe=status===413?{error:'Request body is too large.',code:'BODY_TOO_LARGE'}:status===429?{error:'Too many requests.',code:'RATE_LIMITED'}:status>=500?{error:'Internal service error.',code:'INTERNAL_ERROR'}:{error:'Request was refused.',code:'REQUEST_REFUSED'};res.status(status).json(safe);});
  return app;

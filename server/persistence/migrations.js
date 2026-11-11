@@ -426,6 +426,128 @@ export const MIGRATIONS=Object.freeze([
     SELECT count(*)::bigint FROM wimblo_platform.dead_letter_jobs
    $fn$`,
   `REVOKE ALL ON FUNCTION wimblo_platform.dead_letter_count() FROM PUBLIC`
+ ]),
+ migration(13,'canonical-party-person-organization-contact-relationships',[
+  `CREATE TABLE parties(
+    tenant_id uuid NOT NULL REFERENCES tenants(tenant_id) ON DELETE RESTRICT,
+    party_id uuid NOT NULL,
+    party_type text NOT NULL CHECK (party_type IN ('person','organization')),
+    display_name text NOT NULL CHECK (char_length(display_name) BETWEEN 1 AND 200),
+    status text NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive','merged')),
+    version integer NOT NULL DEFAULT 1 CHECK (version >= 1),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, party_id)
+   )`,
+  `CREATE TABLE people(
+    tenant_id uuid NOT NULL,
+    party_id uuid NOT NULL,
+    first_name text NOT NULL CHECK (char_length(first_name) BETWEEN 1 AND 120),
+    middle_name text CHECK (char_length(middle_name) BETWEEN 1 AND 120),
+    last_name text NOT NULL CHECK (char_length(last_name) BETWEEN 1 AND 160),
+    preferred_name text CHECK (char_length(preferred_name) BETWEEN 1 AND 160),
+    birth_date date,
+    is_deceased boolean NOT NULL DEFAULT false,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, party_id),
+    FOREIGN KEY (tenant_id, party_id) REFERENCES parties(tenant_id, party_id) ON DELETE CASCADE
+   )`,
+  `CREATE TABLE organizations(
+    tenant_id uuid NOT NULL,
+    party_id uuid NOT NULL,
+    legal_name text NOT NULL CHECK (char_length(legal_name) BETWEEN 1 AND 240),
+    domain text CHECK (char_length(domain) BETWEEN 1 AND 253),
+    industry text CHECK (char_length(industry) BETWEEN 1 AND 120),
+    employee_count integer CHECK (employee_count >= 0),
+    founded_on date,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, party_id),
+    FOREIGN KEY (tenant_id, party_id) REFERENCES parties(tenant_id, party_id) ON DELETE CASCADE
+   )`,
+  `CREATE FUNCTION wimblo_party_subtype_matches() RETURNS trigger LANGUAGE plpgsql AS $fn$
+    DECLARE parent_type text;
+    BEGIN
+     SELECT party_type INTO parent_type FROM parties WHERE tenant_id=NEW.tenant_id AND party_id=NEW.party_id;
+     IF parent_type IS NULL THEN
+      RAISE EXCEPTION 'Party subtype has no parent party' USING ERRCODE='23503';
+     END IF;
+     IF TG_TABLE_NAME='people' AND parent_type <> 'person' THEN
+      RAISE EXCEPTION 'Person subtype requires a person party' USING ERRCODE='23514';
+     END IF;
+     IF TG_TABLE_NAME='organizations' AND parent_type <> 'organization' THEN
+      RAISE EXCEPTION 'Organization subtype requires an organization party' USING ERRCODE='23514';
+     END IF;
+     RETURN NEW;
+    END
+   $fn$`,
+  `CREATE TRIGGER people_party_type_matches BEFORE INSERT ON people FOR EACH ROW EXECUTE FUNCTION wimblo_party_subtype_matches()`,
+  `CREATE TRIGGER organizations_party_type_matches BEFORE INSERT ON organizations FOR EACH ROW EXECUTE FUNCTION wimblo_party_subtype_matches()`,
+  `CREATE TABLE contact_points(
+    tenant_id uuid NOT NULL,
+    contact_id uuid NOT NULL,
+    party_id uuid NOT NULL,
+    type text NOT NULL CHECK (type IN ('email','phone','address','website')),
+    normalized_value text NOT NULL CHECK (char_length(normalized_value) BETWEEN 1 AND 320),
+    display_value text NOT NULL CHECK (char_length(display_value) BETWEEN 1 AND 500),
+    status text NOT NULL DEFAULT 'active' CHECK (status IN ('active','invalid','retired')),
+    is_primary boolean NOT NULL DEFAULT false,
+    verified_at timestamptz,
+    version integer NOT NULL DEFAULT 1 CHECK (version >= 1),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, contact_id),
+    UNIQUE (tenant_id, type, normalized_value),
+    FOREIGN KEY (tenant_id, party_id) REFERENCES parties(tenant_id, party_id) ON DELETE CASCADE
+   )`,
+  `CREATE TABLE relationships(
+    tenant_id uuid NOT NULL,
+    relationship_id uuid NOT NULL,
+    from_party_id uuid NOT NULL,
+    to_party_id uuid NOT NULL,
+    type text NOT NULL CHECK (type IN ('employee','owner','member','parent','partner','other')),
+    status text NOT NULL DEFAULT 'active' CHECK (status IN ('active','ended','merged')),
+    effective_from date NOT NULL,
+    effective_to date,
+    version integer NOT NULL DEFAULT 1 CHECK (version >= 1),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, relationship_id),
+    FOREIGN KEY (tenant_id, from_party_id) REFERENCES parties(tenant_id, party_id) ON DELETE CASCADE,
+    FOREIGN KEY (tenant_id, to_party_id) REFERENCES parties(tenant_id, party_id) ON DELETE CASCADE,
+    CHECK (from_party_id <> to_party_id),
+    CHECK (effective_to IS NULL OR effective_to >= effective_from)
+   )`,
+  `CREATE TABLE party_events(
+    tenant_id uuid NOT NULL REFERENCES tenants(tenant_id) ON DELETE RESTRICT,
+    event_id uuid NOT NULL,
+    target_type text NOT NULL CHECK (target_type IN ('party','contact','relationship')),
+    target_id uuid NOT NULL,
+    action text NOT NULL CHECK (char_length(action) BETWEEN 1 AND 120),
+    actor_identity_id uuid,
+    details jsonb NOT NULL DEFAULT '{}'::jsonb,
+    at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, event_id)
+   )`,
+  `CREATE FUNCTION wimblo_party_event_append_only() RETURNS trigger LANGUAGE plpgsql AS $fn$
+    BEGIN
+     RAISE EXCEPTION 'Party event history is append-only';
+    END
+   $fn$`,
+  `CREATE TRIGGER party_event_no_update BEFORE UPDATE ON party_events FOR EACH ROW EXECUTE FUNCTION wimblo_party_event_append_only()`,
+  `CREATE TRIGGER party_event_no_delete BEFORE DELETE ON party_events FOR EACH ROW EXECUTE FUNCTION wimblo_party_event_append_only()`,
+  `CREATE INDEX parties_tenant_name ON parties(tenant_id, display_name, party_id)`,
+  `CREATE INDEX contact_points_tenant_normalized ON contact_points(tenant_id, type, normalized_value)`,
+  `CREATE INDEX contact_points_party ON contact_points(tenant_id, party_id, type, is_primary DESC)`,
+  `CREATE INDEX relationships_from ON relationships(tenant_id, from_party_id, status)`,
+  `CREATE INDEX relationships_to ON relationships(tenant_id, to_party_id, status)`,
+  `CREATE INDEX party_events_target ON party_events(tenant_id, target_type, target_id, at DESC)`,
+  ...['parties','people','organizations','contact_points','relationships','party_events'].flatMap(table=>[
+   `ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`,
+   `ALTER TABLE ${table} FORCE ROW LEVEL SECURITY`,
+   `CREATE POLICY ${table}_tenant_isolation ON ${table} USING (tenant_id = wimblo_current_tenant()) WITH CHECK (tenant_id = wimblo_current_tenant())`
+  ])
  ])
 ]);
 

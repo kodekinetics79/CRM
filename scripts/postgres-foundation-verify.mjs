@@ -88,9 +88,9 @@ async function main(){
   const controlPool=createPostgresPool({connectionString:databaseUrl(database,controlRole,controlPassword),max:2,applicationName:'wimblo-foundation-control'});
   pools.push(owner,tenantPool,controlPool);
 
-  await runStep('explicit migrations apply versions 1 through 12',async()=>{
+  await runStep('explicit migrations apply versions 1 through 13',async()=>{
     const result=await owner.withAdminSession(session=>applyMigrations(session));
-    assert(result.currentVersion===12&&SCHEMA_VERSION===12,'schema did not reach version 12');
+    assert(result.currentVersion===13&&SCHEMA_VERSION===13,'schema did not reach version 13');
     assert(result.applied.map(entry=>entry.version).join(',')===MIGRATIONS.map(entry=>entry.version).join(','),'migration order differs');
     for(const sql of applicationRoleGrants(tenantRole))await owner.withAdminSession(session=>session.query(sql));
     for(const sql of controlPlaneRoleGrants(controlRole))await owner.withAdminSession(session=>session.query(sql));
@@ -146,6 +146,38 @@ async function main(){
       assert(row?.relrowsecurity&&row?.relforcerowsecurity,`${schema}.${table} is not forced-RLS`);
     }
     return `forced=${expected.length}`;
+  });
+
+  await runStep('canonical CRM tables enforce typed parties, contacts, relationships and tenant isolation',async()=>{
+    const personId=randomUUID(),organizationId=randomUUID(),otherPersonId=randomUUID();
+    await tenantPool.withTransaction(tenantA,async session=>{
+      await session.query("INSERT INTO parties(tenant_id,party_id,party_type,display_name) VALUES($1,$2,'person',$3),($1,$4,'organization',$5)",[tenantA,personId,'Ada Lovelace',organizationId,'Wimblo Test Systems']);
+      await session.query('INSERT INTO people(tenant_id,party_id,first_name,last_name) VALUES($1,$2,$3,$4)',[tenantA,personId,'Ada','Lovelace']);
+      await session.query('INSERT INTO organizations(tenant_id,party_id,legal_name,domain,industry,employee_count) VALUES($1,$2,$3,$4,$5,$6)',[tenantA,organizationId,'Wimblo Test Systems','wimblo.test','technology',12]);
+      await session.query('INSERT INTO contact_points(tenant_id,contact_id,party_id,type,normalized_value,display_value,is_primary) VALUES($1,$2,$3,$4,$5,$6,true)',[tenantA,randomUUID(),personId,'email','ada@example.invalid','ada@example.invalid']);
+      await session.query('INSERT INTO relationships(tenant_id,relationship_id,from_party_id,to_party_id,type,effective_from) VALUES($1,$2,$3,$4,$5,$6)',[tenantA,randomUUID(),personId,organizationId,'employee','2026-01-02']);
+    });
+    await expectFailure(()=>tenantPool.withTransaction(tenantA,async session=>{
+      await session.query('INSERT INTO organizations(tenant_id,party_id,legal_name) VALUES($1,$2,$3)',[tenantA,personId,'Wrong subtype']);
+    }),PERSISTENCE_CODES.INVALID,'person subtype used for an organization row');
+    await expectFailure(()=>tenantPool.withTransaction(tenantA,async session=>{
+      await session.query('INSERT INTO contact_points(tenant_id,contact_id,party_id,type,normalized_value,display_value) VALUES($1,$2,$3,$4,$5,$6)',[tenantA,randomUUID(),personId,'email','ada@example.invalid','ada@example.invalid']);
+    }),PERSISTENCE_CODES.CONFLICT,'duplicate normalized contact');
+    await expectFailure(()=>tenantPool.withTransaction(tenantA,async session=>{
+      await session.query('INSERT INTO relationships(tenant_id,relationship_id,from_party_id,to_party_id,type,effective_from) VALUES($1,$2,$3,$3,$4,$5)',[tenantA,randomUUID(),personId,'employee','2026-01-02']);
+    }),PERSISTENCE_CODES.INVALID,'relationship self-link');
+
+    await tenantPool.withTransaction(tenantB,async session=>{
+      await session.query("INSERT INTO parties(tenant_id,party_id,party_type,display_name) VALUES($1,$2,'person',$3)",[tenantB,otherPersonId,'Grace Hopper']);
+      await session.query('INSERT INTO people(tenant_id,party_id,first_name,last_name) VALUES($1,$2,$3,$4)',[tenantB,otherPersonId,'Grace','Hopper']);
+      await session.query('INSERT INTO contact_points(tenant_id,contact_id,party_id,type,normalized_value,display_value,is_primary) VALUES($1,$2,$3,$4,$5,$6,true)',[tenantB,randomUUID(),otherPersonId,'email','ada@example.invalid','ada@example.invalid']);
+    });
+    const own=await tenantPool.withTenantSession(tenantA,session=>session.query('SELECT party_id::text FROM parties'));
+    const cross=await tenantPool.withTenantSession(tenantA,session=>session.query('SELECT party_id::text FROM parties WHERE party_id=$1',[otherPersonId]));
+    assert(own.rowCount===2&&cross.rowCount===0,'CRM tenant isolation hid or exposed the wrong rows');
+    await expectFailure(()=>tenantPool.withAdminSession(session=>session.query('SELECT COUNT(*) FROM parties')),PERSISTENCE_CODES.ISOLATION,'unscoped CRM read');
+    await expectFailure(()=>controlPool.withAdminSession(session=>session.query('SELECT COUNT(*) FROM parties')),PERSISTENCE_CODES.ISOLATION,'control-role CRM read');
+    return 'typed-subtype=refused, duplicate-contact=refused, self-link=refused, cross-read=0, unscoped/control=refused';
   });
 
   await tenantPool.withTransaction(tenantA,session=>session.query("INSERT INTO wimblo_platform.tenant_modules(tenant_id,module_key,state) VALUES($1,'core','enabled')",[tenantA]));
