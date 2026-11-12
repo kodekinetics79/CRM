@@ -159,6 +159,13 @@ test('bypassing migration owner upgrades populated schemas while runtime roles r
       return true;
     });
     await fixture.owner.withAdminSession(session=>session.query(`REVOKE SELECT(identity_id) ON wimblo_platform.memberships FROM ${identifier(fixture.tenantRole)}`));
+    await fixture.owner.withAdminSession(session=>session.query(`GRANT MAINTAIN ON wimblo_platform.memberships TO ${identifier(fixture.tenantRole)}`));
+    await assert.rejects(()=>certifyProductionPools({tenantPool,controlPool}),error=>{
+      assert.equal(error.code,PERSISTENCE_CODES.ISOLATION);
+      assert.match(error.message,/memberships/);
+      return true;
+    });
+    await fixture.owner.withAdminSession(session=>session.query(`REVOKE MAINTAIN ON wimblo_platform.memberships FROM ${identifier(fixture.tenantRole)}`));
     await fixture.owner.withAdminSession(session=>session.query(`GRANT TRIGGER ON wimblo_platform.memberships TO ${identifier(fixture.tenantRole)}`));
     await assert.rejects(()=>certifyProductionPools({tenantPool,controlPool}),error=>{
       assert.equal(error.code,PERSISTENCE_CODES.ISOLATION);
