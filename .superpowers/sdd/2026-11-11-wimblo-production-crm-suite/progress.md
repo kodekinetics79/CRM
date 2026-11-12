@@ -47,7 +47,7 @@
 - Task 2: complete after fix round 1/5 and scoped re-review PASS.
 - Task 3: complete after fix round 1/5 and scoped re-review PASS.
 - Task 4: complete after fix round 1/5 and scoped re-review PASS.
-- Task 5: implementation complete and locally verified; independent review pending.
+- Task 5: complete after fix round 2/5 and scoped re-review PASS; browser acceptance remains an explicit Task 6 gate.
 - Task 6: pending.
 - Task 7: pending.
 
@@ -71,6 +71,6 @@ Task 4: implementation checkpoint `cdec3c1`; independent review found four concr
 
 Task 5: implementation checkpoint pending commit — auth hard-reload CSRF recovery; build-time production/synthetic/legacy entry isolation; capability-driven responsive CRM workspace; abortable tenant/search flows; accessible pipeline/timeline/report/import journeys; deterministic resettable synthetic evaluation. Focused 16/16; production foundation 148/148 plus real PostgreSQL verification; clean final full suite 1,623/1,623; production and synthetic builds passed; audit 0; browser host unavailable and browser acceptance remains explicit; independent review pending.
 
-Task 5: fix round 1/5 (5 addressed, 0 open — central 401 state purge; complete modular core/work journeys; rendered synthetic mutation/reset; capability-aware report save/import/export; accessible mobile drawer). RED 3/10; GREEN 31/31; production foundation 164/164 plus real PostgreSQL schema 16 and 35 forced-RLS tables; clean final full suite 1,638/1,638; both mode builds passed; audit 0; browser host remains unavailable; scoped re-review pending.
+Task 5: fix round 1/5 (4 addressed, 1 open — central 401 state purge; modular core/work journeys still lacked authoritative assignment data; rendered synthetic mutation/reset; capability-aware report save/import/export; accessible mobile drawer). RED 3/10; GREEN 31/31; production foundation 164/164 plus real PostgreSQL schema 16 and 35 forced-RLS tables; clean final full suite 1,638/1,638; both mode builds passed; audit 0; browser host remains unavailable.
 
-Task 5: fix round 2/5 (remaining Important finding closed — authoritative subject/version detail; assignment-safe active-member catalog; member selects; rendered task/owner optimistic behavior). Backend RED 17/21 and UI RED 9/12; focused GREEN 55/55; production foundation 171/171 plus real PostgreSQL schema 16 and 35 forced-RLS tables; clean final full suite 1,645/1,645; both mode builds passed; audit 0; scoped re-review pending.
+Task 5: fix round 2/5 (1 addressed, 0 open — commits `ad47835..d16ef7f`; authoritative subject/version detail; assignment-safe active-member catalog; member selects; rendered task/owner optimistic behavior). Backend RED 17/21 and UI RED 9/12; focused GREEN 55/55; production foundation 171/171 plus real PostgreSQL schema 16 and 35 forced-RLS tables; clean final full suite 1,645/1,645; both mode builds passed; audit 0; scoped re-review PASS.
