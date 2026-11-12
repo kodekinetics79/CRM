@@ -151,16 +151,16 @@ test('abort stops new claims and waits for in-flight work to settle',async()=>{
  while(!release)await new Promise(resolve=>setImmediate(resolve));controller.abort();release();await running;assert.equal(completed,true);assert.equal(claims,1);
 });
 
-test('long-running handlers heartbeat and complete with the latest lease version',async()=>{
- const controller=new AbortController(),tenantId=randomUUID();let version=2,heartbeats=0,claims=0,completedVersion=0;
+test('long-running handlers heartbeat and complete with the latest lease version',{timeout:5_000},async()=>{
+ const controller=new AbortController(),tenantId=randomUUID();let version=2,heartbeats=0,claims=0,completedVersion=0,releaseAfterTwo;const twoHeartbeats=new Promise(resolve=>{releaseAfterTwo=resolve;});
  const job={tenantId,jobId:randomUUID(),kind:'long',idempotencyKey:'long-1',payload:{},version,attempts:1,maxAttempts:5,state:'leased',leaseOwner:'worker'};
  const repository={
   async claim(){claims++;return claims===1?[{...job}]:[];},
-  async heartbeat(current){heartbeats++;version++;return {...current,version};},
+  async heartbeat(current){heartbeats++;version++;if(heartbeats===2)releaseAfterTwo();return {...current,version};},
   async complete(current){completedVersion=current.version;controller.abort();return {...current,state:'completed'};},
   async retry(){throw new Error('unexpected retry');}
  };
- await runWorker({repository,handlers:{long:async()=>new Promise(resolve=>setTimeout(resolve,18))},signal:controller.signal,concurrency:1,tenantIds:[tenantId],heartbeatIntervalMs:5});
+ await runWorker({repository,handlers:{long:async()=>twoHeartbeats},signal:controller.signal,concurrency:1,tenantIds:[tenantId],heartbeatIntervalMs:5});
  assert.ok(heartbeats>=2);assert.equal(completedVersion,version);
 });
 
