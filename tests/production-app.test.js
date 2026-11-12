@@ -19,8 +19,8 @@ const services=(error=Object.assign(new Error(`${secret}\nstack: private`),{stat
  moduleService:{list:async()=>[],enable:async()=>({}),suspend:async()=>({}),beginRetirement:async()=>({}),disable:async()=>({}),authorize:async()=>({allowed:false,state:'disabled'})}
 });
 
-async function fixture(t,{controlHealthy=true,tenantHealthy=true,serviceError}={}){
- const app=createProductionApp({config:config(),controlPool:pool(controlHealthy),tenantPool:pool(tenantHealthy),clock:()=>new Date('2026-11-11T12:00:00Z'),services:services(serviceError)});
+async function fixture(t,{controlHealthy=true,tenantHealthy=true,serviceError,resolvedServices}={}){
+ const app=createProductionApp({config:config(),controlPool:pool(controlHealthy),tenantPool:pool(tenantHealthy),clock:()=>new Date('2026-11-11T12:00:00Z'),services:resolvedServices||services(serviceError)});
  const server=app.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>new Promise(resolve=>server.close(resolve)));
  const base=`http://127.0.0.1:${server.address().port}`;
  const request=(path,options={})=>fetch(base+path,{...options,headers:{'X-Forwarded-Proto':'https',Origin:'https://crm.example.test',...(options.headers||{})}});
@@ -59,16 +59,42 @@ test('authentication attempts are rate limited without affecting health checks',
 });
 
 test('MFA enrollment confirmation has its own route-level rate limit',async t=>{
- const f=await fixture(t);let last;
- for(let index=0;index<11;index++)last=await f.request('/api/auth/mfa/confirm',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':'csrf'},body:'{"code":"000000"}'});
+ const resolved=services(),identityId='10000000-0000-4000-8000-000000000001',session={identityId,identity:{identityId,normalizedEmail:'owner@example.test',displayName:'Owner',status:'active'},membership:{membershipId:'20000000-0000-4000-8000-000000000001',identityId,tenantId:'30000000-0000-4000-8000-000000000001',role:'owner',status:'active',version:1}};
+ resolved.sessionService={...resolved.sessionService,authenticate:async token=>token==='valid-session'?session:null,verifyCsrf:()=>true,isRecent:()=>true};resolved.mfaService={...resolved.mfaService,confirmEnrollment:async()=>{throw Object.assign(new Error('invalid code'),{status:401});}};
+ const f=await fixture(t,{resolvedServices:resolved});let last;
+ for(let index=0;index<11;index++)last=await f.request('/api/auth/mfa/confirm',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':'csrf',Cookie:'wimblo_session=valid-session'},body:'{"code":"000000"}'});
  assert.equal(last.status,429);assert.ok(Number(last.headers.get('retry-after'))>=1);
 });
 
 test('one session cannot exhaust another session MFA confirmation limit behind the same proxy',async t=>{
- const f=await fixture(t),requestFor=token=>f.request('/api/auth/mfa/confirm',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':'csrf',Cookie:`wimblo_session=${token}`},body:'{"code":"000000"}'});
+ const resolved=services(),sessionFor=identityId=>({identityId,identity:{identityId,normalizedEmail:`${identityId}@example.test`,displayName:'Owner',status:'active'},membership:{membershipId:`membership-${identityId}`,identityId,tenantId:'tenant',role:'owner',status:'active',version:1}});
+ resolved.sessionService={...resolved.sessionService,authenticate:async token=>token==='session-a'?sessionFor('identity-a'):token==='session-b'?sessionFor('identity-b'):null,verifyCsrf:()=>true,isRecent:()=>true};resolved.mfaService={...resolved.mfaService,confirmEnrollment:async()=>{throw Object.assign(new Error('invalid code'),{status:401});}};
+ const f=await fixture(t,{resolvedServices:resolved}),requestFor=token=>f.request('/api/auth/mfa/confirm',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':'csrf',Cookie:`wimblo_session=${token}`},body:'{"code":"000000"}'});
  for(let index=0;index<10;index++)assert.equal((await requestFor('session-a')).status,401);
  assert.equal((await requestFor('session-a')).status,429);
  assert.equal((await requestFor('session-b')).status,401);
+});
+
+test('rotating authenticated session cookies cannot bypass the identity MFA confirmation limit',async t=>{
+ const resolved=services(),identityId='10000000-0000-4000-8000-000000000001',session={identityId,identity:{identityId,normalizedEmail:'owner@example.test',displayName:'Owner',status:'active'},membership:{membershipId:'20000000-0000-4000-8000-000000000001',identityId,tenantId:'30000000-0000-4000-8000-000000000001',role:'owner',status:'active',version:1}};
+ resolved.sessionService={...resolved.sessionService,authenticate:async token=>token?.startsWith('valid-')?session:null,verifyCsrf:()=>true,isRecent:()=>true};resolved.mfaService={...resolved.mfaService,confirmEnrollment:async()=>{throw Object.assign(new Error('invalid code'),{status:401});}};
+ const f=await fixture(t,{resolvedServices:resolved}),requestFor=token=>f.request('/api/auth/mfa/confirm',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':'csrf',Cookie:`wimblo_session=${token}`},body:'{"code":"000000"}'});
+ for(let index=0;index<10;index++)assert.equal((await requestFor(`valid-${index}`)).status,401);
+ assert.equal((await requestFor('valid-rotated')).status,429);
+});
+
+test('untrusted cookie churn never enters or allocates the password-reproof limiter',async t=>{
+ const f=await fixture(t),response=await f.request('/api/auth/mfa/recovery/reset',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':'csrf',Cookie:'wimblo_session=attacker-controlled'},body:'{"password":"guess"}'});
+ assert.equal(response.status,401);assert.equal(response.headers.get('ratelimit-limit'),null);assert.equal(response.headers.get('ratelimit-reset'),null);
+});
+
+test('identity limiter capacity fails closed without evicting an active password-reproof bucket',async t=>{
+ const resolved=services(),sessionFor=identityId=>({identityId,identity:{identityId,normalizedEmail:'owner@example.test',displayName:'Owner',status:'active'},membership:{membershipId:`membership-${identityId}`,identityId,tenantId:'tenant',role:'owner',status:'active',version:1}});
+ resolved.sessionService={...resolved.sessionService,authenticate:async token=>token?.startsWith('valid-')?sessionFor(token.slice(6)):null,verifyCsrf:()=>true,isRecent:()=>true};resolved.mfaService={...resolved.mfaService,confirmEnrollment:async()=>{throw Object.assign(new Error('invalid code'),{status:401});}};
+ const f=await fixture(t,{resolvedServices:resolved}),requestFor=identity=>f.request('/api/auth/mfa/confirm',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':'csrf',Cookie:`wimblo_session=valid-${identity}`},body:'{"code":"000000"}'});
+ for(let attempt=0;attempt<10;attempt++)assert.equal((await requestFor('identity-0')).status,401);
+ for(let start=1;start<10000;start+=20){const responses=await Promise.all(Array.from({length:Math.min(20,10000-start)},(_,offset)=>requestFor(`identity-${start+offset}`)));assert.equal(responses.every(response=>response.status===401),true);await Promise.all(responses.map(response=>response.arrayBuffer()));}
+ assert.equal((await requestFor('identity-10000')).status,429);assert.equal((await requestFor('identity-0')).status,429);
 });
 
 test('readiness requires both isolated pools while liveness remains process-local',async t=>{

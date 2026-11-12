@@ -1,7 +1,7 @@
 import express from 'express';
 import helmet from 'helmet';
 import {promisify} from 'node:util';
-import {createHash,createHmac,randomBytes,scrypt,timingSafeEqual} from 'node:crypto';
+import {createHmac,randomBytes,scrypt,timingSafeEqual} from 'node:crypto';
 import {createControlRepository} from './controlRepository.js';
 import {createIdentityService} from './identityService.js';
 import {createGlobalMfaService} from './mfaService.js';
@@ -22,21 +22,18 @@ const passwordHash=async password=>{const salt=randomBytes(16).toString('hex'),d
 const verifyPassword=async(password,stored)=>{try{const [version,salt,encoded]=String(stored).split(':');if(version!=='scrypt-v1'||!salt||!/^[a-f0-9]{128}$/.test(encoded))return false;const actual=await derive(password,salt,64),expected=Buffer.from(encoded,'hex');return actual.length===expected.length&&timingSafeEqual(actual,expected);}catch{return false;}};
 const derivedSecret=(secret,purpose)=>createHmac('sha256',secret).update(`wimblo/${purpose}/v1`).digest('base64url');
 
-function createRateLimit({clock,limit=10,windowMs=5*60_000,maxKeys=10_000,keyFor=req=>req.ip||'unknown'}){
+function createRateLimit({clock,limit=10,windowMs=5*60_000,maxKeys=10_000,keyFor=req=>req.ip||'unknown',rejectAtCapacity=false}){
  const buckets=new Map();
  return (req,res,next)=>{
   const time=nowMs(clock),key=String(keyFor(req));let bucket=buckets.get(key);
-  if(!bucket||bucket.resetAt<=time){bucket={count:0,resetAt:time+windowMs};buckets.set(key,bucket);}
+  if(bucket?.resetAt<=time){buckets.delete(key);bucket=null;}
+  if(!bucket){for(const [candidate,value] of buckets)if(value.resetAt<=time)buckets.delete(candidate);if(buckets.size>=maxKeys){if(rejectAtCapacity){res.setHeader('RateLimit-Limit',String(limit));res.setHeader('RateLimit-Remaining','0');res.setHeader('RateLimit-Reset',String(Math.ceil((time+windowMs)/1000)));res.setHeader('Retry-After',String(Math.max(1,Math.ceil(windowMs/1000))));return res.status(429).json({error:'Too many authentication attempts.',code:'RATE_LIMITED'});}buckets.delete(buckets.keys().next().value);}bucket={count:0,resetAt:time+windowMs};buckets.set(key,bucket);}
   bucket.count++;
-  if(buckets.size>maxKeys)for(const [candidate,value] of buckets){if(value.resetAt<=time||buckets.size>maxKeys)buckets.delete(candidate);else break;}
   res.setHeader('RateLimit-Limit',String(limit));res.setHeader('RateLimit-Remaining',String(Math.max(0,limit-bucket.count)));res.setHeader('RateLimit-Reset',String(Math.ceil(bucket.resetAt/1000)));
   if(bucket.count>limit){res.setHeader('Retry-After',String(Math.max(1,Math.ceil((bucket.resetAt-time)/1000))));return res.status(429).json({error:'Too many authentication attempts.',code:'RATE_LIMITED'});}
   next();
  };
 }
-
-const requestCookie=(req,name)=>String(req.headers.cookie||'').split(';').map(value=>value.trim()).map(value=>value.split('=')).find(([key])=>key===name)?.slice(1).join('=')||null;
-const sessionRateKey=(req,cookieName)=>{const token=requestCookie(req,cookieName);return token?`session:${createHash('sha256').update(token,'utf8').digest('hex')}`:`ip:${req.ip||'unknown'}`;};
 
 function defaultServices({config,controlPool,tenantPool,clock}){
  const repository=createControlRepository({pool:controlPool,clock:()=>new Date(nowMs(clock))});
@@ -76,8 +73,8 @@ export function createProductionApp({config,controlPool,tenantPool,clock=()=>new
  app.get('/health',(req,res)=>res.json({status:'ok',service:'wimblo-web'}));
  app.get('/ready',async(req,res)=>{try{const [control,tenant]=await Promise.all([controlPool.healthy(),tenantPool.healthy()]);return control&&tenant?res.json({status:'ready'}):res.status(503).json({status:'unavailable'});}catch{return res.status(503).json({status:'unavailable'});}});
  app.use(['/api/auth/login','/api/auth/mfa/verify'],createRateLimit({clock}));
- app.use(['/api/auth/mfa/confirm','/api/auth/mfa/recovery/reset'],createRateLimit({clock,keyFor:req=>sessionRateKey(req,config.cookieName)}));
- const auth=installProductionAuthRoutes(app,{identityService:resolved.identityService,mfaService:resolved.mfaService,sessionService:resolved.sessionService,appOrigin:config.appOrigin});
+ const mfaConfirmationRateLimit=createRateLimit({clock,rejectAtCapacity:true,keyFor:req=>req.productionSession?.identityId?`identity:${req.productionSession.identityId}`:`ip:${req.ip||'unknown'}`});
+ const auth=installProductionAuthRoutes(app,{identityService:resolved.identityService,mfaService:resolved.mfaService,sessionService:resolved.sessionService,appOrigin:config.appOrigin,mfaConfirmationRateLimit});
  app.locals.moduleService=resolved.moduleService;installModuleRoutes(app,{moduleService:resolved.moduleService,requireTenantSession:auth.requireTenantSession,requireCsrf:auth.requireCsrf,requireRecentAuthentication:auth.requireRecentAuthentication});
  if(resolved.crmService)installCrmRoutes(app,{crmService:resolved.crmService,crmReportingService:resolved.crmReportingService,crmImportService:resolved.crmImportService,requireTenantSession:auth.requireTenantSession,requireCsrf:auth.requireCsrf,requireRecentAuthentication:auth.requireRecentAuthentication});
  app.use((req,res)=>res.status(404).json({error:'Not found.',code:'NOT_FOUND'}));

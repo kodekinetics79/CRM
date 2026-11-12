@@ -14,7 +14,7 @@ export function requireCsrf(sessionService,appOrigin){
 }
 export function requireRecentAuthentication(sessionService){return(req,res,next)=>{try{if(!sessionService.isRecent(req.productionSession))return forbidden('Recent authentication is required.');next();}catch(error){next(error);}};}
 
-export function installProductionAuthRoutes(app,{identityService,mfaService,sessionService,appOrigin}){
+export function installProductionAuthRoutes(app,{identityService,mfaService,sessionService,appOrigin,mfaConfirmationRateLimit=(req,res,next)=>next()}){
  if(!app||typeof app.get!=='function'||!sessionService)throw new TypeError('Production auth routes require an Express app and session service.');
  const identity=requireIdentitySession(sessionService),tenant=requireTenantSession(sessionService),csrf=requireCsrf(sessionService,appOrigin),recent=requireRecentAuthentication(sessionService);
  app.post('/api/auth/login',async(req,res)=>{
@@ -26,8 +26,8 @@ export function installProductionAuthRoutes(app,{identityService,mfaService,sess
  });
  app.post('/api/auth/mfa/verify',async(req,res)=>{const verified=await mfaService.verifyChallenge(req.body?.challengeToken,req.body?.code),memberships=await identityService.listActiveMemberships(verified.identity.identityId);if(!memberships.length)return forbidden('No active tenant membership is available.');const issued=await sessionService.issue({identity:verified.identity,membership:memberships[0],mfaVerifiedAt:new Date(),recentAuthenticatedAt:new Date()});res.setHeader('Set-Cookie',issued.cookie);res.json({ok:true,csrfToken:issued.csrfToken});});
  app.post('/api/auth/mfa/enroll',identity,csrf,recent,async(req,res)=>res.json(await mfaService.beginEnrollment(req.productionSession.identityId)));
- app.post('/api/auth/mfa/confirm',identity,csrf,recent,async(req,res)=>res.json(await mfaService.confirmEnrollment(req.productionSession.identityId,req.body?.code,{sessionToken:req.productionSessionToken})));
- app.post('/api/auth/mfa/recovery/reset',identity,csrf,async(req,res)=>{
+ app.post('/api/auth/mfa/confirm',identity,csrf,recent,mfaConfirmationRateLimit,async(req,res)=>res.json(await mfaService.confirmEnrollment(req.productionSession.identityId,req.body?.code,{sessionToken:req.productionSessionToken})));
+ app.post('/api/auth/mfa/recovery/reset',identity,csrf,mfaConfirmationRateLimit,async(req,res)=>{
   const account=await identityService.authenticatePassword({email:req.productionSession.identity.normalizedEmail,password:req.body?.password});
   if(account.identityId!==req.productionSession.identityId)return forbidden('Password reproof did not match the current identity.');
   const reset=await mfaService.resetPendingRecoveryDelivery(account.identityId,{sessionToken:req.productionSessionToken});
