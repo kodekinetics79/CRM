@@ -5,7 +5,7 @@
 - Direction: industry-neutral, multi-customer SaaS with isolated organizations.
 - Branch: `feat/wimblo-crm-suite`.
 - Scope: production PostgreSQL foundation plus canonical parties, sales, work timeline, reporting/import/export, and responsive production CRM workspace.
-- Cost boundary: no push, PR, merge, deployment, paid Git feature, hosting upgrade, provider activation, or other billable cloud action is part of local certification.
+- Cost boundary: ordinary public-repository Git/CI is allowed; no paid Git feature, hosting upgrade, provider activation, new cloud resource, or other billable promotion is allowed.
 
 The product is implemented and locally certifiable. It is not yet a deployed or customer-accepted production CRM.
 
@@ -40,7 +40,7 @@ Browser-engine acceptance is still unobserved on this machine because no compati
 |---|---|
 | Implemented | Complete for the Task 1–6 CRM scope on the feature branch |
 | Locally verified | Complete for the Task 6 implementation checkpoint; promotion requires rerunning at the final reviewed commit |
-| Independent whole-branch review | Security, database and operations findings remediated TDD-first; final scoped re-review still required |
+| Independent whole-branch review | Complete at `1639528`; security and DB/operations re-reviews found no remaining Critical or Important issue |
 | CI / pull request | Not performed |
 | Merged | Not performed |
 | Deployed | Not performed |
@@ -55,8 +55,17 @@ Browser-engine acceptance is still unobserved on this machine because no compati
 1. `render.yaml` still deploys the legacy SQLite `npm start` runtime, not the SaaS web and worker processes.
 2. No checked-in deployment topology currently serves the production frontend `dist` bundle and proxies it to the SaaS API on the exact configured origin.
 3. Object-storage and backup configuration is validated, but the SaaS entrypoints do not yet compose customer byte upload/download or provider backup scheduling/restore consumers.
-4. Exact provider project/service plans, persistent storage, database, environment variables, billing state, deployed SHA, restart behavior, and live `/health`/`/ready` are not yet observed.
+4. The live Render project has one `0.5c-512mb` web service and no attached database. It runs the synthetic evaluator from `main`, with auto-deploy and PR previews off, no persistent production PostgreSQL, and no separately supervised SaaS worker. `/healthz` returns evaluator liveness, while `/ready` falls through to frontend HTML and is not a production-readiness probe.
 5. Browser acceptance and customer UAT remain separate gates.
+
+## Cost-safe provider observation
+
+Read-only provider inspection on 2026-11-11 found:
+
+- GitHub repository `kodekinetics79/CRM` is public. `main` is unprotected and the existing `Build and tests` workflow uses a standard hosted runner; no paid Git feature was enabled.
+- Vercel project `wimblo` is on the team plan and currently serves evaluator commit `95d3cfeb6549494c2249c558807a99d5ebc49c8a`. Automatic Git deployments were explicitly disabled before the feature-branch push because billed Wimblo build usage was observed. The current evaluator remains live until an explicitly approved, production-capable backend exists.
+- Render project `WimbloCRM` serves evaluator commit `cb56128f7670fe0f84f8007294e83a172adbb685` from service `Wimblo_CRM`. The service is active on plan `0.5c-512mb`, but the project contains no Render database. The dashboard did not expose usable invoice details during inspection, so an actual settled `$7` charge is not claimed.
+- No provider deploy, plan change, storage/database creation, secret write, billing action, or paid feature activation was performed. Production promotion is blocked by missing no-new-cost PostgreSQL, private object storage/backup scheduling, and a separately supervised worker.
 
 Resolve these blockers only on existing no-new-cost capacity. If a provider requests payment, a plan upgrade, new paid Git checks, or owner-controlled billing action, stop that external action and preserve this local checkpoint.
 
