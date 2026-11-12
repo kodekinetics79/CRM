@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {once} from 'node:events';
+import {mkdtemp,mkdir,rm,writeFile} from 'node:fs/promises';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
 import {createProductionApp} from '../server/production/app.js';
 import {startWebRuntime} from '../server/production/web.js';
 import {startWorkerRuntime} from '../server/production/worker.js';
@@ -43,6 +46,19 @@ test('HTTP, foreign origins, unknown routes and legacy CRM routes fail closed',a
  const ambiguous=await f.request('/health',{headers:{'X-Forwarded-Proto':'https,http'}});assert.equal(ambiguous.status,400);
  const foreign=await f.request('/health',{headers:{Origin:'https://attacker.example'}});assert.equal(foreign.status,403);assert.equal(foreign.headers.get('access-control-allow-origin'),null);
  for(const path of ['/missing','/api/records/constituents']){const response=await f.request(path);assert.equal(response.status,404);assert.deepEqual(await response.json(),{error:'Not found.',code:'NOT_FOUND'});}
+});
+
+test('production web serves the built same-origin frontend without converting missing API routes into HTML',async t=>{
+ const root=await mkdtemp(join(tmpdir(),'wimblo-production-web-'));t.after(()=>rm(root,{recursive:true,force:true}));
+ await mkdir(join(root,'dist','assets'),{recursive:true});
+ await writeFile(join(root,'dist','index.html'),'<!doctype html><title>Wimblo production</title>');
+ await writeFile(join(root,'dist','assets','app.js'),'globalThis.wimbloProduction=true;');
+ const app=createProductionApp({config:{...config(),root},controlPool:pool(),tenantPool:pool(),clock:()=>new Date('2026-11-11T12:00:00Z'),services:services()});
+ const server=app.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>new Promise(resolve=>server.close(resolve)));
+ const request=path=>fetch(`http://127.0.0.1:${server.address().port}${path}`,{headers:{'X-Forwarded-Proto':'https',Origin:'https://crm.example.test'}});
+ const page=await request('/');assert.equal(page.status,200);assert.match(page.headers.get('content-type')||'',/^text\/html/);assert.match(await page.text(),/Wimblo production/);
+ const asset=await request('/assets/app.js');assert.equal(asset.status,200);assert.match(asset.headers.get('content-type')||'',/javascript/);assert.match(await asset.text(),/wimbloProduction=true/);
+ const missingApi=await request('/api/not-a-route');assert.equal(missingApi.status,404);assert.deepEqual(await missingApi.json(),{error:'Not found.',code:'NOT_FOUND'});
 });
 
 test('JSON bodies are bounded and production errors never expose messages, stacks or secrets',async t=>{

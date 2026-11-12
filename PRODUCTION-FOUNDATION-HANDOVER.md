@@ -37,6 +37,8 @@ This runs focused CRM certification tests, disposable two-tenant PostgreSQL veri
 
 The final post-review candidate completed local verification on 2026-11-12: full suite 1,741/1,741; PostgreSQL foundation schema version 18; explicit PostgreSQL boundary/integration tests 4/4; real PostgreSQL/S3-compatible verification 46/46 including encrypted backup/readback/fresh-target restore reconciliation; production and synthetic builds passed; dependency audit found 0 vulnerabilities; discipline gate reported 0 focused and 0 skipped. The bounded capacity profile remained 40 operations, 0 errors, pool maximum 2, observed concurrent queries 2, 40 actual queries, and 1 query per operation. Dedicated PostgreSQL and object-store containers were loopback-only, ephemeral, and removed after evidence capture. These are local results, not deployment, provider-backup, browser, or customer-acceptance evidence.
 
+The subsequent deployment-preparation tree completed a fresh 1,742/1,742 regression run on 2026-11-12 after adding same-origin production-bundle serving. Production and synthetic builds passed, the high-severity dependency audit found 0 vulnerabilities, the discipline gate reported 0 focused and 0 skipped, and `render blueprints validate ./render.yaml` passed. This preparation run did not repeat the provider-independent PostgreSQL/S3 certification above and is not provider deployment evidence.
+
 Browser-engine acceptance is still unobserved on this machine because no compatible browser host is available. Do not describe source/render tests as browser acceptance.
 
 ## Delivery state
@@ -57,12 +59,14 @@ Browser-engine acceptance is still unobserved on this machine because no compati
 
 ## Deployment blockers
 
-1. `render.yaml` still deploys the legacy SQLite `npm start` runtime, not the SaaS web and worker processes.
-2. No checked-in deployment topology currently serves the production frontend `dist` bundle and proxies it to the SaaS API on the exact configured origin.
-3. Object-storage and backup configuration is validated, but the SaaS entrypoints do not yet compose customer byte upload/download or provider backup scheduling/restore consumers.
-4. The live Render project has one `0.5c-512mb` web service and no attached database. It runs the synthetic evaluator from `main`, with auto-deploy and PR previews off, no persistent production PostgreSQL, and no separately supervised SaaS worker. `/healthz` returns evaluator liveness, while `/ready` falls through to frontend HTML and is not a production-readiness probe.
-5. Browser acceptance and customer UAT remain separate gates.
-6. Authentication rate limiting is process-local for the current single-web-process design. Any future multi-replica web topology requires a reviewed shared durable limiter before production acceptance.
+1. The staged `render.yaml` now describes the SaaS web and worker processes, and the SaaS web composition serves the production `dist` bundle on the API origin. It remains deliberately non-activating with auto-deploy off; applying it would replace the live evaluator backend and create a paid worker.
+2. Render has no free background-worker plan. The staged worker requires at least the current $7/month `0.5c-512mb` charge and therefore awaits explicit cost approval.
+3. The existing usage-based Neon `wimblo` project has no Wimblo production schema or distinct migration/tenant/control roles. Provisioning, migration, grants, cost acceptance, and an independently tested restore remain outstanding.
+4. No private document/backup bucket and credentials have been provider-verified. Object byte upload/download remains intentionally absent, and provider backup scheduling/readback/restore has not been operated.
+5. Render does not publish an exact ingress peer CIDR list in the inspected documentation. The runtime correctly refuses wildcard or hop-count proxy trust, so a provider-supported allowlist or different verifiable ingress is required before the web service can start safely.
+6. The live Render service still runs evaluator commit `cb56128f7670fe0f84f8007294e83a172adbb685`; `/healthz` is live and `/ready` is evaluator frontend HTML. No SaaS deployment has occurred.
+7. Browser acceptance and customer UAT remain separate gates.
+8. Authentication rate limiting is process-local for the current single-web-process design. Any future multi-replica web topology requires a reviewed shared durable limiter before production acceptance.
 
 ## Cost-safe provider observation
 
@@ -71,6 +75,7 @@ Read-only provider inspection on 2026-11-11, followed by a post-merge deployment
 - GitHub repository `kodekinetics79/CRM` is public. `main` is unprotected and the existing `Build and tests` workflow uses a standard hosted runner; no paid Git feature was enabled.
 - Vercel project `wimblo` is on the team plan and currently serves evaluator commit `95d3cfeb6549494c2249c558807a99d5ebc49c8a`. Although automatic Git deployments were marked disabled, two PR preview builds were still created. The Git integration was then disconnected from the project to prevent further branch-push builds. A post-merge query covering the merge window returned zero new deployments. The current production evaluator remains live and unchanged until an explicitly approved, production-capable backend exists.
 - Render project `WimbloCRM` serves evaluator commit `cb56128f7670fe0f84f8007294e83a172adbb685` from service `Wimblo_CRM`. The service is active on plan `0.5c-512mb`, but the project contains no Render database. The dashboard did not expose usable invoice details during inspection, so an actual settled `$7` charge is not claimed.
+- The existing Neon Launch project `wimblo` is in `aws-us-east-1`; its default branch contains only Neon's auth schema and owner role. It is not a migrated Wimblo database and no production runtime role URLs were created.
 - No provider deploy, plan change, storage/database creation, secret write, billing action, or paid feature activation was performed. Production promotion is blocked by missing no-new-cost PostgreSQL, private object storage/backup scheduling, and a separately supervised worker.
 
 Resolve these blockers only on existing no-new-cost capacity. If a provider requests payment, a plan upgrade, new paid Git checks, or owner-controlled billing action, stop that external action and preserve this local checkpoint.

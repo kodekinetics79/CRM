@@ -36,13 +36,26 @@ If polling fails while handlers are active, the worker drains those handlers bef
 
 ## Deployment topology required
 
-Operate three separate components:
+Operate three logical components:
 
-1. Production frontend bundle from `npm run build`, served on the exact `APP_ORIGIN`.
-2. SaaS web process using `npm run start:saas:web`.
+1. Production frontend bundle from `npm run build`, served by the SaaS web process on the exact `APP_ORIGIN`.
+2. SaaS web/API process using `npm run start:saas:web`.
 3. SaaS worker process using `npm run start:saas:worker`.
 
-The checked-in `render.yaml` currently starts the legacy SQLite application through `npm start`. It must not be treated as the SaaS deployment manifest. No checked-in topology currently serves the production `dist` bundle or provisions the SaaS web/worker pair. Promotion remains blocked until a reviewed no-new-cost topology replaces that mismatch.
+The SaaS web composition now serves the built `dist` bundle and API from one exact origin. The checked-in `render.yaml` stages the existing `Wimblo_CRM` web service plus a separate worker, keeps auto-deploy disabled, and validates through the Render CLI. It is preparation, not an activated deployment. Applying it would replace the live evaluator backend and create a paid worker, so the rollback, cost, secrets, migration, proxy, and storage gates below must be complete first.
+
+## Provider and cost checkpoint
+
+Read-only inspection on 2026-11-12 established these boundaries:
+
+- the existing Render `Wimblo_CRM` web service already uses the `0.5c-512mb` plan and can be repurposed without adding another web service, but doing so replaces the evaluator backend;
+- Render does not offer a free background-worker plan; the staged `0.5c-512mb` worker adds the provider's current $7/month compute charge;
+- Free Render Postgres expires after 30 days and has no backups, so it is not a production option; paid Render Postgres currently starts at $6/month;
+- an existing usage-based Neon Launch project named `wimblo` exists in `aws-us-east-1`, but it currently contains only Neon's auth schema and owner role—not the Wimblo schema, migration owner, tenant role, or control role;
+- the current shell exposes no object-storage credentials, and no private document/backup bucket has been provider-verified for this promotion;
+- Render documents TLS termination and forwarded headers but does not publish an exact ingress peer CIDR list. The application must not use a wildcard, guessed subnet, or hop-count trust rule. Obtain supported provider evidence or choose an ingress with a verifiable proxy range before setting `TRUSTED_PROXY_CIDRS`.
+
+No Blueprint apply, provider role/schema creation, bucket creation, secret write, service cutover, or paid worker activation is authorized by this preparation checkpoint alone.
 
 ## Required private configuration
 

@@ -1,6 +1,7 @@
 import express from 'express';
 import helmet from 'helmet';
 import {promisify} from 'node:util';
+import {join} from 'node:path';
 import {createHmac,randomBytes,scrypt,timingSafeEqual} from 'node:crypto';
 import {createControlRepository} from './controlRepository.js';
 import {createIdentityService} from './identityService.js';
@@ -77,6 +78,7 @@ export function createProductionApp({config,controlPool,tenantPool,clock=()=>new
  const auth=installProductionAuthRoutes(app,{identityService:resolved.identityService,mfaService:resolved.mfaService,sessionService:resolved.sessionService,appOrigin:config.appOrigin,mfaConfirmationRateLimit});
  app.locals.moduleService=resolved.moduleService;installModuleRoutes(app,{moduleService:resolved.moduleService,requireTenantSession:auth.requireTenantSession,requireCsrf:auth.requireCsrf,requireRecentAuthentication:auth.requireRecentAuthentication});
  if(resolved.crmService)installCrmRoutes(app,{crmService:resolved.crmService,crmReportingService:resolved.crmReportingService,crmImportService:resolved.crmImportService,requireTenantSession:auth.requireTenantSession,requireCsrf:auth.requireCsrf,requireRecentAuthentication:auth.requireRecentAuthentication});
+ if(typeof config.root==='string')app.use(express.static(join(config.root,'dist'),{dotfiles:'deny',fallthrough:true,index:'index.html'}));
  app.use((req,res)=>res.status(404).json({error:'Not found.',code:'NOT_FOUND'}));
  app.use((error,req,res,next)=>{if(res.headersSent)return next(error);const candidate=error?.type==='entity.too.large'?413:error?.status,status=Number.isInteger(candidate)&&candidate>=400&&candidate<=599?candidate:500;const safe=status===413?{error:'Request body is too large.',code:'BODY_TOO_LARGE'}:status===429?{error:'Too many requests.',code:'RATE_LIMITED'}:status>=500?{error:'Internal service error.',code:'INTERNAL_ERROR'}:{error:'Request was refused.',code:'REQUEST_REFUSED'};res.status(status).json(safe);});
  return app;
