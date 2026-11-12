@@ -182,7 +182,8 @@ export async function assertRowLevelSecurityEffective(session){
            OR has_table_privilege(current_user,object_name,'DELETE')
            OR has_table_privilege(current_user,object_name,'TRUNCATE')
            OR has_table_privilege(current_user,object_name,'REFERENCES')
-           OR has_table_privilege(current_user,object_name,'TRIGGER')) AS has_privilege
+           OR has_table_privilege(current_user,object_name,'TRIGGER')
+           OR has_any_column_privilege(current_user,object_name,'SELECT,INSERT,UPDATE,REFERENCES')) AS has_privilege
    FROM unnest($1::text[]) AS forbidden(object_name)`,[TENANT_FORBIDDEN_CONTROL_TABLES]);
  const exposedTables=controlTables.filter(item=>item.has_privilege).map(item=>item.object_name);
  const {rows:functions}=await session.query(
