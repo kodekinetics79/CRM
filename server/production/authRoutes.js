@@ -27,6 +27,13 @@ export function installProductionAuthRoutes(app,{identityService,mfaService,sess
  app.post('/api/auth/mfa/verify',async(req,res)=>{const verified=await mfaService.verifyChallenge(req.body?.challengeToken,req.body?.code),memberships=await identityService.listActiveMemberships(verified.identity.identityId);if(!memberships.length)return forbidden('No active tenant membership is available.');const issued=await sessionService.issue({identity:verified.identity,membership:memberships[0],mfaVerifiedAt:new Date(),recentAuthenticatedAt:new Date()});res.setHeader('Set-Cookie',issued.cookie);res.json({ok:true,csrfToken:issued.csrfToken});});
  app.post('/api/auth/mfa/enroll',identity,csrf,recent,async(req,res)=>res.json(await mfaService.beginEnrollment(req.productionSession.identityId)));
  app.post('/api/auth/mfa/confirm',identity,csrf,recent,async(req,res)=>res.json(await mfaService.confirmEnrollment(req.productionSession.identityId,req.body?.code,{sessionToken:req.productionSessionToken})));
+ app.post('/api/auth/mfa/recovery/reset',identity,csrf,async(req,res)=>{
+  const account=await identityService.authenticatePassword({email:req.productionSession.identity.normalizedEmail,password:req.body?.password});
+  if(account.identityId!==req.productionSession.identityId)return forbidden('Password reproof did not match the current identity.');
+  const reset=await mfaService.resetPendingRecoveryDelivery(account.identityId,{sessionToken:req.productionSessionToken});
+  const issued=await sessionService.issue({identity:{...account,securityVersion:reset.securityVersion},membership:req.productionSession.membership,mfaVerifiedAt:null,recentAuthenticatedAt:new Date()});
+  res.setHeader('Set-Cookie',issued.cookie);res.json({recoveryCodes:reset.recoveryCodes,recoveryAcknowledgementRequired:true,csrfToken:issued.csrfToken});
+ });
  app.post('/api/auth/mfa/recovery/ack',identity,csrf,recent,async(req,res)=>{await mfaService.acknowledgeRecoveryCodes(req.productionSession.identityId,{sessionToken:req.productionSessionToken});res.setHeader('Set-Cookie',sessionService.clearCookie());res.json({ok:true,reauthenticationRequired:true,sessionCleanupConfirmed:true});});
  app.get('/api/auth/tenants',tenant,async(req,res)=>res.json({memberships:await identityService.listActiveMemberships(req.productionSession.identityId)}));
  app.post('/api/auth/tenant',tenant,csrf,async(req,res)=>{const issued=await sessionService.switchTenant(req.productionSessionToken,req.body?.membershipId);res.setHeader('Set-Cookie',issued.cookie);res.json({csrfToken:issued.csrfToken,tenantId:issued.session.tenantId});});

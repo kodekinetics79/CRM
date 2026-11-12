@@ -64,6 +64,13 @@ test('MFA enrollment confirmation has its own route-level rate limit',async t=>{
  assert.equal(last.status,429);assert.ok(Number(last.headers.get('retry-after'))>=1);
 });
 
+test('one session cannot exhaust another session MFA confirmation limit behind the same proxy',async t=>{
+ const f=await fixture(t),requestFor=token=>f.request('/api/auth/mfa/confirm',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':'csrf',Cookie:`wimblo_session=${token}`},body:'{"code":"000000"}'});
+ for(let index=0;index<10;index++)assert.equal((await requestFor('session-a')).status,401);
+ assert.equal((await requestFor('session-a')).status,429);
+ assert.equal((await requestFor('session-b')).status,401);
+});
+
 test('readiness requires both isolated pools while liveness remains process-local',async t=>{
  const f=await fixture(t,{tenantHealthy:false});assert.equal((await f.request('/health')).status,200);const ready=await f.request('/ready');assert.equal(ready.status,503);assert.deepEqual(await ready.json(),{status:'unavailable'});
 });

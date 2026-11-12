@@ -1,7 +1,7 @@
 import express from 'express';
 import helmet from 'helmet';
 import {promisify} from 'node:util';
-import {createHmac,randomBytes,scrypt,timingSafeEqual} from 'node:crypto';
+import {createHash,createHmac,randomBytes,scrypt,timingSafeEqual} from 'node:crypto';
 import {createControlRepository} from './controlRepository.js';
 import {createIdentityService} from './identityService.js';
 import {createGlobalMfaService} from './mfaService.js';
@@ -22,10 +22,10 @@ const passwordHash=async password=>{const salt=randomBytes(16).toString('hex'),d
 const verifyPassword=async(password,stored)=>{try{const [version,salt,encoded]=String(stored).split(':');if(version!=='scrypt-v1'||!salt||!/^[a-f0-9]{128}$/.test(encoded))return false;const actual=await derive(password,salt,64),expected=Buffer.from(encoded,'hex');return actual.length===expected.length&&timingSafeEqual(actual,expected);}catch{return false;}};
 const derivedSecret=(secret,purpose)=>createHmac('sha256',secret).update(`wimblo/${purpose}/v1`).digest('base64url');
 
-function createRateLimit({clock,limit=10,windowMs=5*60_000,maxKeys=10_000}){
+function createRateLimit({clock,limit=10,windowMs=5*60_000,maxKeys=10_000,keyFor=req=>req.ip||'unknown'}){
  const buckets=new Map();
  return (req,res,next)=>{
-  const time=nowMs(clock),key=req.ip||'unknown';let bucket=buckets.get(key);
+  const time=nowMs(clock),key=String(keyFor(req));let bucket=buckets.get(key);
   if(!bucket||bucket.resetAt<=time){bucket={count:0,resetAt:time+windowMs};buckets.set(key,bucket);}
   bucket.count++;
   if(buckets.size>maxKeys)for(const [candidate,value] of buckets){if(value.resetAt<=time||buckets.size>maxKeys)buckets.delete(candidate);else break;}
@@ -34,6 +34,9 @@ function createRateLimit({clock,limit=10,windowMs=5*60_000,maxKeys=10_000}){
   next();
  };
 }
+
+const requestCookie=(req,name)=>String(req.headers.cookie||'').split(';').map(value=>value.trim()).map(value=>value.split('=')).find(([key])=>key===name)?.slice(1).join('=')||null;
+const sessionRateKey=(req,cookieName)=>{const token=requestCookie(req,cookieName);return token?`session:${createHash('sha256').update(token,'utf8').digest('hex')}`:`ip:${req.ip||'unknown'}`;};
 
 function defaultServices({config,controlPool,tenantPool,clock}){
  const repository=createControlRepository({pool:controlPool,clock:()=>new Date(nowMs(clock))});
@@ -73,7 +76,7 @@ export function createProductionApp({config,controlPool,tenantPool,clock=()=>new
  app.get('/health',(req,res)=>res.json({status:'ok',service:'wimblo-web'}));
  app.get('/ready',async(req,res)=>{try{const [control,tenant]=await Promise.all([controlPool.healthy(),tenantPool.healthy()]);return control&&tenant?res.json({status:'ready'}):res.status(503).json({status:'unavailable'});}catch{return res.status(503).json({status:'unavailable'});}});
  app.use(['/api/auth/login','/api/auth/mfa/verify'],createRateLimit({clock}));
- app.use('/api/auth/mfa/confirm',createRateLimit({clock}));
+ app.use(['/api/auth/mfa/confirm','/api/auth/mfa/recovery/reset'],createRateLimit({clock,keyFor:req=>sessionRateKey(req,config.cookieName)}));
  const auth=installProductionAuthRoutes(app,{identityService:resolved.identityService,mfaService:resolved.mfaService,sessionService:resolved.sessionService,appOrigin:config.appOrigin});
  app.locals.moduleService=resolved.moduleService;installModuleRoutes(app,{moduleService:resolved.moduleService,requireTenantSession:auth.requireTenantSession,requireCsrf:auth.requireCsrf,requireRecentAuthentication:auth.requireRecentAuthentication});
  if(resolved.crmService)installCrmRoutes(app,{crmService:resolved.crmService,crmReportingService:resolved.crmReportingService,crmImportService:resolved.crmImportService,requireTenantSession:auth.requireTenantSession,requireCsrf:auth.requireCsrf,requireRecentAuthentication:auth.requireRecentAuthentication});

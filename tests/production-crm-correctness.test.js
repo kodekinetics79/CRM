@@ -38,7 +38,16 @@ test('pipeline overflow offers a supported status filter and reloads a bounded n
  const client={request:async path=>{calls.push(path);if(path==='/crm/pipelines')return {pipelines:[pipeline]};const query=new URLSearchParams(path.split('?')[1]),offset=Number(query.get('offset')||0),limit=Number(query.get('limit')||100),status=query.get('status');if(status==='open')return {opportunities:offset===0?[{opportunityId:'filtered',name:'Narrowed opportunity',stageId:'s',amountCents:100,currency:'USD',version:1}]:[]};return {opportunities:offset<1000?Array.from({length:limit},(_,index)=>({opportunityId:`op-${offset+index}`,name:`Opportunity ${offset+index}`,stageId:'s',amountCents:100,currency:'USD',version:1})):[{opportunityId:'overflow'}]};}};
  const h=harness('src/production/PipelineBoard.jsx'),props={client};h.render(props);h.effects()[0]();await flush();await flush();let tree=h.render(props),filter=find(tree,node=>node.type==='select'&&node.props.name==='opportunityStatus');
  assert.ok(filter);filter.props.onChange({target:{value:'open'}});tree=h.render(props);const narrow=find(tree,node=>node.type==='button'&&React.Children.toArray(node.props.children).includes('Load filtered board'));assert.ok(narrow);await narrow.props.onClick();await flush();tree=h.render(props);
- assert.match(renderToStaticMarkup(tree),/Narrowed opportunity/);assert.ok(calls.some(path=>path.includes('/crm/opportunities?')&&new URLSearchParams(path.split('?')[1]).get('status')==='open'));
+ assert.match(renderToStaticMarkup(tree),/Narrowed opportunity/);assert.match(renderToStaticMarkup(tree),/Showing Open opportunities/);assert.ok(calls.some(path=>path.includes('/crm/opportunities?')&&new URLSearchParams(path.split('?')[1]).get('status')==='open'));
+});
+
+test('moving an opportunity out of the active status filter removes it while keeping the filter visible',async()=>{
+ const pipeline={pipelineId:'p',name:'Pipeline',stages:[{stageId:'open',name:'Open',kind:'open',position:1,probability:10},{stageId:'won',name:'Won',kind:'won',position:2,probability:100}]},calls=[];
+ const client={request:async(path,options={})=>{calls.push([path,options]);if(path==='/crm/pipelines')return {pipelines:[pipeline]};if(path.startsWith('/crm/opportunities?')){const query=new URLSearchParams(path.split('?')[1]),status=query.get('status'),offset=Number(query.get('offset')||0),limit=Number(query.get('limit')||100);if(status==='open')return {opportunities:offset===0?[{opportunityId:'filtered',name:'Filtered opportunity',stageId:'open',amountCents:100,currency:'USD',version:1}]:[]};return {opportunities:offset<1000?Array.from({length:limit},(_,index)=>({opportunityId:`op-${offset+index}`,stageId:'open'})):[{opportunityId:'overflow'}]};}if(path==='/crm/opportunities/filtered/stage')return {opportunity:{}};throw new Error(path);}};
+ const h=harness('src/production/PipelineBoard.jsx'),props={client};h.render(props);h.effects()[0]();await flush();await flush();let tree=h.render(props);find(tree,node=>node.props?.name==='opportunityStatus').props.onChange({target:{value:'open'}});tree=h.render(props);await find(tree,node=>node.type==='button'&&React.Children.toArray(node.props.children).includes('Load filtered board')).props.onClick();await flush();tree=h.render(props);
+ find(tree,node=>node.type==='select').props.onChange({target:{value:'won'}});tree=h.render(props);await find(tree,node=>node.type==='button'&&React.Children.toArray(node.props.children).includes('Move opportunity')).props.onClick();tree=h.render(props);const html=renderToStaticMarkup(tree);
+ assert.doesNotMatch(html,/Filtered opportunity/);assert.match(html,/Showing Open opportunities/);
+ assert.ok(calls.some(([path,options])=>path==='/crm/opportunities/filtered/stage'&&options.body.stageId==='won'));
 });
 
 test('party directory offers bounded paging and appends the next page',async()=>{
@@ -70,6 +79,7 @@ test('intermediate-width navigation keeps destination labels and Sign out visibl
 test('desktop navigation rail scrolls when its content exceeds the viewport',()=>{
  const css=readFileSync(new URL('src/production/production.css',root),'utf8'),rail=css.match(/\.prod-rail\{([^}]*)\}/)?.[1]||'';
  assert.match(rail,/overflow-y:auto/);
+ assert.match(css,/\.prod-rail\s+:focus-visible\{[^}]*outline[^}]*#fff/i);
 });
 
 test('production typography uses the application design system without a second display-font dependency',()=>{
