@@ -36,6 +36,7 @@ const LEGACY_DUMP_TABLES=new Set(['tenants','records','users','settings','audit_
 const TENANT_DATA_TABLES=Object.freeze([...TENANT_TABLES.filter(table=>!LEGACY_DUMP_TABLES.has(table)),...TENANT_FOUNDATION_TABLES]);
 const sqlIdentifier=value=>{if(!/^[a-z_][a-z0-9_]{0,62}$/.test(value))persistenceFail(PERSISTENCE_CODES.VERIFICATION,'Tenant backup contains an unsafe SQL identifier.');return `"${value}"`;};
 const sqlRelation=value=>String(value).split('.').map(sqlIdentifier).join('.');
+const restoreParameter=(table,column,value)=>table==='wimblo_platform.durable_jobs'&&column==='payload'?JSON.stringify(value):value;
 const backupValue=value=>value instanceof Date?value.toISOString():Array.isArray(value)?value.map(backupValue):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).map(([key,item])=>[key,backupValue(item)])):value;
 const tenantDataDigest=data=>Object.fromEntries(TENANT_DATA_TABLES.map(table=>{
  const rows=data[table]||[];
@@ -87,7 +88,7 @@ export async function createPostgresRepository({pool,tenantId,tenant={},ensureTe
     if(insertRow!==row)convertedLeads.push({leadId:row.lead_id,opportunityId:row.converted_opportunity_id});
     const columns=Object.keys(insertRow).sort();
     if(!columns.length)persistenceFail(PERSISTENCE_CODES.INVALID,`Tenant backup table "${table}" contains an empty row.`);
-    await session.query(`INSERT INTO ${sqlRelation(table)}(${columns.map(sqlIdentifier).join(',')}) VALUES(${columns.map((_,index)=>`$${index+1}`).join(',')})`,columns.map(column=>insertRow[column]));
+    await session.query(`INSERT INTO ${sqlRelation(table)}(${columns.map(sqlIdentifier).join(',')}) VALUES(${columns.map((_,index)=>`$${index+1}`).join(',')})`,columns.map(column=>restoreParameter(table,column,insertRow[column])));
    }
    counts[table]=rows.length;
   }
