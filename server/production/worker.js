@@ -4,6 +4,7 @@ import {pathToFileURL} from 'node:url';
 import {resolveSaasRuntimeConfig} from './runtimeConfig.js';
 import {poolFromEnv,controlPoolFromEnv} from '../persistence/index.js';
 import {createJobRepository} from './jobRepository.js';
+import {certifyProductionPools} from './startupChecks.js';
 
 const sleep=(ms,signal)=>signal?.aborted?Promise.resolve():new Promise(resolveSleep=>{const timer=setTimeout(done,ms);signal?.addEventListener('abort',done,{once:true});function done(){clearTimeout(timer);signal?.removeEventListener('abort',done);resolveSleep();}});
 const tenants=async source=>{const value=typeof source==='function'?await source():source;if(!value||typeof value[Symbol.iterator]!=='function')throw new TypeError('Worker tenantIds must be an iterable or a function returning one.');return [...new Set(value)];};
@@ -59,10 +60,10 @@ export async function runWorker({repository,handlers,signal,concurrency=4,tenant
  await Promise.allSettled([...active]);
 }
 
-export async function startWorkerRuntime({config,repository,handlers={},tenantIds,signal,pools=[],run=runWorker}={}){
+export async function startWorkerRuntime({config,repository,handlers={},tenantIds,signal,pools=[],run=runWorker,verify=async()=>{}}={}){
  if(config?.processRole!=='worker')throw new Error('SaaS worker entrypoint requires the worker process role.');
  if(typeof run!=='function')throw new TypeError('SaaS worker entrypoint requires a polling function.');
- const controller=new AbortController(),abort=()=>controller.abort();if(signal?.aborted)abort();else signal?.addEventListener?.('abort',abort,{once:true});
+ await verify();const controller=new AbortController(),abort=()=>controller.abort();if(signal?.aborted)abort();else signal?.addEventListener?.('abort',abort,{once:true});
  const running=Promise.resolve().then(()=>run({repository,handlers,tenantIds,signal:controller.signal,concurrency:config.limits?.jobConcurrency??1}));let closed=false;
  return {running,async close(){if(closed)return;closed=true;controller.abort();await running.catch(()=>{});signal?.removeEventListener?.('abort',abort);await Promise.allSettled(pools.map(pool=>pool.end()));}};
 }
@@ -71,7 +72,7 @@ export async function main(env=process.env){
  const config=resolveSaasRuntimeConfig(env,process.cwd()),overrides={max:config.limits.dbPoolMax};
  const tenantPool=poolFromEnv(env,overrides),controlPool=controlPoolFromEnv(env,overrides),repository=createJobRepository({tenantPool,leaseMs:config.limits.jobLeaseMs});
  const tenantIds=async()=>controlPool.withAdminSession(async session=>(await session.query('SELECT tenant_id::text AS tenant_id FROM wimblo_platform.runnable_tenant_ids() ORDER BY tenant_id')).rows.map(row=>row.tenant_id));
- const runtime=await startWorkerRuntime({config,repository,handlers:Object.freeze({'platform.noop':async()=>{}}),tenantIds,pools:[controlPool,tenantPool]});
+ const runtime=await startWorkerRuntime({config,repository,handlers:Object.freeze({'platform.noop':async()=>{}}),tenantIds,pools:[controlPool,tenantPool],verify:()=>certifyProductionPools({tenantPool,controlPool})});
  const shutdown=()=>runtime.close().catch(error=>{process.stderr.write(`Wimblo worker shutdown failed: ${error.message}\n`);process.exitCode=1;});process.once('SIGTERM',shutdown);process.once('SIGINT',shutdown);
  return runtime;
 }

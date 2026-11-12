@@ -73,7 +73,7 @@ test('export requires the dedicated core and sales export capabilities',async()=
 
 test('saved report updates require the current optimistic version',async()=>{
  const tenantId=randomUUID(),reportId=randomUUID();
- const tenantPool={withTenantSession:async(tenant,fn)=>fn({query:async()=>({rows:[],rowCount:0})})};
+ const tenantPool={withTenantSession:async(tenant,fn)=>fn({query:async sql=>sql.includes('report:current')?{rows:[{report_id:reportId,dataset:'parties',version:1,state:'active'}],rowCount:1}:{rows:[],rowCount:0}})};
  const service=createCrmReportingService({tenantPool,moduleService:{authorize:async()=>({allowed:true})}});
  await assert.rejects(()=>service.updateReport({tenantId,reportId,expectedVersion:2,actorRole:'staff',actorIdentityId:randomUUID(),name:'Updated',definition:{dataset:'parties',columns:['displayName']}}),/version|conflict/i);
 });

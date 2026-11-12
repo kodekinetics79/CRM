@@ -48,7 +48,7 @@
 - Task 3: complete after fix round 1/5 and scoped re-review PASS.
 - Task 4: complete after fix round 1/5 and scoped re-review PASS.
 - Task 5: complete after fix round 2/5 and scoped re-review PASS; browser acceptance remains an explicit Task 6 gate.
-- Task 6: pending.
+- Task 6: implementation and local certification complete; independent whole-branch post-fix review pending.
 - Task 7: pending.
 
 Task 1: implementation checkpoint (commits 98080f1..408d964, tests: npm run test:production-foundation → passed 85/85, PostgreSQL schema 13/RLS/tenant negatives passed, TDD discipline 0 focused/0 skipped; npm test → passed 1559/1559; npm run build → passed)
@@ -74,3 +74,5 @@ Task 5: implementation checkpoint pending commit — auth hard-reload CSRF recov
 Task 5: fix round 1/5 (4 addressed, 1 open — central 401 state purge; modular core/work journeys still lacked authoritative assignment data; rendered synthetic mutation/reset; capability-aware report save/import/export; accessible mobile drawer). RED 3/10; GREEN 31/31; production foundation 164/164 plus real PostgreSQL schema 16 and 35 forced-RLS tables; clean final full suite 1,638/1,638; both mode builds passed; audit 0; browser host remains unavailable.
 
 Task 5: fix round 2/5 (1 addressed, 0 open — commits `ad47835..d16ef7f`; authoritative subject/version detail; assignment-safe active-member catalog; member selects; rendered task/owner optimistic behavior). Backend RED 17/21 and UI RED 9/12; focused GREEN 55/55; production foundation 171/171 plus real PostgreSQL schema 16 and 35 forced-RLS tables; clean final full suite 1,645/1,645; both mode builds passed; audit 0; scoped re-review PASS.
+
+Task 6: implementation checkpoint pending commit — RED certification 0/6, with separate RED cycles for logout 401 handling, attachment byte-access policy, production build provenance and the explicit TDD-discipline plan gate; focused GREEN 47/47; certification GREEN 9/9; PostgreSQL foundation schema 16, forced RLS on 35 tenant tables and two-tenant negatives; real PostgreSQL/S3-compatible verification 46/46 including encrypted backup/readback/fresh-target restore; full suite 1,654/1,654; production and synthetic builds passed; audit 0; TDD discipline 0 focused/0 skipped. Two completed security-scan findings were remediated TDD-first. Browser engine, provider topology/recovery and customer UAT remain unobserved; no external or paid action was taken. Independent whole-branch post-fix review remains pending.
