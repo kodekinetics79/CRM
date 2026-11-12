@@ -39,6 +39,14 @@ test('synthetic stage POST visibly mutates the opportunity before reset restores
  assert.equal(visible.opportunities[0].stageId,opportunity.stageId);assert.equal(visible.opportunities[0].version,1);
 });
 
+test('synthetic saved tasks and notes support bounded lists and exact detail reads',async()=>{
+ const client=createSyntheticEvaluationClient(),subjectId=SYNTHETIC_BASELINE.parties[0].partyId,ownerIdentityId=SYNTHETIC_BASELINE.identity.identityId;
+ const createdTask=await client.request(`/crm/subjects/${subjectId}/tasks`,{method:'POST',body:{title:'Synthetic follow-up',details:'Private task detail',ownerIdentityId}}),taskList=await client.request(`/crm/subjects/${subjectId}/tasks?limit=50`),taskDetail=await client.request(`/crm/tasks/${createdTask.task.taskId}`);
+ assert.equal(taskList.tasks[0].title,'Synthetic follow-up');assert.equal(taskList.tasks[0].details,undefined);assert.equal(taskDetail.task.details,'Private task detail');
+ const createdNote=await client.request(`/crm/subjects/${subjectId}/notes`,{method:'POST',body:{title:'Synthetic note',body:'Private note body'}}),noteList=await client.request(`/crm/subjects/${subjectId}/notes?limit=50`),noteDetail=await client.request(`/crm/notes/${createdNote.note.noteId}`);
+ assert.equal(noteList.notes[0].title,'Synthetic note');assert.equal(noteList.notes[0].body,undefined);assert.equal(noteDetail.note.body,'Private note body');assert.equal(noteDetail.note.currentRevision,1);
+});
+
 test('rendered pipeline shows a stage mutation and a remounted reset clears its visible state',async()=>{
  const client=createSyntheticEvaluationClient(),review=SYNTHETIC_BASELINE.pipelines[0].stages[1],props={client,readOnly:false};let h=pipelineHarness(),tree=h.render(props);h.effects()[0]();await flush();tree=h.render(props);
  let select=find(tree,node=>node.type==='select');select.props.onChange({target:{value:review.stageId}});tree=h.render(props);await find(tree,node=>node.type==='button'&&React.Children.toArray(node.props.children).includes('Move opportunity')).props.onClick();await flush();tree=h.render(props);assert.equal(find(tree,node=>node.type==='select').props.value,review.stageId);assert.match(renderToStaticMarkup(tree),/Synthetic service renewal/);

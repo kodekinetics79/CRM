@@ -56,14 +56,19 @@ export function createSyntheticEvaluationClient(){
   if(subjectMatch&&verb==='GET')return ok({subject:{subjectId:subjectMatch[1],subjectType:'party',ownerIdentityId:state.subjectOwners[subjectMatch[1]]||state.identity.identityId,version:state.subjectVersions[subjectMatch[1]]||1}});
   const activityMatch=path.match(/^\/crm\/subjects\/([^/]+)\/activities$/);
   if(activityMatch&&verb==='POST'){const activity={activityId:uuid(sequence++),version:1,...body},item={kind:'activity',sourceId:activity.activityId,sourceVersion:1,summary:activity.summary,occurredAt:'2026-11-11T15:00:00.000Z'};(state.timeline[activityMatch[1]]??=[]).push(item);return ok({activity});}
-  const taskCreate=path.match(/^\/crm\/subjects\/([^/]+)\/tasks$/);
+  const taskCreate=path.match(/^\/crm\/subjects\/([^/?]+)\/tasks(?:\?(.*))?$/);
+  if(taskCreate&&verb==='GET'){const query=new URLSearchParams(taskCreate[2]||''),limit=Math.min(100,Math.max(1,Number(query.get('limit')||50))),offset=Math.max(0,Number(query.get('cursor')||0)),matching=state.tasks.filter(item=>item.subjectId===taskCreate[1]),page=matching.slice(offset,offset+limit).map(({details,...task})=>task);return ok({tasks:page,nextCursor:offset+page.length<matching.length?String(offset+page.length):null});}
   if(taskCreate&&verb==='POST'){const task={taskId:uuid(sequence++),subjectId:taskCreate[1],status:'open',version:1,...body};state.tasks.push(task);return ok({task});}
   const taskUpdate=path.match(/^\/crm\/tasks\/([^/]+)$/);
+  if(taskUpdate&&verb==='GET'){const task=state.tasks.find(item=>item.taskId===taskUpdate[1]);if(!task)throw Object.assign(new Error('Task not found.'),{status:404});return ok({task});}
   if(taskUpdate&&verb==='PATCH'){const task=state.tasks.find(item=>item.taskId===taskUpdate[1]);if(!task||task.version!==body.expectedVersion)throw Object.assign(new Error('Task changed.'),{status:409});Object.assign(task,body,{version:task.version+1});delete task.expectedVersion;return ok({task});}
-  const noteCreate=path.match(/^\/crm\/subjects\/([^/]+)\/notes$/);
-  if(noteCreate&&verb==='POST'){const note={noteId:uuid(sequence++),subjectId:noteCreate[1],version:1,...body};state.notes.push(note);return ok({note});}
+  const noteCreate=path.match(/^\/crm\/subjects\/([^/?]+)\/notes(?:\?(.*))?$/);
+  if(noteCreate&&verb==='GET'){const query=new URLSearchParams(noteCreate[2]||''),limit=Math.min(100,Math.max(1,Number(query.get('limit')||50))),offset=Math.max(0,Number(query.get('cursor')||0)),matching=state.notes.filter(item=>item.subjectId===noteCreate[1]),page=matching.slice(offset,offset+limit).map(({body,...note})=>note);return ok({notes:page,nextCursor:offset+page.length<matching.length?String(offset+page.length):null});}
+  if(noteCreate&&verb==='POST'){const note={noteId:uuid(sequence++),subjectId:noteCreate[1],currentRevision:1,version:1,...body};state.notes.push(note);return ok({note});}
+  const noteDetail=path.match(/^\/crm\/notes\/([^/]+)$/);
+  if(noteDetail&&verb==='GET'){const note=state.notes.find(item=>item.noteId===noteDetail[1]);if(!note)throw Object.assign(new Error('Note not found.'),{status:404});return ok({note});}
   const noteRevision=path.match(/^\/crm\/notes\/([^/]+)\/revisions$/);
-  if(noteRevision&&verb==='POST'){const note=state.notes.find(item=>item.noteId===noteRevision[1]);if(!note||note.version!==body.expectedVersion)throw Object.assign(new Error('Note changed.'),{status:409});note.body=body.body;note.version++;return ok({note});}
+  if(noteRevision&&verb==='POST'){const note=state.notes.find(item=>item.noteId===noteRevision[1]);if(!note||note.version!==body.expectedVersion)throw Object.assign(new Error('Note changed.'),{status:409});note.body=body.body;note.version++;note.currentRevision++;return ok({note});}
   const attachment=path.match(/^\/crm\/subjects\/([^/]+)\/attachments$/);
   if(attachment&&verb==='POST')return ok({attachment:{linkId:uuid(sequence++),subjectId:attachment[1],version:1,...body}});
   const owner=path.match(/^\/crm\/subjects\/([^/]+)\/owner$/);
