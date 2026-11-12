@@ -602,10 +602,22 @@ export function createCrmRepository({tenantPool,jobRepository=null,clock=timesta
     if(!row)persistenceFail(PERSISTENCE_CODES.NOT_FOUND,'Task was not found.');return {subjectId:row.subject_id,subjectType:row.subject_type};
   }
 
-  async function listTasks(tenantId,{subjectId,limit=50}={}){
-    const tenant=uuid(tenantId,'Tenant ID'),subject=uuid(subjectId,'Subject ID'),take=count(limit,'Limit',100);
-    const {rows}=await tenantPool.withTenantSession(tenant,session=>session.query(`/*task:list*/ SELECT tenant_id,task_id,subject_id,title,status,owner_identity_id,due_at,reminder_at,completed_at,version,created_at,updated_at FROM crm_tasks WHERE tenant_id=$1 AND subject_id=$2 ORDER BY updated_at DESC,task_id LIMIT $3`,[tenant,subject,take]));
-    return rows.map(mapTaskSummary);
+  function decodeArtifactCursor(value,tenant,subject,kind){
+    if(value==null)return null;
+    try{
+      if(typeof value!=='string'||value.length>1000)throw new Error();
+      const decoded=Buffer.from(value,'base64url');if(decoded.toString('base64url')!==value)throw new Error();
+      const parsed=JSON.parse(decoded.toString('utf8')),validInstant=candidate=>typeof candidate==='string'&&!Number.isNaN(Date.parse(candidate))&&new Date(candidate).toISOString()===candidate;
+      if(parsed.kind!==kind||parsed.tenantId!==tenant||parsed.subjectId!==subject||!validInstant(parsed.asOf)||!validInstant(parsed.lastAt)||parsed.lastAt>parsed.asOf||typeof parsed.lastId!=='string'||!UUID.test(parsed.lastId))throw new Error();
+      return parsed;
+    }catch{persistenceFail(PERSISTENCE_CODES.INVALID,'Saved work cursor is invalid.');}
+  }
+
+  async function listTasks(tenantId,{subjectId,limit=50,cursor=null}={}){
+    const tenant=uuid(tenantId,'Tenant ID'),subject=uuid(subjectId,'Subject ID'),take=count(limit,'Limit',100),decoded=decodeArtifactCursor(cursor,tenant,subject,'task'),asOf=decoded?.asOf??now();
+    const {rows}=await tenantPool.withTenantSession(tenant,session=>session.query(`/*task:list*/ SELECT tenant_id,task_id,subject_id,title,status,owner_identity_id,due_at,reminder_at,completed_at,version,created_at,updated_at FROM crm_tasks WHERE tenant_id=$1 AND subject_id=$2 AND updated_at<=$3::timestamptz AND ($4::timestamptz IS NULL OR (updated_at,task_id)<($4::timestamptz,$5::uuid)) ORDER BY updated_at DESC,task_id DESC LIMIT $6`,[tenant,subject,asOf,decoded?.lastAt??null,decoded?.lastId??null,take+1]));
+    const tasks=rows.slice(0,take).map(mapTaskSummary),last=tasks.at(-1),nextCursor=rows.length>take&&last?Buffer.from(JSON.stringify({kind:'task',tenantId:tenant,subjectId:subject,asOf,lastAt:new Date(last.updatedAt).toISOString(),lastId:last.taskId})).toString('base64url'):null;
+    return {tasks,nextCursor,asOf};
   }
 
   async function getTask(tenantId,taskId){
@@ -620,10 +632,11 @@ export function createCrmRepository({tenantPool,jobRepository=null,clock=timesta
     if(!row)persistenceFail(PERSISTENCE_CODES.NOT_FOUND,'Note was not found.');return {subjectId:row.subject_id,subjectType:row.subject_type};
   }
 
-  async function listNotes(tenantId,{subjectId,limit=50}={}){
-    const tenant=uuid(tenantId,'Tenant ID'),subject=uuid(subjectId,'Subject ID'),take=count(limit,'Limit',100);
-    const {rows}=await tenantPool.withTenantSession(tenant,session=>session.query(`/*note:list*/ SELECT tenant_id,note_id,subject_id,title,current_revision,version,created_at,updated_at FROM crm_notes WHERE tenant_id=$1 AND subject_id=$2 ORDER BY updated_at DESC,note_id LIMIT $3`,[tenant,subject,take]));
-    return rows.map(mapNote);
+  async function listNotes(tenantId,{subjectId,limit=50,cursor=null}={}){
+    const tenant=uuid(tenantId,'Tenant ID'),subject=uuid(subjectId,'Subject ID'),take=count(limit,'Limit',100),decoded=decodeArtifactCursor(cursor,tenant,subject,'note'),asOf=decoded?.asOf??now();
+    const {rows}=await tenantPool.withTenantSession(tenant,session=>session.query(`/*note:list*/ SELECT tenant_id,note_id,subject_id,title,current_revision,version,created_at,updated_at FROM crm_notes WHERE tenant_id=$1 AND subject_id=$2 AND updated_at<=$3::timestamptz AND ($4::timestamptz IS NULL OR (updated_at,note_id)<($4::timestamptz,$5::uuid)) ORDER BY updated_at DESC,note_id DESC LIMIT $6`,[tenant,subject,asOf,decoded?.lastAt??null,decoded?.lastId??null,take+1]));
+    const notes=rows.slice(0,take).map(mapNote),last=notes.at(-1),nextCursor=rows.length>take&&last?Buffer.from(JSON.stringify({kind:'note',tenantId:tenant,subjectId:subject,asOf,lastAt:new Date(last.updatedAt).toISOString(),lastId:last.noteId})).toString('base64url'):null;
+    return {notes,nextCursor,asOf};
   }
 
   async function createActivity(input){

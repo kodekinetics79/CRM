@@ -49,7 +49,7 @@ function defaultServices({config,controlPool,tenantPool,clock}){
   crmRepository,
   crmService:createCrmService({repository:crmRepository,moduleService,memberDirectory:identityService}),
   crmReportingService:createCrmReportingService({tenantPool,moduleService,clock:()=>new Date(nowMs(clock))}),
-  crmImportService:createCrmImportService({tenantPool,moduleService,clock:()=>new Date(nowMs(clock))})
+  crmImportService:createCrmImportService({tenantPool,moduleService,reconciliationSecret:derivedSecret(config.sessionSecret,'crm-import-reconciliation'),clock:()=>new Date(nowMs(clock))})
  };
 }
 

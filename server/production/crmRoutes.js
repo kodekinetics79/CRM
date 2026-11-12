@@ -65,7 +65,7 @@ const taskUpdateSchema=z.object({
 });
 const noteSchema=z.object({noteId:uuid.optional(),title:z.string().trim().min(1).max(300),body:z.string().trim().min(1).max(10000)});
 const noteRevisionSchema=z.object({expectedVersion:z.number().int().min(1),body:z.string().trim().min(1).max(10000)});
-const importReconciliationSchema=z.object({sourceSystem:z.string().trim().min(1).max(120),externalKey:z.string().trim().min(1).max(300),targetSubjectId:uuid,expectedSourceRowHash:z.string().regex(/^[a-f0-9]{64}$/),expectedMappingTargetVersion:z.number().int().min(1),expectedCurrentTargetVersion:z.number().int().min(1),reason:z.string().trim().min(10).max(500)}).strict();
+const importReconciliationSchema=z.object({reviewedToken:z.string().min(1).max(3000),reason:z.string().trim().min(10).max(500)}).strict();
 const attachmentSchema=z.object({linkId:uuid.optional(),objectId:z.string().trim().min(1).max(500),objectRevision:z.number().int().min(1),fileName:z.string().trim().min(1).max(255)});
 const ownerSchema=z.object({newOwnerIdentityId:uuid.nullable(),expectedVersion:z.number().int().min(1)});
 const reportRequestSchema=z.object({definition:z.unknown()}).strict();
@@ -131,11 +131,11 @@ export function installCrmRoutes(app,{crmService,crmReportingService=null,crmImp
   app.get('/api/crm/members',...read,async(req,res)=>res.json({members:await crmService.listAssignmentMembers(context(req))}));
   app.get('/api/crm/subjects/:subjectId',...read,async(req,res)=>res.json({subject:await crmService.getSubject({subjectId:req.params.subjectId,...context(req)})}));
   app.post('/api/crm/subjects/:subjectId/activities',...write,async(req,res)=>res.status(201).json({activity:await crmService.createActivity({...parse(activitySchema,req.body),subjectId:req.params.subjectId,...context(req)})}));
-  app.get('/api/crm/subjects/:subjectId/tasks',...read,async(req,res)=>{const {limit}=parseQuery(req);res.json({tasks:await crmService.listSubjectTasks({subjectId:req.params.subjectId,limit,...context(req)})});});
+  app.get('/api/crm/subjects/:subjectId/tasks',...read,async(req,res)=>{const {limit}=parseQuery(req);res.json(await crmService.listSubjectTasks({subjectId:req.params.subjectId,limit,cursor:typeof req.query.cursor==='string'?req.query.cursor:null,...context(req)}));});
   app.get('/api/crm/tasks/:taskId',...read,async(req,res)=>res.json({task:await crmService.getTask({taskId:req.params.taskId,...context(req)})}));
   app.post('/api/crm/subjects/:subjectId/tasks',...write,async(req,res)=>res.status(201).json({task:await crmService.createTask({...parse(taskSchema,req.body),subjectId:req.params.subjectId,...context(req)})}));
   app.patch('/api/crm/tasks/:taskId',...write,async(req,res)=>res.json({task:await crmService.updateTask({...parse(taskUpdateSchema,req.body),taskId:req.params.taskId,...context(req)})}));
-  app.get('/api/crm/subjects/:subjectId/notes',...read,async(req,res)=>{const {limit}=parseQuery(req);res.json({notes:await crmService.listSubjectNotes({subjectId:req.params.subjectId,limit,...context(req)})});});
+  app.get('/api/crm/subjects/:subjectId/notes',...read,async(req,res)=>{const {limit}=parseQuery(req);res.json(await crmService.listSubjectNotes({subjectId:req.params.subjectId,limit,cursor:typeof req.query.cursor==='string'?req.query.cursor:null,...context(req)}));});
   app.post('/api/crm/subjects/:subjectId/notes',...write,async(req,res)=>res.status(201).json({note:await crmService.createNote({...parse(noteSchema,req.body),subjectId:req.params.subjectId,...context(req)})}));
   app.get('/api/crm/notes/:noteId',...read,async(req,res)=>res.json({note:await crmService.getNote({noteId:req.params.noteId,...context(req)})}));
   app.post('/api/crm/notes/:noteId/revisions',...write,async(req,res)=>res.status(201).json({note:await crmService.reviseNote({...parse(noteRevisionSchema,req.body),noteId:req.params.noteId,...context(req)})}));
@@ -157,8 +157,10 @@ export function installCrmRoutes(app,{crmService,crmReportingService=null,crmImp
    app.post('/api/crm/exports',...write,async(req,res)=>{const result=await crmReportingService.exportReport({...parse(reportRequestSchema,req.body),...context(req)});res.setHeader('Content-Type','text/csv; charset=utf-8');res.setHeader('Content-Disposition',`attachment; filename="${result.filename.replace(/[^A-Za-z0-9._-]/g,'_')}"`);res.setHeader('X-Content-Type-Options','nosniff');res.send(result.csv);});
   }
   if(crmImportService){
-   const importIdentity=req=>{const idempotencyKey=req.get('Idempotency-Key'),sourceSystem=req.get('X-Source-System');if(!idempotencyKey||!sourceSystem||typeof req.body!=='string')persistenceFail(PERSISTENCE_CODES.INVALID,'Import headers or CSV body are invalid.');return {idempotencyKey,sourceSystem,csv:req.body};};
+   const importSource=req=>{const sourceSystem=req.get('X-Source-System');if(!sourceSystem||typeof req.body!=='string')persistenceFail(PERSISTENCE_CODES.INVALID,'Import source or CSV body is invalid.');return {sourceSystem,csv:req.body};};
+   const importIdentity=req=>{const idempotencyKey=req.get('Idempotency-Key');if(!idempotencyKey)persistenceFail(PERSISTENCE_CODES.INVALID,'Import identity is invalid.');return {idempotencyKey,...importSource(req)};};
    app.post('/api/crm/imports/preview',...write,async(req,res)=>res.status(201).json({batch:await crmImportService.previewPeople({...importIdentity(req),...context(req)})}));
+   app.post('/api/crm/imports/mappings/review',...write,async(req,res)=>res.json(await crmImportService.reviewPeopleMappingConflicts({...importSource(req),...context(req)})));
    app.post('/api/crm/imports/mappings/reconcile',...write,async(req,res)=>res.json({mapping:await crmImportService.reconcilePeopleMapping({...parse(importReconciliationSchema,req.body),...context(req)})}));
    app.post('/api/crm/imports/:batchId/commit',...write,async(req,res)=>{const expectedVersion=Number(req.get('If-Match')),expectedSourceSha256=req.get('X-Source-SHA256');if(!Number.isSafeInteger(expectedVersion)||expectedVersion<1)persistenceFail(PERSISTENCE_CODES.INVALID,'Import version is invalid.');res.json({batch:await crmImportService.commitPeople({...importIdentity(req),batchId:req.params.batchId,expectedVersion,expectedSourceSha256,...context(req)})});});
   }

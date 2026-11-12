@@ -1,4 +1,4 @@
-import {createHash,randomUUID} from 'node:crypto';
+import {createHash,createHmac,randomUUID,timingSafeEqual} from 'node:crypto';
 import {PERSISTENCE_CODES,persistenceFail} from '../persistence/contract.js';
 
 export const IMPORT_LIMITS=Object.freeze({maxBytes:1024*1024,maxRows:5000,maxColumns:64,maxCellBytes:4096});
@@ -101,15 +101,37 @@ async function readSnapshot(session,{tenantId,sourceSystem,parsed,lock=false}){
  return {digest:digest(JSON.stringify(entries)),byKey,inserted,updated,unchanged};
 }
 
-export function createCrmImportService({tenantPool,moduleService,clock=()=>new Date()}={}){
+export function createCrmImportService({tenantPool,moduleService,reconciliationSecret=null,clock=()=>new Date()}={}){
  if(!tenantPool||typeof tenantPool.withTransaction!=='function'||!moduleService||typeof moduleService.authorize!=='function')fail('Import dependencies are required.');
+ const reviewSecret=typeof reconciliationSecret==='string'&&reconciliationSecret.length>=32?Buffer.from(reconciliationSecret):null;
+
+ function issueReviewedToken(facts){
+  if(!reviewSecret)persistenceFail(PERSISTENCE_CODES.INVALID,'Import reconciliation review is unavailable.');
+  const payload=Buffer.from(JSON.stringify(facts)).toString('base64url'),signature=createHmac('sha256',reviewSecret).update(payload).digest('base64url');return `${payload}.${signature}`;
+ }
+
+ function verifyReviewedToken(value,tenantId,actorIdentityId){
+  try{
+   if(!reviewSecret||typeof value!=='string'||value.length>3000)throw new Error();const [payload,signature,...rest]=value.split('.');if(rest.length||!payload||!signature)throw new Error();
+   const expected=createHmac('sha256',reviewSecret).update(payload).digest(),actual=Buffer.from(signature,'base64url');if(actual.length!==expected.length||!timingSafeEqual(actual,expected)||actual.toString('base64url')!==signature)throw new Error();
+   const parsed=JSON.parse(Buffer.from(payload,'base64url').toString('utf8'));if(parsed.kind!=='people-mapping-review'||parsed.tenantId!==tenantId||parsed.actorIdentityId!==actorIdentityId||!UUID.test(parsed.targetSubjectId)||!UUID.test(parsed.actorIdentityId)||typeof parsed.sourceSystem!=='string'||!parsed.sourceSystem||typeof parsed.externalKey!=='string'||!parsed.externalKey||!/^[a-f0-9]{64}$/.test(parsed.sourceRowHash)||!Number.isSafeInteger(parsed.mappingTargetVersion)||!Number.isSafeInteger(parsed.currentTargetVersion)||parsed.mappingTargetVersion<1||parsed.currentTargetVersion<1||parsed.mappingTargetVersion===parsed.currentTargetVersion||typeof parsed.expiresAt!=='string'||new Date(parsed.expiresAt)<=new Date(clock()))throw new Error();
+   return parsed;
+  }catch{persistenceFail(PERSISTENCE_CODES.CONFLICT,'Import reconciliation review token is invalid, stale, or belongs to another user.');}
+ }
+
+ async function reviewPeopleMappingConflicts(input){
+  await authorize(moduleService,input);if(!reviewSecret)persistenceFail(PERSISTENCE_CODES.INVALID,'Import reconciliation review is unavailable.');
+  const parsed=parsePeopleCsv(input.csv),source=typeof input.sourceSystem==='string'?input.sourceSystem.trim():'',actorIdentityId=typeof input.actorIdentityId==='string'?input.actorIdentityId.toLowerCase():'';
+  if(!source||source.length>120||!UUID.test(actorIdentityId))fail('Import reconciliation review is invalid.');const keys=parsed.rows.map(row=>row.externalKey).sort(compareKeys),reviewedAt=new Date(clock()),expiresAt=new Date(reviewedAt.getTime()+15*60*1000).toISOString();
+  const rows=await tenantPool.withTransaction(input.tenantId,async session=>(await session.query(`/*import-map:review-conflicts*/ SELECT m.external_key,m.target_subject_id,m.source_row_hash,m.target_version,p.version AS current_target_version FROM crm_import_source_mappings m JOIN people pe ON pe.tenant_id=m.tenant_id AND pe.party_id=m.target_subject_id JOIN parties p ON p.tenant_id=pe.tenant_id AND p.party_id=pe.party_id WHERE m.tenant_id=$1 AND m.source_system=$2 AND m.entity_type='people' AND m.external_key=ANY($3::text[]) AND m.target_version<>p.version ORDER BY m.external_key LIMIT 101`,[input.tenantId,source,keys])).rows);
+  const conflicts=rows.slice(0,100).map(row=>{const facts={kind:'people-mapping-review',tenantId:input.tenantId,actorIdentityId,sourceSystem:source,externalKey:row.external_key,targetSubjectId:row.target_subject_id,sourceRowHash:row.source_row_hash,mappingTargetVersion:Number(row.target_version),currentTargetVersion:Number(row.current_target_version),expiresAt};return {externalKey:facts.externalKey,targetSubjectId:facts.targetSubjectId,mappingTargetVersion:facts.mappingTargetVersion,currentTargetVersion:facts.currentTargetVersion,reviewedToken:issueReviewedToken(facts)};});
+  return {conflicts,truncated:rows.length>100,reviewedAt:reviewedAt.toISOString(),expiresAt};
+ }
 
  async function reconcilePeopleMapping(input){
   await authorize(moduleService,input);
-  const source=typeof input.sourceSystem==='string'?input.sourceSystem.trim():'',externalKey=typeof input.externalKey==='string'?input.externalKey.trim():'',reason=typeof input.reason==='string'?input.reason.trim():'';
-  const targetSubjectId=typeof input.targetSubjectId==='string'?input.targetSubjectId.toLowerCase():'',actorIdentityId=typeof input.actorIdentityId==='string'?input.actorIdentityId.toLowerCase():'',sourceRowHash=String(input.expectedSourceRowHash??'').toLowerCase();
-  const expectedMapping=Number(input.expectedMappingTargetVersion),expectedCurrent=Number(input.expectedCurrentTargetVersion);
-  if(!source||source.length>120||!externalKey||externalKey.length>300||!UUID.test(targetSubjectId)||!UUID.test(actorIdentityId)||!/^[a-f0-9]{64}$/.test(sourceRowHash)||!Number.isSafeInteger(expectedMapping)||expectedMapping<1||!Number.isSafeInteger(expectedCurrent)||expectedCurrent<1||reason.length<10||reason.length>500)fail('Import reconciliation review is invalid.');
+  const reason=typeof input.reason==='string'?input.reason.trim():'',actorIdentityId=typeof input.actorIdentityId==='string'?input.actorIdentityId.toLowerCase():'';if(!UUID.test(actorIdentityId)||reason.length<10||reason.length>500)fail('Import reconciliation review is invalid.');
+  const reviewed=verifyReviewedToken(input.reviewedToken,input.tenantId,actorIdentityId),{sourceSystem:source,externalKey,targetSubjectId,sourceRowHash,mappingTargetVersion:expectedMapping,currentTargetVersion:expectedCurrent}=reviewed;
   return tenantPool.withTransaction(input.tenantId,async session=>{
    const {rows:[mapping]}=await session.query(
     `/*import-map:reconcile-lock*/ SELECT m.external_key,m.target_subject_id,m.source_row_hash,m.target_version,p.version AS current_target_version FROM crm_import_source_mappings m JOIN people pe ON pe.tenant_id=m.tenant_id AND pe.party_id=m.target_subject_id JOIN parties p ON p.tenant_id=pe.tenant_id AND p.party_id=pe.party_id WHERE m.tenant_id=$1 AND m.source_system=$2 AND m.entity_type='people' AND m.external_key=$3 FOR UPDATE OF m,p`,
@@ -127,7 +149,7 @@ export function createCrmImportService({tenantPool,moduleService,clock=()=>new D
     `/*import-map:reconcile-audit*/ INSERT INTO party_events(tenant_id,event_id,target_type,target_id,action,actor_identity_id,details,at) VALUES($1,$2,'party',$3,'import_mapping_reconciled',$4,$5::jsonb,$6::timestamptz)`,
     [input.tenantId,randomUUID(),targetSubjectId,actorIdentityId,JSON.stringify({sourceSystem:source,externalKey,sourceRowHash,priorTargetVersion:expectedMapping,targetVersion:expectedCurrent,reason}),reconciledAt]
    );
-   return {sourceSystem:source,entityType:'people',externalKey,targetSubjectId,sourceRowHash,targetVersion:Number(updated.target_version),reconciledAt:updated.updated_at};
+   return {sourceSystem:source,entityType:'people',externalKey,targetSubjectId,targetVersion:Number(updated.target_version),reconciledAt:updated.updated_at};
   });
  }
 
@@ -225,5 +247,5 @@ export function createCrmImportService({tenantPool,moduleService,clock=()=>new D
   });
  }
 
- return Object.freeze({previewPeople,commitPeople,reconcilePeopleMapping});
+ return Object.freeze({previewPeople,commitPeople,reviewPeopleMappingConflicts,reconcilePeopleMapping});
 }
