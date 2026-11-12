@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 import {transformSync} from 'esbuild';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
-import {productionRequest,setProductionCsrf,clearProductionSession,ProductionApiError} from '../src/production/productionApi.js';
+import {productionRequest,setProductionCsrf,clearProductionSession,subscribeProductionSession,ProductionApiError} from '../src/production/productionApi.js';
 
 const root=new URL('../',import.meta.url);
 const source=path=>readFileSync(new URL(path,root),'utf8');
@@ -14,6 +14,8 @@ function component(path){
  new Function('require','module','exports',code)(require,module,module.exports);
  return module.exports;
 }
+function statefulComponent(path,dependencies={}){let index=0,state=[],effects=[];const mock={...React,useState(initial){const i=index++;if(!(i in state))state[i]=typeof initial==='function'?initial():initial;return [state[i],value=>state[i]=typeof value==='function'?value(state[i]):value];},useRef(initial){const i=index++;return state[i]??=({current:initial});},useEffect(fn){index++;effects.push(fn);},useMemo(fn){index++;return fn();},lazy(){return()=>null;}};const module={exports:{}},code=transformSync(source(path),{loader:'jsx',format:'cjs'}).code,require=id=>id==='react'?mock:id.endsWith('.css')?{}:dependencies[id]||{__esModule:true,default:()=>null};new Function('require','module','exports',code)(require,module,module.exports);return {render(props){index=0;effects=[];return module.exports.default(props);},effects:()=>effects};}
+const findNode=(node,predicate)=>{if(!node||typeof node!=='object')return null;if(predicate(node))return node;for(const child of React.Children.toArray(node.props?.children)){const found=findNode(child,predicate);if(found)return found;}return null;};
 const workspaceModule=component('src/production/CrmWorkspace.jsx'),CrmWorkspace=workspaceModule.default,{navigationForModules}=workspaceModule;
 const PipelineBoard=component('src/production/PipelineBoard.jsx').default;
 const RecordTimeline=component('src/production/RecordTimeline.jsx').default;
@@ -40,6 +42,22 @@ test('production API keeps CSRF in memory, sends it on writes, and returns typed
   assert.equal(calls[0][1].headers.Authorization,undefined);
   clearProductionSession();
  }finally{global.fetch=original;}
+});
+
+test('a central 401 signal clears CSRF and tells the app to discard cached customer state',async()=>{
+ const original=global.fetch,events=[],unsubscribe=subscribeProductionSession(event=>events.push(event));
+ global.fetch=async()=>new Response(JSON.stringify({error:'Session expired',code:'AUTHENTICATION_REQUIRED'}),{status:401,headers:{'Content-Type':'application/json'}});
+ try{setProductionCsrf('secret');await assert.rejects(()=>productionRequest('/crm/parties'));assert.deepEqual(events,[{type:'expired'}]);}
+ finally{unsubscribe();global.fetch=original;clearProductionSession();}
+});
+
+test('ProductionApp unmounts cached customer UI and renders session-expired sign-in on central 401',async()=>{
+ let expire,cleared=0;const client={synthetic:false,restore:async()=>({identity,membership,csrfToken:'csrf'}),request:async path=>path==='/auth/tenants'?{memberships:[membership]}:{modules},clear:()=>cleared++,subscribeSession:listener=>(expire=listener,()=>{})};
+ const Cached=({session})=>React.createElement('div',null,`Cached customer: ${session.identity.displayName}`),h=statefulComponent('src/production/ProductionApp.jsx',{'./productionApi.js':{__esModule:true,productionApi:client},'./CrmWorkspace.jsx':{__esModule:true,default:Cached}});
+ h.render({client});const boot=h.effects()[0],subscribe=h.effects()[1];boot();subscribe();await new Promise(resolve=>setTimeout(resolve,0));
+ assert.match(renderToStaticMarkup(h.render({client})),/Cached customer: Avery Chen/);
+ expire({type:'expired'});const expired=renderToStaticMarkup(h.render({client}));
+ assert.match(expired,/Your session expired/);assert.doesNotMatch(expired,/Avery Chen|Cached customer/);assert.equal(cleared,1);
 });
 
 test('capability navigation keeps suspended sales read-only and removes disabled modules',()=>{
@@ -83,4 +101,16 @@ test('production UI source has explicit entry isolation, lazy route chunks and n
  assert.match(workspace,/React\.lazy|lazy\(/);
  for(const text of [main,app,workspace])assert.doesNotMatch(text,/dangerouslySetInnerHTML|\.innerHTML\s*=|localStorage|sessionStorage/);
  assert.match(css,/min-height:\s*44px/);assert.match(css,/@media\s*\(max-width:\s*700px\)/);assert.match(css,/@media\s*\(prefers-reduced-motion:\s*reduce\)/);assert.match(css,/@media\s*\(forced-colors:\s*active\)/);assert.match(css,/:focus-visible/);
+});
+
+test('mobile navigation is hidden while closed and exposes keyboard-safe drawer semantics',()=>{
+ const html=renderToStaticMarkup(React.createElement(CrmWorkspace,{client:{request:async()=>({})},session:{identity,membership},memberships:[membership],modules,initialRoute:'home',initialParties:[],initialMobile:true}));
+ assert.match(html,/aria-label="Workspace navigation"[^>]*aria-hidden="true"[^>]*inert=""/);
+ assert.match(html,/aria-label="Open navigation"[^>]*aria-expanded="false"/);
+ const sourceText=source('src/production/CrmWorkspace.jsx');
+ assert.match(sourceText,/Escape/);assert.match(sourceText,/navRef\.current\?\.focus/);assert.match(sourceText,/menuRef\.current\?\.focus/);assert.match(sourceText,/inert=/);
+});
+
+test('mobile drawer renders open background isolation and Escape closes it',()=>{
+ const h=statefulComponent('src/production/CrmWorkspace.jsx'),props={client:{request:async()=>({})},session:{identity,membership},memberships:[membership],modules,initialRoute:'home',initialParties:[],initialMobile:true};let tree=h.render(props),menu=findNode(tree,node=>node.type==='button'&&node.props['aria-label']==='Open navigation');menu.props.onClick();tree=h.render(props);let aside=findNode(tree,node=>node.type==='aside'),background=findNode(tree,node=>node.props?.className==='prod-main-shell');assert.equal(aside.props['aria-hidden'],false);assert.equal(aside.props.inert,false);assert.equal(background.props.inert,true);assert.equal(findNode(tree,node=>node.props?.className==='prod-menu').props['aria-label'],'Close navigation');aside.props.onKeyDown({key:'Escape',preventDefault(){}});tree=h.render(props);assert.equal(findNode(tree,node=>node.type==='aside').props['aria-hidden'],true);
 });

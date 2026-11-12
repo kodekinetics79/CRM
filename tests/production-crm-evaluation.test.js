@@ -1,7 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import {transformSync} from 'esbuild';
+import React from 'react';
+import {renderToStaticMarkup} from 'react-dom/server';
 import {createSyntheticEvaluationClient,SYNTHETIC_BASELINE} from '../src/production/syntheticEvaluationClient.js';
+
+const flush=()=>new Promise(resolve=>setTimeout(resolve,0));
+function pipelineHarness(){let index=0,state=[],effects=[];const mock={...React,useState(initial){const i=index++;if(!(i in state))state[i]=typeof initial==='function'?initial():initial;return [state[i],value=>state[i]=typeof value==='function'?value(state[i]):value];},useMemo(fn){index++;return fn();},useEffect(fn){index++;effects.push(fn);}};const module={exports:{}},code=transformSync(readFileSync(new URL('../src/production/PipelineBoard.jsx',import.meta.url),'utf8'),{loader:'jsx',format:'cjs'}).code;new Function('require','module','exports',code)(()=>mock,module,module.exports);return {render(props){index=0;effects=[];return module.exports.default(props);},effects:()=>effects};}
+const find=(node,predicate)=>{if(!node||typeof node!=='object')return null;if(predicate(node))return node;for(const child of React.Children.toArray(node.props?.children)){const match=find(child,predicate);if(match)return match;}return null;};
 
 test('synthetic evaluation data is deterministic, unmistakable and uses no real customer domains',()=>{
  assert.equal(SYNTHETIC_BASELINE.synthetic,true);
@@ -21,6 +28,21 @@ test('synthetic client mutations are resettable to a frozen baseline',async()=>{
  const reset=await client.request('/crm/parties');
  assert.deepEqual(reset,before);
  assert.equal(client.synthetic,true);
+});
+
+test('synthetic stage POST visibly mutates the opportunity before reset restores the baseline',async()=>{
+ const client=createSyntheticEvaluationClient(),opportunity=SYNTHETIC_BASELINE.opportunities[0],review=SYNTHETIC_BASELINE.pipelines[0].stages[1];
+ await client.request(`/crm/opportunities/${opportunity.opportunityId}/stage`,{method:'POST',body:{stageId:review.stageId,expectedVersion:1}});
+ let visible=await client.request('/crm/opportunities?limit=100');
+ assert.equal(visible.opportunities[0].stageId,review.stageId);assert.equal(visible.opportunities[0].version,2);
+ await client.reset();visible=await client.request('/crm/opportunities?limit=100');
+ assert.equal(visible.opportunities[0].stageId,opportunity.stageId);assert.equal(visible.opportunities[0].version,1);
+});
+
+test('rendered pipeline shows a stage mutation and a remounted reset clears its visible state',async()=>{
+ const client=createSyntheticEvaluationClient(),review=SYNTHETIC_BASELINE.pipelines[0].stages[1],props={client,readOnly:false};let h=pipelineHarness(),tree=h.render(props);h.effects()[0]();await flush();tree=h.render(props);
+ let select=find(tree,node=>node.type==='select');select.props.onChange({target:{value:review.stageId}});tree=h.render(props);await find(tree,node=>node.type==='button'&&React.Children.toArray(node.props.children).includes('Move opportunity')).props.onClick();await flush();tree=h.render(props);assert.equal(find(tree,node=>node.type==='select').props.value,review.stageId);assert.match(renderToStaticMarkup(tree),/Synthetic service renewal/);
+ await client.reset();h=pipelineHarness();tree=h.render(props);h.effects()[0]();await flush();tree=h.render(props);assert.equal(find(tree,node=>node.type==='select').props.value,SYNTHETIC_BASELINE.opportunities[0].stageId);
 });
 
 test('entry mode is build-time only and production source cannot import synthetic fixtures',()=>{

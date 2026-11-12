@@ -42,3 +42,23 @@
 
 - Synthetic evaluation is not production acceptance and cannot be selected by a customer URL.
 - Local test/build success is not CI, deployment, customer UAT or production acceptance.
+
+## Fix round 1/5
+
+### Findings closed
+
+- The production API now publishes a central session-expired event on every 401 after clearing module-memory CSRF. `ProductionApp` aborts bootstrap work, generation-fences late results, clears session/membership/module state, unmounts the workspace and renders an explicit expired-session sign-in. Rendered coverage proves cached customer identity is absent after the transition.
+- Core journeys moved into modular `RelationshipCreate` and `RelationshipWorkspace` components. Staff can create people/organizations, optimistically update parties, add contacts, record activities, create/progress/complete tasks, create/revise notes, link attachment metadata and change ownership. Viewer mutation UI is absent. Conflicts preserve input and require explicit reload; write loading, safe errors and escaped content are visible.
+- Synthetic opportunity stage POST now matches before the generic opportunity read route and mutates the fixture version. Reset clears the URL, resets the frozen fixture, increments the workspace key and remounts all visible route/selection/import state. Rendered pipeline coverage proves mutation and remounted reset.
+- Reports choose parties for core-only tenants and opportunities only when sales is readable. Import is gated by core write; saved reports additionally require the selected dataset's write capability; complete export uses explicit core/dataset export capabilities and remains available for staff during read/export-only suspension.
+- The responsive rail now remains accessible on desktop while the closed mobile drawer is `aria-hidden` and inert. Opening moves focus into the nav and makes the background inert; Escape/scrim close it and return focus to the menu after the background is active. Labels and expanded state follow the drawer state.
+
+### TDD and verification evidence
+
+- Focused RED: `node --test tests/production-crm-ui.test.js tests/production-crm-evaluation.test.js tests/production-crm-workflows-ui.test.js` — 3/10 passed. Failures proved the central subscription, rendered session expiry, synthetic stage mutation, workflow modules, report capability policy and mobile drawer behavior were absent.
+- Focused GREEN: `node --test tests/production-crm-ui.test.js tests/production-crm-evaluation.test.js tests/production-crm-workflows-ui.test.js tests/production-auth-flow.test.js` — 31/31 passed.
+- `npm run test:production-foundation`: 164/164 passed; real PostgreSQL schema 16, 35 forced-RLS tables and every verifier passed; discipline reported 0 focused and 0 skipped.
+- Clean final `npm test`: 1,638/1,638 passed.
+- Production-mode and synthetic-evaluation-mode builds passed. The production build emitted no synthetic fixture chunk; the synthetic build emitted a separate 7.75 kB fixture chunk.
+- `npm audit --audit-level=high`: 0 vulnerabilities; `git diff --check`: passed.
+- Browser host availability is unchanged from the implementation checkpoint, so no browser was installed and no paid/external service was used.

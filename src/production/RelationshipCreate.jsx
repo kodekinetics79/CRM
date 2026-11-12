@@ -1,0 +1,10 @@
+import React,{useState} from 'react';
+
+export const buildRelationshipCreate=(type,draft)=>type==='person'?{displayName:draft.displayName,firstName:draft.firstName,lastName:draft.lastName}:{displayName:draft.displayName,legalName:draft.legalName};
+export default function RelationshipCreate({client,writable=false,onCreated,onCancel,initialDraft={displayName:'',firstName:'',lastName:'',legalName:''}}){
+ const [type,setType]=useState('person'),[draft,setDraft]=useState(initialDraft),[status,setStatus]=useState('idle'),[error,setError]=useState('');
+ if(!writable)return null;
+ const change=event=>setDraft(current=>({...current,[event.target.name]:event.target.value}));
+ async function submit(event){event.preventDefault();setStatus('saving');setError('');try{const result=await client.request(type==='person'?'/crm/people':'/crm/organizations',{method:'POST',body:buildRelationshipCreate(type,draft)});setStatus('saved');onCreated?.(result.party);}catch(e){setError(e.message);setStatus('error');}}
+ return <form className="relationship-form" aria-label="Add relationship" onSubmit={submit}><h2>Add relationship</h2>{error?<p role="alert" className="prod-inline-error">{error}</p>:null}<label>Relationship type<select value={type} onChange={event=>setType(event.target.value)}><option value="person">Person</option><option value="organization">Organization</option></select></label><label>Display name<input name="displayName" required value={draft.displayName} onChange={change}/></label>{type==='person'?<><label>First name<input name="firstName" required value={draft.firstName} onChange={change}/></label><label>Last name<input name="lastName" required value={draft.lastName} onChange={change}/></label></>:<label>Legal name<input name="legalName" required value={draft.legalName} onChange={change}/></label>}<div className="prod-actions"><button disabled={status==='saving'}>{status==='saving'?'Saving…':'Create relationship'}</button>{onCancel?<button type="button" className="prod-secondary" onClick={onCancel}>Cancel</button>:null}</div>{status==='saved'?<p role="status">Relationship created.</p>:null}</form>;
+}

@@ -1,4 +1,5 @@
 let csrfToken='';
+const sessionListeners=new Set();
 
 export class ProductionApiError extends Error{
  constructor(message,{status=0,code='REQUEST_FAILED'}={}){super(message);this.name='ProductionApiError';this.status=status;this.code=code;}
@@ -7,6 +8,7 @@ export class ProductionApiError extends Error{
 export const setProductionCsrf=value=>{csrfToken=typeof value==='string'?value:'';};
 export const clearProductionSession=()=>{csrfToken='';};
 export const hasProductionCsrf=()=>Boolean(csrfToken);
+export const subscribeProductionSession=listener=>{sessionListeners.add(listener);return()=>sessionListeners.delete(listener);};
 
 const mutation=method=>!['GET','HEAD','OPTIONS'].includes(method);
 
@@ -24,7 +26,7 @@ export async function productionRequest(path,{method='GET',body,headers={},signa
  let data=null;
  try{data=response==='text'||type.includes('text/csv')?await result.text():result.status===204?null:await result.json();}
  catch{throw new ProductionApiError('The server returned an unreadable response.',{status:result.status,code:'UNREADABLE_RESPONSE'});}
- if(!result.ok){if(result.status===401)clearProductionSession();throw new ProductionApiError(data?.error||'Request was refused.',{status:result.status,code:data?.code||'REQUEST_REFUSED'});}
+ if(!result.ok){if(result.status===401){clearProductionSession();for(const listener of sessionListeners)listener({type:'expired'});}throw new ProductionApiError(data?.error||'Request was refused.',{status:result.status,code:data?.code||'REQUEST_REFUSED'});}
  if(data?.csrfToken)setProductionCsrf(data.csrfToken);
  return data;
 }
@@ -35,4 +37,4 @@ export async function restoreProductionSession({signal}={}){
  setProductionCsrf(session.csrfToken);return session;
 }
 
-export const productionApi=Object.freeze({request:productionRequest,restore:restoreProductionSession,setCsrf:setProductionCsrf,clear:clearProductionSession,synthetic:false});
+export const productionApi=Object.freeze({request:productionRequest,restore:restoreProductionSession,setCsrf:setProductionCsrf,clear:clearProductionSession,subscribeSession:subscribeProductionSession,synthetic:false});
