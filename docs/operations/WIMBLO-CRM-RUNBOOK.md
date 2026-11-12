@@ -30,6 +30,10 @@ Web and worker startup also fail before listening or polling unless both databas
 
 Any verification, listener, or worker-loop failure must close every initialized database pool exactly once before the process exits. Repeated shutdown signals must remain idempotent.
 
+The production worker registers `crm.task_reminder` as a real durable handler. A due reminder creates one in-product task timeline event whose event identity is the durable job ID, then clears the task schedule in the same tenant transaction. The handler suppresses stale versions, rescheduled reminders, completed or cancelled tasks, missing subjects, and inactive owners. A retry after commit recognizes the existing event and succeeds without duplication. This release does not send reminder email, SMS, push, or provider notifications.
+
+If polling fails while handlers are active, the worker drains those handlers before pool shutdown. If shutdown wins after a job was claimed but before its handler began, the lease is released without consuming an attempt or dead-lettering the unstarted job.
+
 ## Deployment topology required
 
 Operate three separate components:
@@ -71,6 +75,7 @@ An attachment link is an active same-tenant metadata reference. It never grants 
 - Tenant isolation or role assertion failure: stop web/worker startup; do not bypass the check.
 - Migration mismatch: run the explicit reviewed migration job with the dedicated `BYPASSRLS` owner role; runtime roles never migrate on connect. If the owner preflight fails, correct role provisioning rather than setting a tenant scope or bypassing the check.
 - Queue backlog/dead letters: suspend the affected handler if necessary, preserve tenant scope, inspect the control-only aggregate, and replay only with an idempotency proof.
+- Missing task reminder: inspect the durable job, task version/status/reminder time, active owner membership, and the deterministic `reminder_due` timeline event. A completed suppressed job is expected for stale, rescheduled, terminal, unscheduled, or inactive-owner work; do not claim an external notification was sent.
 - Restore mismatch: quarantine the restored target and backup artifact; never promote a partially reconciled restore.
 
 ## Evidence boundaries

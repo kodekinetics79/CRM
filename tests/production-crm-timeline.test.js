@@ -26,7 +26,7 @@ test('timeline merges safe canonical facts in stable keyset order',async()=>{
  assert.match(call.sql,/occurred_at DESC,source_rank DESC,source_key DESC,source_version DESC/);
  assert.match(call.sql,/recorded_at <= \$3::timestamptz/);
  assert.match(call.sql,/created_at AS recorded_at,summary FROM crm_activities/);
- assert.match(call.sql,/recorded_at,'Task ' \|\| action FROM crm_task_events/);
+ assert.match(call.sql,/CASE WHEN action='reminder_due' THEN 'Task reminder due' ELSE 'Task ' \|\| action END FROM crm_task_events/);
  assert.equal(call.values[0],tenantId);
  assert.equal(call.values[1],subjectId);
 });

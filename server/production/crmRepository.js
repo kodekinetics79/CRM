@@ -677,6 +677,41 @@ export function createCrmRepository({tenantPool,jobRepository=null,clock=timesta
     });
   }
 
+  async function processTaskReminder(input){
+    const tenant=uuid(input.tenantId,'Tenant ID'),taskId=uuid(input.taskId,'Task ID'),expected=version(input.expectedTaskVersion),eventId=uuid(input.jobId,'Job ID'),at=now();
+    const suppressed=reason=>({outcome:'suppressed',reason,taskId});
+    return tenantPool.withTransaction(tenant,async session=>{
+      const {rows:[task]}=await session.query(
+        `/*task-reminder:lock*/ SELECT t.*,s.subject_id AS validated_subject_id,s.subject_type,
+           wimblo_platform.active_membership(t.tenant_id,t.owner_identity_id) AS owner_active
+         FROM crm_tasks t LEFT JOIN crm_subjects s ON s.tenant_id=t.tenant_id AND s.subject_id=t.subject_id
+         WHERE t.tenant_id=$1 AND t.task_id=$2 FOR UPDATE OF t`,[tenant,taskId]);
+      if(!task)return suppressed('missing_task');
+      const {rows:[existing]}=await session.query(
+        `/*task-reminder:event*/ SELECT event_id,task_id,subject_id,action FROM crm_task_events
+         WHERE tenant_id=$1 AND event_id=$2`,[tenant,eventId]);
+      if(existing){
+        if(existing.task_id!==taskId||existing.subject_id!==task.subject_id||existing.action!=='reminder_due')persistenceFail(PERSISTENCE_CODES.CONFLICT,'Reminder event identity conflicts with another task history event.');
+        return {outcome:'delivered',taskId,subjectId:task.subject_id,eventId,replayed:true};
+      }
+      if(!task.validated_subject_id||!task.subject_type)return suppressed('missing_subject');
+      if(Number(task.version)!==expected)return suppressed('stale_task');
+      if(task.status==='completed'||task.status==='cancelled')return suppressed(task.status);
+      if(!task.reminder_at)return suppressed('unscheduled');
+      if(new Date(task.reminder_at)>new Date(at))return suppressed('rescheduled');
+      if(task.owner_active!==true)return suppressed('inactive_owner');
+      await session.query(
+        `/*task-reminder:event-insert*/ INSERT INTO crm_task_events(tenant_id,event_id,task_id,subject_id,action,actor_identity_id,details,occurred_at)
+         VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8::timestamptz)`,
+        [tenant,eventId,taskId,task.subject_id,'reminder_due',task.owner_identity_id,JSON.stringify({jobId:eventId,expectedTaskVersion:expected,reminderAt:new Date(task.reminder_at).toISOString()}),at]);
+      const cleared=await session.query(
+        `/*task-reminder:clear*/ UPDATE crm_tasks SET reminder_at=NULL,version=version+1,updated_at=$3::timestamptz
+         WHERE tenant_id=$1 AND task_id=$2 AND version=$4 RETURNING *`,[tenant,taskId,at,expected]);
+      if(!cleared.rowCount)persistenceFail(PERSISTENCE_CODES.CONFLICT,'Task reminder changed before delivery could be recorded.');
+      return {outcome:'delivered',taskId,subjectId:task.subject_id,eventId,replayed:false};
+    });
+  }
+
   async function createNote(input){
     const tenant=uuid(input.tenantId,'Tenant ID'),noteId=uuid(input.noteId??randomUUID(),'Note ID'),subjectId=uuid(input.subjectId,'Subject ID'),actor=uuid(input.actorIdentityId,'Actor identity ID'),title=text(input.title,'Note title',300),body=text(input.body,'Note body',10000);
     return tenantPool.withTransaction(tenant,async session=>{
@@ -744,7 +779,7 @@ export function createCrmRepository({tenantPool,jobRepository=null,clock=timesta
       const {rows}=await session.query(`/*timeline:list*/
        WITH timeline AS (
         SELECT 'activity'::text source_kind,5 source_rank,activity_id::text source_key,1 source_version,occurred_at,created_at AS recorded_at,summary FROM crm_activities WHERE tenant_id=$1 AND subject_id=$2
-        UNION ALL SELECT 'task',4,event_id::text,1,occurred_at,recorded_at,'Task ' || action FROM crm_task_events WHERE tenant_id=$1 AND subject_id=$2
+        UNION ALL SELECT 'task',4,event_id::text,1,occurred_at,recorded_at,CASE WHEN action='reminder_due' THEN 'Task reminder due' ELSE 'Task ' || action END FROM crm_task_events WHERE tenant_id=$1 AND subject_id=$2
         UNION ALL SELECT 'note',3,note_id::text,revision,occurred_at,recorded_at,'Note revised' FROM crm_note_revisions WHERE tenant_id=$1 AND subject_id=$2
         UNION ALL SELECT 'attachment',2,link_id::text,object_revision,occurred_at,recorded_at,'Attachment: ' || file_name FROM crm_attachment_links WHERE tenant_id=$1 AND subject_id=$2
         UNION ALL SELECT 'ownership',1,event_id::text,1,occurred_at,recorded_at,'Owner changed' FROM crm_ownership_events WHERE tenant_id=$1 AND subject_id=$2
@@ -758,5 +793,5 @@ export function createCrmRepository({tenantPool,jobRepository=null,clock=timesta
     });
   }
 
-  return Object.freeze({createPerson,createOrganization,getParty,listParties,updateParty,createContact,listContacts,createRelationship,listRelationships,ensureDefaultPipeline,createLead,convertLead,changeOpportunityStage,listPipelines,listLeads,listOpportunities,getSubject,getSubjectType,getTaskSubject,getNoteSubject,createActivity,createTask,updateTask,createNote,reviseNote,linkAttachment,changeSubjectOwner,listTimeline});
+  return Object.freeze({createPerson,createOrganization,getParty,listParties,updateParty,createContact,listContacts,createRelationship,listRelationships,ensureDefaultPipeline,createLead,convertLead,changeOpportunityStage,listPipelines,listLeads,listOpportunities,getSubject,getSubjectType,getTaskSubject,getNoteSubject,createActivity,createTask,updateTask,processTaskReminder,createNote,reviseNote,linkAttachment,changeSubjectOwner,listTimeline});
 }

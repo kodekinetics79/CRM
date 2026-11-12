@@ -14,12 +14,14 @@ The product is implemented and locally certifiable. It is not yet a deployed or 
 - Canonical Party, Person, Organization, contact-point, and relationship records.
 - Industry-neutral leads, pipelines, stages, opportunities, assignments, ownership, activities, tasks, notes, attachments, dashboards, governed reports, CSV preview/commit, and bounded formula-safe export.
 - Distinct tenant/control PostgreSQL roles, forced RLS, composite tenant keys, explicit migrations, required MFA, opaque tenant-bound sessions, exact-origin CSRF, capability lifecycle, durable jobs, and immutable history.
+- Durable CRM task reminders now run through a registered worker handler: due reminders create exactly one deterministic in-product timeline event and clear their schedule atomically; stale, rescheduled, completed, cancelled, unscheduled, missing-subject, and inactive-owner work is safely suppressed. No email, SMS, or push delivery is claimed.
 - Production React workspace with organization switching, capability-aware navigation, people/organization search, pipeline controls, timeline, assignment, reporting/import/export journeys, responsive navigation, and a build-separated resettable synthetic evaluator.
 - Startup certification before web listen or worker polling for current schema, tenant RLS role, control role, and role separation.
 - Startup failure cleanup closes initialized pools exactly once; control-role certification also proves its audit-sequence and runtime-function privileges.
 - Confirmed security fixes: failed logout no longer claims sign-out unless server termination succeeds or the server reports 401; saved-report updates authorize the persisted dataset before any replacement; attachment links explicitly grant metadata reference only and never byte access.
 - Certification failures redact configured database/object-store credentials and identifiers through both direct verifier and composed certifier paths.
 - Capacity evidence comes from 40 measured CRM repository operations on disposable PostgreSQL, not synthetic counters.
+- Worker polling failures drain active work before pool shutdown, and shutdown-raced claims that never reached a handler are released without consuming an attempt or entering dead-letter state.
 - Deterministic local certification and the operator runbook at `docs/operations/WIMBLO-CRM-RUNBOOK.md`.
 
 ## Verification contract

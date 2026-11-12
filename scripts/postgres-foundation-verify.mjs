@@ -7,6 +7,7 @@ import {randomUUID} from 'node:crypto';
 import {createControlRepository} from '../server/production/controlRepository.js';
 import {createCrmRepository} from '../server/production/crmRepository.js';
 import {createJobRepository} from '../server/production/jobRepository.js';
+import {createProductionJobHandlers,runWorker} from '../server/production/worker.js';
 import {createCrmImportService} from '../server/production/crmImportService.js';
 import {runRepresentativeCrmCapacity} from '../server/production/capacityCertification.js';
 import {redactCertificationDiagnostic} from './certification-redaction.mjs';
@@ -98,9 +99,9 @@ async function main(){
   const controlPool=createPostgresPool({connectionString:databaseUrl(database,controlRole,controlPassword),max:2,applicationName:'wimblo-foundation-control'});
   pools.push(owner,tenantPool,controlPool);
 
-  await runStep('explicit migrations apply versions 1 through 17 with a non-superuser BYPASSRLS owner',async()=>{
+  await runStep('explicit migrations apply versions 1 through 18 with a non-superuser BYPASSRLS owner',async()=>{
     const result=await owner.withAdminSession(session=>applyMigrations(session));
-    assert(result.currentVersion===17&&SCHEMA_VERSION===17,'schema did not reach version 17');
+    assert(result.currentVersion===18&&SCHEMA_VERSION===18,'schema did not reach version 18');
     assert(result.applied.map(entry=>entry.version).join(',')===MIGRATIONS.map(entry=>entry.version).join(','),'migration order differs');
     for(const sql of applicationRoleGrants(tenantRole))await owner.withAdminSession(session=>session.query(sql));
     for(const sql of controlPlaneRoleGrants(controlRole))await owner.withAdminSession(session=>session.query(sql));
@@ -284,6 +285,37 @@ async function main(){
     return 'subject-identity=immutable, timeline-asof=stable, append-only=refused, completion=consistent, attachment=active-revision, cross-tenant=0, reminder-rollback=clean';
   });
 
+  await runStep('due CRM reminders complete through the worker exactly once while stale work is suppressed',async()=>{
+    const subjectId=randomUUID(),dueTaskId=randomUUID(),staleTaskId=randomUUID(),at='2099-02-01T02:00:00.000Z',reminderAt='2099-02-01T01:59:00.000Z';
+    await tenantPool.withTransaction(tenantA,async session=>{
+      await session.query("INSERT INTO parties(tenant_id,party_id,party_type,display_name) VALUES($1,$2,'person','Reminder verifier')",[tenantA,subjectId]);
+      await session.query("INSERT INTO people(tenant_id,party_id,first_name,last_name) VALUES($1,$2,'Reminder','Verifier')",[tenantA,subjectId]);
+      await session.query("INSERT INTO crm_subjects(tenant_id,subject_id,subject_type,party_id,owner_identity_id) VALUES($1,$2,'party',$2,$3)",[tenantA,subjectId,identityId]);
+    });
+    const jobs=createJobRepository({tenantPool,clock:()=>new Date(at),leaseMs:60_000}),crm=createCrmRepository({tenantPool,jobRepository:jobs,clock:()=>new Date(at)});
+    await crm.createTask({tenantId:tenantA,taskId:dueTaskId,subjectId,title:'Due reminder',ownerIdentityId:identityId,actorIdentityId:identityId,reminderAt});
+    await crm.createTask({tenantId:tenantA,taskId:staleTaskId,subjectId,title:'Completed before reminder',ownerIdentityId:identityId,actorIdentityId:identityId,reminderAt});
+    await crm.updateTask({tenantId:tenantA,taskId:staleTaskId,expectedVersion:1,status:'completed',actorIdentityId:identityId});
+    const baseHandlers=createProductionJobHandlers({crmRepository:crm}),controller=new AbortController();let handled=0;
+    const handlers={...baseHandlers,'crm.task_reminder':async job=>{await baseHandlers['crm.task_reminder'](job);if(++handled===2)controller.abort();}};
+    await runWorker({repository:jobs,handlers,signal:controller.signal,concurrency:1,tenantIds:[tenantA],pollIntervalMs:1,heartbeatIntervalMs:1_000,workerId:'foundation-reminder-worker'});
+    const jobRows=await tenantPool.withTenantSession(tenantA,session=>session.query("SELECT job_id::text,payload,state FROM wimblo_platform.durable_jobs WHERE kind='crm.task_reminder' AND payload->>'taskId'=ANY($1::text[]) ORDER BY payload->>'taskId'",[[dueTaskId,staleTaskId]]));
+    assert(jobRows.rowCount===2&&jobRows.rows.every(row=>row.state==='completed'),'reminder worker did not complete due and suppressed jobs');
+    const dueJob=jobRows.rows.find(row=>row.payload.taskId===dueTaskId),staleJob=jobRows.rows.find(row=>row.payload.taskId===staleTaskId);
+    const events=await tenantPool.withTenantSession(tenantA,session=>session.query("SELECT event_id::text,task_id::text,action FROM crm_task_events WHERE action='reminder_due' AND task_id=ANY($1::uuid[]) ORDER BY task_id",[[dueTaskId,staleTaskId]]));
+    assert(events.rowCount===1&&events.rows[0].task_id===dueTaskId&&events.rows[0].event_id===dueJob.job_id,'worker did not create exactly one deterministic event or failed to suppress stale work');
+    assert(!events.rows.some(row=>row.task_id===staleTaskId)&&staleJob,'stale reminder produced visible history');
+    const taskState=await tenantPool.withTenantSession(tenantA,session=>session.query('SELECT reminder_at,version FROM crm_tasks WHERE task_id=$1',[dueTaskId]));
+    assert(taskState.rows[0]?.reminder_at===null&&Number(taskState.rows[0]?.version)===2,'delivered reminder did not clear its schedule exactly once');
+    const timeline=await crm.listTimeline({tenantId:tenantA,subjectId,limit:20});
+    assert(timeline.items.some(item=>item.kind==='task'&&item.id===dueJob.job_id&&item.summary==='Task reminder due'),`delivered reminder is not visible in the task timeline: job=${dueJob.job_id}, timeline=${JSON.stringify(timeline.items)}`);
+    const replay=await crm.processTaskReminder({tenantId:tenantA,taskId:dueTaskId,expectedTaskVersion:1,jobId:dueJob.job_id});
+    assert(replay.outcome==='delivered'&&replay.replayed===true,'post-commit retry did not return success from durable history');
+    const finalCount=await tenantPool.withTenantSession(tenantA,session=>session.query("SELECT count(*)::int AS count FROM crm_task_events WHERE task_id=$1 AND action='reminder_due'",[dueTaskId]));
+    assert(finalCount.rows[0]?.count===1,'post-commit retry duplicated the reminder event');
+    return 'worker-jobs=2-completed, due-events=1, stale-events=0, retry=replayed, delivery=in-product-timeline-only';
+  });
+
   await runStep('governed CRM reporting and import controls enforce tenant idempotency and retention',async()=>{
     const subjectA=randomUUID(),subjectB=randomUUID(),batchA=randomUUID(),batchB=randomUUID(),reportId=randomUUID(),key='foundation-import-replay';
     for(const [tenant,subject,batch] of [[tenantA,subjectA,batchA],[tenantB,subjectB,batchB]])await tenantPool.withTransaction(tenant,async session=>{
@@ -325,7 +357,7 @@ async function main(){
     const own=await tenantPool.withTenantSession(tenantA,session=>session.query('SELECT batch_id FROM crm_import_batches WHERE idempotency_key=$1',[key]));
     assert(own.rowCount===1&&own.rows[0].batch_id===batchA,'tenant-scoped import idempotency returned another tenant batch');
     await expectFailure(()=>controlPool.withAdminSession(session=>session.query('SELECT COUNT(*) FROM crm_saved_reports')),PERSISTENCE_CODES.ISOLATION,'control-role saved report read');
-    return 'schema=17, tenant-idempotency=isolated, stale-preview=refused, committed=immutable, person-mapping=enforced, delete=refused, control=refused';
+    return 'schema=18, tenant-idempotency=isolated, stale-preview=refused, committed=immutable, person-mapping=enforced, delete=refused, control=refused';
   });
 
   await tenantPool.withTransaction(tenantA,session=>session.query("INSERT INTO wimblo_platform.tenant_modules(tenant_id,module_key,state) VALUES($1,'core','enabled')",[tenantA]));

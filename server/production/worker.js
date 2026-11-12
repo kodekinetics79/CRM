@@ -4,12 +4,21 @@ import {pathToFileURL} from 'node:url';
 import {resolveSaasRuntimeConfig} from './runtimeConfig.js';
 import {poolFromEnv,controlPoolFromEnv} from '../persistence/index.js';
 import {createJobRepository} from './jobRepository.js';
+import {createCrmRepository} from './crmRepository.js';
 import {certifyProductionPools} from './startupChecks.js';
 
 const sleep=(ms,signal)=>signal?.aborted?Promise.resolve():new Promise(resolveSleep=>{const timer=setTimeout(done,ms);signal?.addEventListener('abort',done,{once:true});function done(){clearTimeout(timer);signal?.removeEventListener('abort',done);resolveSleep();}});
 const tenants=async source=>{const value=typeof source==='function'?await source():source;if(!value||typeof value[Symbol.iterator]!=='function')throw new TypeError('Worker tenantIds must be an iterable or a function returning one.');return [...new Set(value)];};
 const handlerFor=(handlers,kind)=>handlers instanceof Map?handlers.get(kind):handlers?.[kind];
 const failure=error=>({errorCode:String(error?.code||'HANDLER_FAILED').slice(0,120),errorDetail:String(error?.message||'Job handler failed.').slice(0,2_000)});
+
+export function createProductionJobHandlers({crmRepository}={}){
+ if(!crmRepository||typeof crmRepository.processTaskReminder!=='function')throw new TypeError('CRM reminder processing repository is required.');
+ return Object.freeze({
+  'platform.noop':async()=>{},
+  'crm.task_reminder':async job=>crmRepository.processTaskReminder({tenantId:job.tenantId,taskId:job.payload?.taskId,expectedTaskVersion:job.payload?.expectedTaskVersion,jobId:job.jobId})
+ });
+}
 
 export async function runWorker({repository,handlers,signal,concurrency=4,tenantIds,pollIntervalMs=50,heartbeatIntervalMs=10_000,workerId=`worker-${randomUUID()}`}={}){
  if(!repository||typeof repository.claim!=='function'||typeof repository.complete!=='function'||typeof repository.retry!=='function')throw new TypeError('A durable job repository is required.');
@@ -42,22 +51,29 @@ export async function runWorker({repository,handlers,signal,concurrency=4,tenant
   active.add(work);
  };
 
- while(!signal.aborted){
-  let claimed=false;
-  for(const tenantId of await tenants(tenantIds)){
-   if(signal.aborted||active.size>=concurrency)break;
-   if(activeTenants.has(tenantId))continue;
-   const [job]=await repository.claim({tenantId,workerId,limit:1,kinds:registeredKinds});
-   if(job){
-    claimed=true;
-    if(signal.aborted){await repository.retry({...job,workerId:job.leaseOwner||workerId,errorCode:'WORKER_SHUTDOWN',errorDetail:'Worker stopped after claim and before handler dispatch.'}).catch(()=>{});break;}
-    launch(job);
+ let loopFailure;
+ try{
+  while(!signal.aborted){
+   let claimed=false;
+   for(const tenantId of await tenants(tenantIds)){
+    if(signal.aborted||active.size>=concurrency)break;
+    if(activeTenants.has(tenantId))continue;
+    const [job]=await repository.claim({tenantId,workerId,limit:1,kinds:registeredKinds});
+    if(job){
+     claimed=true;
+     if(signal.aborted){
+      if(typeof repository.release!=='function')throw new TypeError('The durable job repository must release claims that were never dispatched.');
+      await repository.release({...job,workerId:job.leaseOwner||workerId});break;
+     }
+     launch(job);
+    }
    }
+   if(signal.aborted)break;
+   if(!claimed||active.size>=concurrency)await (active.size?Promise.race([...active,sleep(pollIntervalMs,signal)]):sleep(pollIntervalMs,signal));
   }
-  if(signal.aborted)break;
-  if(!claimed||active.size>=concurrency)await (active.size?Promise.race([...active,sleep(pollIntervalMs,signal)]):sleep(pollIntervalMs,signal));
- }
+ }catch(error){loopFailure=error;}
  await Promise.allSettled([...active]);
+ if(loopFailure)throw loopFailure;
 }
 
 export async function startWorkerRuntime({config,repository,handlers={},tenantIds,signal,pools=[],run=runWorker,verify=async()=>{}}={}){
@@ -73,9 +89,9 @@ export async function startWorkerRuntime({config,repository,handlers={},tenantId
 
 export async function main(env=process.env){
  const config=resolveSaasRuntimeConfig(env,process.cwd()),overrides={max:config.limits.dbPoolMax};
- const tenantPool=poolFromEnv(env,overrides),controlPool=controlPoolFromEnv(env,overrides),repository=createJobRepository({tenantPool,leaseMs:config.limits.jobLeaseMs});
+ const tenantPool=poolFromEnv(env,overrides),controlPool=controlPoolFromEnv(env,overrides),repository=createJobRepository({tenantPool,leaseMs:config.limits.jobLeaseMs}),crmRepository=createCrmRepository({tenantPool,jobRepository:repository});
  const tenantIds=async()=>controlPool.withAdminSession(async session=>(await session.query('SELECT tenant_id::text AS tenant_id FROM wimblo_platform.runnable_tenant_ids() ORDER BY tenant_id')).rows.map(row=>row.tenant_id));
- const runtime=await startWorkerRuntime({config,repository,handlers:Object.freeze({'platform.noop':async()=>{}}),tenantIds,pools:[controlPool,tenantPool],verify:()=>certifyProductionPools({tenantPool,controlPool})});
+ const runtime=await startWorkerRuntime({config,repository,handlers:createProductionJobHandlers({crmRepository}),tenantIds,pools:[controlPool,tenantPool],verify:()=>certifyProductionPools({tenantPool,controlPool})});
  const shutdown=()=>runtime.close().catch(error=>{process.stderr.write(`Wimblo worker shutdown failed: ${error.message}\n`);process.exitCode=1;});process.once('SIGTERM',shutdown);process.once('SIGINT',shutdown);
  return runtime;
 }

@@ -57,6 +57,11 @@ function memoryPool(){
    if(!job||job.state!=='leased'||job.leaseOwner!==workerId||job.version!==expectedVersion||job.leaseExpiresAt<=instant)return {rows:[],rowCount:0};
    job.state='dead_lettered';job.leaseOwner=null;job.leaseExpiresAt=null;job.updatedAt=instant;job.version++;deadLetters.push({tenantId,jobId,reasonCode,reasonDetail});const attempt=attempts.findLast(item=>item.tenantId===tenantId&&item.jobId===jobId&&item.attempt===job.attempts);Object.assign(attempt,{finishedAt:instant,outcome:'dead_lettered',errorCode:reasonCode,errorDetail:reasonDetail});return {rows:[row(job)],rowCount:1};
   }
+  if(sql.includes('/*job:release-unstarted*/')){
+   const [tenantId,jobId,workerId,expectedVersion,now]=values,job=jobs.get(key(tenantId,jobId)),instant=+new Date(now);
+   if(!job||job.state!=='leased'||job.leaseOwner!==workerId||job.version!==expectedVersion||job.leaseExpiresAt<=instant)return {rows:[],rowCount:0};
+   attempts.splice(attempts.findIndex(item=>item.tenantId===tenantId&&item.jobId===jobId&&item.attempt===job.attempts),1);job.state='ready';job.leaseOwner=null;job.leaseExpiresAt=null;job.attempts--;job.updatedAt=instant;job.version++;return {rows:[row(job)],rowCount:1};
+  }
   throw new Error(`Unexpected SQL: ${sql}`);
  }};
  const pool={async withTransaction(_tenantId,fn){let release;const previous=tail;tail=new Promise(resolve=>{release=resolve;});await previous;inTransaction++;try{return await fn(session);}finally{inTransaction--;release();}}};
@@ -164,11 +169,29 @@ test('abort racing a claim releases the lease without invoking its handler',asyn
  const repository={
   claim:()=>new Promise(resolve=>{resolveClaim=resolve;}),
   async complete(){throw new Error('unexpected completion');},
-  async retry(current){released=current;return {...current,state:'retry_wait'};}
+  async retry(){throw new Error('unexpected retry');},
+  async release(current){released=current;return {...current,state:'ready'};}
  };
  const running=runWorker({repository,handlers:{'provider.call':async()=>{handled++;}},signal:controller.signal,concurrency:1,tenantIds:[tenantId]});
  while(!resolveClaim)await new Promise(resolve=>setImmediate(resolve));controller.abort();resolveClaim([job]);await running;
- assert.equal(handled,0);assert.equal(released.errorCode,'WORKER_SHUTDOWN');
+ assert.equal(handled,0);assert.equal(released.jobId,job.jobId);
+});
+
+test('a polling failure drains already active handlers before the worker rejects',async()=>{
+ const tenantA=randomUUID(),tenantB=randomUUID(),job={tenantId:tenantA,jobId:randomUUID(),kind:'slow',idempotencyKey:'slow-poll-failure',payload:{},version:2,attempts:1,maxAttempts:5,state:'leased',leaseOwner:'worker'};let release,started=false,finished=false,settled=false;
+ const repository={async claim({tenantId}){if(tenantId===tenantA)return [job];throw new Error('poll failed');},async complete(){return {...job,state:'completed'};},async retry(){throw new Error('unexpected retry');}};
+ const running=runWorker({repository,handlers:{slow:async()=>{started=true;await new Promise(resolve=>{release=resolve;});finished=true;}},signal:new AbortController().signal,concurrency:2,tenantIds:[tenantA,tenantB]}).then(()=>({error:null}),error=>({error})).finally(()=>{settled=true;});
+ while(!started)await new Promise(resolve=>setImmediate(resolve));await new Promise(resolve=>setImmediate(resolve));assert.equal(settled,false);
+ release();const outcome=await running;assert.match(outcome.error?.message??'',/poll failed/);assert.equal(finished,true);
+});
+
+test('shutdown after a final-attempt claim releases it without dead-lettering unstarted work',async()=>{
+ const db=memoryPool(),time=clockFixture(),repository=createJobRepository({tenantPool:db.pool,clock:time.clock,leaseMs:60_000}),tenantId=randomUUID(),controller=new AbortController();let handled=0;
+ const queued=await repository.enqueue({tenantId,kind:'provider.call',idempotencyKey:'shutdown-before-dispatch',payload:{},maxAttempts:1});
+ const workerRepository={...repository,async claim(input){const claimed=await repository.claim(input);controller.abort();return claimed;}};
+ await runWorker({repository:workerRepository,handlers:{'provider.call':async()=>{handled++;}},signal:controller.signal,concurrency:1,tenantIds:[tenantId]});
+ const retained=db.jobs.get(`${tenantId}:${queued.jobId}`);assert.equal(handled,0);assert.equal(retained.state,'ready');assert.equal(retained.attempts,0);assert.equal(db.deadLetters.length,0);
+ assert.equal((await repository.claim({tenantId,workerId:'next-worker'}))[0].jobId,queued.jobId);
 });
 
 test('a worker with no registered handlers refuses startup before claiming',async()=>{

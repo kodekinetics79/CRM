@@ -152,5 +152,23 @@ export function createJobRepository({tenantPool,clock=()=>new Date(),leaseMs=30_
   if(!result.rowCount)conflict('retry');metrics.retries++;return mapJob(result.rows[0]);
  }
 
- return Object.freeze({enqueue,enqueueInTransaction,claim,heartbeat,complete,retry,deadLetter,getMetrics:()=>Object.freeze({...metrics})});
+ async function release({tenantId,jobId:id,workerId,version,expectedVersion=version}){
+  const tenant=assertTenantId(tenantId),identity=jobId(id),worker=workerName(workerId),fence=positive(expectedVersion,'Job version',2_147_483_647),at=now();
+  const result=await tenantPool.withTransaction(tenant,session=>session.query(`/*job:release-unstarted*/
+   WITH owned AS (
+    SELECT * FROM wimblo_platform.durable_jobs
+    WHERE tenant_id=$1 AND job_id=$2 AND state='leased' AND lease_owner=$3 AND version=$4 AND lease_expires_at>$5 FOR UPDATE
+   ), removed AS (
+    DELETE FROM wimblo_platform.durable_job_attempts a USING owned o
+    WHERE a.tenant_id=o.tenant_id AND a.job_id=o.job_id AND a.attempt=o.attempts AND a.worker_id=$3 AND a.finished_at IS NULL
+    RETURNING a.tenant_id,a.job_id
+   ), released AS (
+    UPDATE wimblo_platform.durable_jobs j SET state='ready',lease_owner=NULL,lease_expires_at=NULL,attempts=j.attempts-1,available_at=LEAST(j.available_at,$5),updated_at=$5,version=j.version+1
+    FROM owned o WHERE j.tenant_id=o.tenant_id AND j.job_id=o.job_id AND EXISTS (SELECT 1 FROM removed r WHERE r.tenant_id=o.tenant_id AND r.job_id=o.job_id)
+    RETURNING j.*
+   ) SELECT * FROM released`,[tenant,identity,worker,fence,at]));
+  if(!result.rowCount)conflict('unstarted release');return mapJob(result.rows[0]);
+ }
+
+ return Object.freeze({enqueue,enqueueInTransaction,claim,heartbeat,complete,retry,release,deadLetter,getMetrics:()=>Object.freeze({...metrics})});
 }

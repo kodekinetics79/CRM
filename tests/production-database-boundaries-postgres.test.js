@@ -104,7 +104,7 @@ test('bypassing migration owner upgrades populated schemas while runtime roles r
     });
 
     await fixture.owner.withAdminSession(session=>applyMigrations(session));
-    assert.equal(SCHEMA_VERSION,17);
+    assert.equal(SCHEMA_VERSION,18);
     const lifecycle=await fixture.owner.withAdminSession(session=>session.query('SELECT status,lifecycle_version FROM tenants WHERE tenant_id=$1',[closedTenant]));
     assert.deepEqual(lifecycle.rows[0],{status:'closed',lifecycle_version:2});
     const backfill=await fixture.owner.withAdminSession(session=>session.query('SELECT subject_type,party_id::text FROM crm_subjects WHERE tenant_id=$1 AND subject_id=$2',[activeTenant,partyId]));
@@ -114,7 +114,7 @@ test('bypassing migration owner upgrades populated schemas while runtime roles r
     for(const sql of controlPlaneRoleGrants(fixture.controlRole))await fixture.owner.withAdminSession(session=>session.query(sql));
     const tenantPool=fixture.makeTenantPool(),controlPool=fixture.makeControlPool();
     const certified=await certifyProductionPools({tenantPool,controlPool});
-    assert.equal(certified.schemaVersion,17);
+    assert.equal(certified.schemaVersion,18);
 
     const state=await controlPool.withAdminSession(session=>session.query('SELECT status,lifecycle_version FROM wimblo_platform.tenant_state($1)',[closedTenant]));
     assert.deepEqual(state.rows[0],{status:'closed',lifecycle_version:2});

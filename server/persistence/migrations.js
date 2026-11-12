@@ -940,6 +940,12 @@ export const MIGRATIONS=Object.freeze([
        )
    $fn$`,
   `REVOKE ALL ON FUNCTION wimblo_platform.active_membership(uuid,uuid) FROM PUBLIC`
+ ]),
+ migration(18,'durable-crm-task-reminder-history',[
+  `ALTER TABLE crm_task_events ADD CONSTRAINT crm_task_events_action_expand_check CHECK (action IN ('created','updated','completed','reopened','cancelled','reminder_due')) NOT VALID`,
+  `ALTER TABLE crm_task_events VALIDATE CONSTRAINT crm_task_events_action_expand_check`,
+  `ALTER TABLE crm_task_events DROP CONSTRAINT crm_task_events_action_check`,
+  `ALTER TABLE crm_task_events RENAME CONSTRAINT crm_task_events_action_expand_check TO crm_task_events_action_check`
  ])
 ]);
 
