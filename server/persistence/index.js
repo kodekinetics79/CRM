@@ -21,9 +21,13 @@ export {
  FINANCIAL_COLLECTION,GIFT_STATUSES
 } from './contract.js';
 
-export {MIGRATIONS,SCHEMA_VERSION,MIGRATION_LEDGER_TABLE,validateMigrations,planMigrations,applyMigrations,readSchemaVersion} from './migrations.js';
-export {createPostgresPool,poolFromEnv,classifyError} from './pool.js';
-export {applicationRoleGrants,assertRowLevelSecurityEffective,TENANT_TABLES} from './roles.js';
+export {MIGRATIONS,SCHEMA_VERSION,MIGRATION_LEDGER_TABLE,validateMigrations,planMigrations,applyMigrations,readSchemaVersion,assertMigrationOwnerCanBypassRls} from './migrations.js';
+export {createPostgresPool,poolFromEnv,controlPoolFromEnv,classifyError} from './pool.js';
+export {
+ applicationRoleGrants,controlPlaneRoleGrants,
+ assertRowLevelSecurityEffective,assertControlPlaneRole,assertSecurityDefinerOwnersBypassRls,
+ TENANT_TABLES,TENANT_FOUNDATION_TABLES,CONTROL_PLANE_TABLES
+} from './roles.js';
 export {createSqliteRepository,WORKSPACE_TABLES} from './sqliteRepository.js';
 export {createPostgresRepository} from './postgresRepository.js';
 export {

@@ -29,6 +29,19 @@ const FORMAT='Wimblo persistence logical backup';
 const VERSION=1;
 export const MAX_ARCHIVE_BYTES=128*1024*1024;
 
+const MEMBERSHIP_REFERENCES=Object.freeze({
+ leads:['owner_identity_id'],opportunities:['owner_identity_id'],opportunity_stage_events:['actor_identity_id'],
+ crm_subjects:['owner_identity_id'],crm_activities:['actor_identity_id'],crm_tasks:['owner_identity_id'],crm_task_events:['actor_identity_id'],
+ crm_note_revisions:['actor_identity_id'],crm_attachment_links:['actor_identity_id'],
+ crm_ownership_events:['from_owner_identity_id','to_owner_identity_id','actor_identity_id'],
+ crm_saved_reports:['owner_identity_id'],crm_import_batches:['actor_identity_id']
+});
+const IDENTITY_REFERENCES=Object.freeze({
+ party_events:['actor_identity_id'],
+ 'wimblo_platform.module_events':['actor_identity_id'],
+ 'wimblo_platform.dead_letter_jobs':['reviewed_by']
+});
+
 const prefix=length=>{const bytes=Buffer.alloc(4);bytes.writeUInt32BE(length);return bytes;};
 const differences=(expected,actual,path='')=>{
  const out=[];
@@ -40,6 +53,38 @@ const differences=(expected,actual,path='')=>{
  }
  return out;
 };
+
+const addReferences=(target,rows,columns)=>{
+ for(const row of rows||[])for(const column of columns||[])if(row?.[column])target.add(String(row[column]));
+};
+
+function controlPlanePrerequisites(dump){
+ const identityIds=new Set(),membershipIdentityIds=new Set(),tenantData=dump?.tenantData||{};
+ for(const [table,columns] of Object.entries(MEMBERSHIP_REFERENCES))addReferences(membershipIdentityIds,tenantData[table],columns);
+ for(const identityId of membershipIdentityIds)identityIds.add(identityId);
+ for(const [table,columns] of Object.entries(IDENTITY_REFERENCES))addReferences(identityIds,tenantData[table],columns);
+ return Object.freeze({
+  tenantId:assertTenantId(dump.tenantId),
+  identityIds:Object.freeze([...identityIds].sort()),
+  membershipIdentityIds:Object.freeze([...membershipIdentityIds].sort())
+ });
+}
+
+async function assertControlPlanePrerequisites(dump,validate){
+ const required=controlPlanePrerequisites(dump);
+ if(!required.identityIds.length&&!required.membershipIdentityIds.length)return required;
+ if(typeof validate!=='function')persistenceFail(PERSISTENCE_CODES.INVALID,'Control-plane prerequisite validation is required before restoring tenant rows that reference identities or memberships.');
+ const confirmed=await validate(required);
+ const identities=new Set(Array.isArray(confirmed?.identityIds)?confirmed.identityIds.map(String):[]);
+ const memberships=new Set(Array.isArray(confirmed?.membershipIdentityIds)?confirmed.membershipIdentityIds.map(String):[]);
+ const missingIdentities=required.identityIds.filter(value=>!identities.has(value));
+ const missingMemberships=required.membershipIdentityIds.filter(value=>!memberships.has(value));
+ if(missingIdentities.length||missingMemberships.length)persistenceFail(
+  PERSISTENCE_CODES.ISOLATION,
+  `Control-plane prerequisites are incomplete: ${missingIdentities.length} referenced identities and ${missingMemberships.length} referenced tenant memberships are missing.`
+ );
+ return required;
+}
 
 /** @param {{repository:object, encryptionKey:string, now?:() => string}} options */
 export async function createTenantBackup({repository,encryptionKey,now=()=>new Date().toISOString()}={}){
@@ -58,7 +103,7 @@ export async function createTenantBackup({repository,encryptionKey,now=()=>new D
    payloadBytes:payload.length,
    payloadSha256:sha256(payload),
    digest,
-   scope:'One tenant: records, users, settings and audit owned by the persistence boundary. Private object bytes are held in the object store and are not inside this archive.'
+   scope:'One tenant: records, users, settings, audit, object metadata, production CRM tables, module state and durable job history owned by the persistence boundary. Private object bytes and control-plane identities/memberships are restored separately before dependent tenant rows.'
   };
   const metadata=Buffer.from(JSON.stringify(manifest),'utf8');
   const iv=randomBytes(12),aad={format:FORMAT,version:VERSION,tenantId};
@@ -106,11 +151,14 @@ export function readBackupManifest({archive,encryptionKey,expectedTenantId=null}
 /**
  * Restore into a FRESH target and verify it. createTargetRepository must return
  * an empty repository — a fresh database, a fresh workspace file, or an
- * unregistered tenant. A non-empty target is refused by importTenant().
+ * unregistered tenant. A non-empty target is refused by importTenant(). When
+ * tenant rows reference global identities or memberships, the caller must
+ * validate those separately restored control-plane prerequisites first.
  */
-export async function restoreTenantBackup({archive,encryptionKey,createTargetRepository,expectedTenantId=null,closeTarget=true}={}){
+export async function restoreTenantBackup({archive,encryptionKey,createTargetRepository,validateControlPlanePrerequisites,expectedTenantId=null,closeTarget=true}={}){
  if(typeof createTargetRepository!=='function')persistenceFail(PERSISTENCE_CODES.INVALID,'A fresh-target repository factory is required; restores never write over a live store.');
  const {manifest,dump}=readBackupManifest({archive,encryptionKey,expectedTenantId});
+ await assertControlPlanePrerequisites(dump,validateControlPlanePrerequisites);
  const target=await createTargetRepository(manifest);
  try{
   if(target.tenantId!==manifest.tenantId)persistenceFail(PERSISTENCE_CODES.INVALID,'The restore target is scoped to a different tenant than the archive.');
@@ -149,6 +197,7 @@ export async function verifyRestore({manifest=null,source=null,restored}={}){
   collections:Object.fromEntries(Object.entries(actual.collections).map(([k,v])=>[k,v.count])),
   checksums:Object.fromEntries(Object.entries(actual.collections).map(([k,v])=>[k,v.digest])),
   financial:actual.financial,
+  tenantData:actual.tenantData??{},
   comparisons,
   verified:failed.length===0
  };

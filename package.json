@@ -6,12 +6,22 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "server": "node server/index.js",
-    "build": "vite build",
+    "build": "VITE_WIMBLO_APP_MODE=production vite build",
+    "build:synthetic-evaluation": "VITE_WIMBLO_APP_MODE=synthetic-evaluation vite build --outDir dist-evaluation",
     "start": "NODE_ENV=production node server/index.js",
     "start:evaluation": "NODE_ENV=evaluation node server/index.js",
-    "test": "node --test --test-concurrency=4 tests/*.test.js",
+    "start:saas:web": "NODE_ENV=production WIMBLO_RUNTIME=saas PROCESS_ROLE=web node server/production/web.js",
+    "start:saas:worker": "NODE_ENV=production WIMBLO_RUNTIME=saas PROCESS_ROLE=worker node server/production/worker.js",
+    "test:production-foundation": "node --test tests/production-*.test.js && npm run verify:postgres-foundation && npm run test:discipline",
+    "test": "node --test --test-concurrency=4 tests/*.test.js && node --test --test-concurrency=1 tests/serial/*.test.js",
+    "test:discipline": "node scripts/tdd-gate.mjs",
     "evaluate": "node scripts/evaluate.mjs",
-    "verify:postgres": "node scripts/postgres-verify.mjs"
+    "verify:postgres": "node scripts/postgres-verify.mjs",
+    "verify:postgres-foundation": "node scripts/postgres-foundation-verify.mjs",
+    "verify:postgres-boundaries": "node --test tests/integration/production-database-boundaries-postgres.test.js tests/integration/production-foundation-e2e.test.js",
+    "check:production-foundation": "node scripts/production-foundation-check.mjs",
+    "certify:production-foundation:local": "npm run test:production-foundation && npm run build && npm audit --audit-level=high",
+    "certify:crm:local": "node scripts/crm-production-certify.mjs"
   },
   "engines": {
     "node": ">=24.0.0"
@@ -19,7 +29,6 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1131.0",
     "@fontsource/ibm-plex-sans": "^5.3.0",
-    "@fontsource/newsreader": "^5.3.0",
     "express": "^5.3.0",
     "helmet": "^8.1.0",
     "lucide-react": "^0.468.0",

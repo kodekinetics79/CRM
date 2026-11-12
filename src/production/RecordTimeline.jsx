@@ -1,0 +1,10 @@
+import React,{useEffect,useState} from 'react';
+
+const label=kind=>({activity:'Activity',task:'Task update',note:'Note revised',attachment:'Attachment linked',ownership:'Owner changed'}[kind]||'Record update');
+
+export default function RecordTimeline({client,subjectId,initialData=null}){
+ const [page,setPage]=useState(initialData),[items,setItems]=useState(initialData?.items||[]),[status,setStatus]=useState(initialData?'ready':'loading'),[error,setError]=useState('');
+ async function load(cursor=null,signal){setStatus(cursor?'more':'loading');setError('');try{const result=await client.request(`/crm/subjects/${subjectId}/timeline?limit=20${cursor?`&cursor=${encodeURIComponent(cursor)}`:''}`,{signal});setPage(result);setItems(current=>cursor?[...current,...result.items]:result.items);setStatus('ready');}catch(e){if(e.name!=='AbortError'){setError(e.message);setStatus('error');}}}
+ useEffect(()=>{if(initialData||!subjectId)return;const controller=new AbortController();load(null,controller.signal);return()=>controller.abort();},[client,subjectId,initialData]);
+ return <section className="record-timeline" aria-labelledby="timeline-title"><header><span className="prod-eyebrow">History</span><h2 id="timeline-title">Relationship timeline</h2></header>{status==='loading'?<p role="status">Opening saved history…</p>:null}{error?<div className="prod-inline-error" role="alert">{error} <button onClick={()=>load(page?.nextCursor||null)}>Try again</button></div>:null}{status!=='loading'&&!items.length?<div className="prod-empty"><h3>No history yet</h3><p>Completed work and saved changes will appear here.</p></div>:<ol>{items.map((item,index)=><li key={`${item.kind}-${item.sourceId}-${item.sourceVersion||index}`}><span className="timeline-node" aria-hidden="true"/><div><small>{label(item.kind)} · {item.occurredAt?new Date(item.occurredAt).toLocaleString():''}</small><strong>{item.summary||label(item.kind)}</strong></div></li>)}</ol>}{page?.nextCursor?<button className="prod-secondary" disabled={status==='more'} onClick={()=>load(page.nextCursor)}>{status==='more'?'Loading…':'Load more'}</button>:null}</section>;
+}

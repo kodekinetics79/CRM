@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
  MIGRATIONS,SCHEMA_VERSION,MIGRATION_LEDGER_TABLE,validateMigrations,planMigrations,applyMigrations,
- createPostgresPool,classifyError,applicationRoleGrants,TENANT_TABLES,
+ createPostgresPool,classifyError,applicationRoleGrants,TENANT_TABLES,TENANT_FOUNDATION_TABLES,
  PERSISTENCE_CODES
 } from '../server/persistence/index.js';
 
@@ -89,10 +89,11 @@ test('each migration commits with its own ledger row, and a failure rolls that m
 test('tenant isolation is part of the schema: every tenant table is enabled, forced and policied',()=>{
  const isolation=MIGRATIONS.find(m=>m.name==='forced-row-level-tenant-isolation');
  assert.ok(isolation,'a tenant isolation migration must exist');
+ const statements=MIGRATIONS.flatMap(m=>m.statements);
  for(const table of TENANT_TABLES){
-  assert.ok(isolation.statements.includes(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`),`${table} row level security`);
-  assert.ok(isolation.statements.includes(`ALTER TABLE ${table} FORCE ROW LEVEL SECURITY`),`${table} forced row level security`);
-  assert.ok(isolation.statements.some(s=>s.startsWith(`CREATE POLICY ${table}_tenant_isolation`)&&s.includes('wimblo_current_tenant()')),`${table} tenant policy`);
+  assert.ok(statements.includes(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`),`${table} row level security`);
+  assert.ok(statements.includes(`ALTER TABLE ${table} FORCE ROW LEVEL SECURITY`),`${table} forced row level security`);
+  assert.ok(statements.some(s=>s.startsWith(`CREATE POLICY ${table}_tenant_isolation`)&&s.includes('wimblo_current_tenant()')),`${table} tenant policy`);
  }
  // The scoping function must refuse an unset scope rather than defaulting to one.
  const foundation=MIGRATIONS[0].statements.join('\n');
@@ -118,8 +119,18 @@ test('the schema carries the access paths search and reporting depend on, and ex
 
 test('the application role receives only the grants it needs, and its name is validated',()=>{
  const grants=applicationRoleGrants('wimblo_app');
- assert.equal(grants.length,TENANT_TABLES.length+1);
- for(const table of TENANT_TABLES)assert.ok(grants.includes(`GRANT SELECT, INSERT, UPDATE, DELETE ON ${table} TO wimblo_app`));
+ assert.equal(grants.length,TENANT_TABLES.length+TENANT_FOUNDATION_TABLES.length+3);
+ assert.ok(grants.includes('GRANT USAGE ON SCHEMA wimblo_platform TO wimblo_app'));
+ for(const table of TENANT_TABLES){
+  const expected=['party_events','opportunity_stage_events','crm_activities','crm_task_events','crm_note_revisions','crm_attachment_links','crm_ownership_events'].includes(table)
+   ?`GRANT SELECT, INSERT ON ${table} TO wimblo_app`
+   :['crm_subjects','crm_tasks','crm_notes','crm_saved_reports','crm_import_batches','crm_import_source_mappings'].includes(table)
+    ?`GRANT SELECT, INSERT, UPDATE ON ${table} TO wimblo_app`
+    :`GRANT SELECT, INSERT, UPDATE, DELETE ON ${table} TO wimblo_app`;
+  assert.ok(grants.includes(expected),table);
+ }
+ for(const table of TENANT_FOUNDATION_TABLES)assert.ok(grants.includes(`GRANT SELECT, INSERT, UPDATE, DELETE ON ${table} TO wimblo_app`));
+ assert.ok(grants.includes('GRANT EXECUTE ON FUNCTION wimblo_platform.active_membership(uuid,uuid) TO wimblo_app'));
  assert.ok(grants.includes(`GRANT SELECT ON ${MIGRATION_LEDGER_TABLE} TO wimblo_app`));
  assert.equal(grants.some(g=>/GRANT ALL|SUPERUSER|BYPASSRLS/.test(g)),false);
  for(const bad of ['Robert; DROP TABLE records','wimblo app','','1role'])assert.throws(()=>applicationRoleGrants(bad),/lower-case identifier/);

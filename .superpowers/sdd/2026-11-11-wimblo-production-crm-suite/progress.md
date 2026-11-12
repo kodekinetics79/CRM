@@ -1,0 +1,80 @@
+# SDD ledger — plan: docs/superpowers/plans/2026-11-11-wimblo-production-crm-suite.md
+
+## Execution state
+
+- Base commit: `5322e739f3756df466c9059ddf486a847691d2e4`
+- Branch: `feat/wimblo-crm-suite`
+- Worktree: `.worktrees/wimblo-crm-suite`
+- Spec reachable: `docs/superpowers/specs/2026-11-11-wimblo-modular-saas-design.md`
+- Execution method: subagent-driven, requested independent SME logic/database/code review.
+- Cost ruling: all implementation and verification remain local until Task 7; external promotion may use only existing no-new-cost services and must not activate a paid feature or upgrade.
+
+## Baseline
+
+- `npm install`: 0 vulnerabilities.
+- First `npm test`: 1,539 passed / 4 failed because fresh worktree lacked `dist/`; no production files had changed.
+- `npm run build`: passed; existing 511.71 kB chunk warning.
+- Focused runtime tests after build: 14/14 passed.
+- Full post-build baseline: 1,543/1,543 passed, 0 failed/skipped.
+
+## Pre-flight conflict scan
+
+| Tasks | Producer / consumer or internal check | Finding / ruling |
+|---|---|---|
+| 1 | Tests, migration 13, repository/service/routes agree on typed parties and tenant sessions | Clean. |
+| 2 | Tests, migration 14 and sales behavior all consume Task 1 party IDs | Clean. |
+| 3 | Tests, migration 15 and work behavior all consume canonical subject IDs and durable jobs | Clean. |
+| 4 | Tests, migration 16 and reporting/import services consume Tasks 1-3 typed tables | Clean. |
+| 5 | UI tests and production components consume Tasks 1-4 APIs | Clean. Evaluator remains separate. |
+| 6 | Certification tests and script consume Tasks 1-5 | Clean. Truthful evidence boundary is explicit. |
+| 7 | Provider inspection/promotion consumes Task 6 certified commit | Clean. External side effects are bounded by explicit user authorization and no-new-cost ruling. |
+| 1 -> 2 | `crmRepository`, `crmService`, `crmRoutes`, migrations and grants are extended | Clean; later tasks must preserve Task 1 interfaces and tests. |
+| 2 -> 3 | CRM repository/service/routes extended with work records | Clean; subject registry must not duplicate party/opportunity storage. |
+| 3 -> 4 | Timeline/work facts feed reports/import/export | Clean; reports derive facts and do not create duplicate ledgers. |
+| 4 -> 5 | Strict APIs feed capability-driven React UI | Clean; no UI-only authorization. |
+| 5 -> 6 | Production UI/evaluation journeys become certification inputs | Clean; evaluation proof cannot be labeled production acceptance. |
+| 6 -> 7 | Certification and handover become exact-SHA release evidence | Clean; local green is not deployment proof. |
+
+## SME rulings
+
+- Domain: build Party/Person/Organization and typed contacts before broader packs; make CRM core mandatory for active tenants. The implementation plan follows the ordering; core lifecycle protection is included in Task 1 review focus.
+- Database: use typed PostgreSQL tables, composite tenant foreign keys, forced RLS, partial indexes, append-only events and optimistic versions; do not duplicate evaluator JSON ledgers. Adopted.
+- Delivery: current checkpoint is a foundation, not a finished CRM. CI, deployment, backup, monitoring, UAT and acceptance remain distinct Task 6-7 gates. Adopted.
+
+## Tasks
+
+- Task 1: complete after fix round 1/5 and scoped re-review PASS.
+- Task 2: complete after fix round 1/5 and scoped re-review PASS.
+- Task 3: complete after fix round 1/5 and scoped re-review PASS.
+- Task 4: complete after fix round 1/5 and scoped re-review PASS.
+- Task 5: complete after fix round 2/5 and scoped re-review PASS; browser acceptance remains an explicit Task 6 gate.
+- Task 6: implementation and local certification complete; independent whole-branch post-fix review pending.
+- Task 7: pending.
+
+Task 1: implementation checkpoint (commits 98080f1..408d964, tests: npm run test:production-foundation → passed 85/85, PostgreSQL schema 13/RLS/tenant negatives passed, TDD discipline 0 focused/0 skipped; npm test → passed 1559/1559; npm run build → passed)
+
+Task 1: independent review NEEDS_FIX — optimistic PATCH version stripped; party subtype mutable after insert; PATCH missing from CORS methods; create status silently ignored; contact body unnecessarily required path-owned partyId.
+
+Task 1: fix round 1/5 (5 addressed, 0 open — scoped re-review PASS; the fix remains uncommitted only because pre-existing Task 2 edits overlap the same files and must not be discarded or stashed). Focused RED: 21/25 passed; GREEN: 25/25 passed.
+
+Task 2: partial focused tests initially passed 13/13, but the production-foundation run exposed a forward-compatibility failure in the Task 1 migration test (97/98 passed). Added a future-safe migration-13 assertion, then added RED database-invariant expectations for composite pipeline-stage, tenant-bound ownership and conversion links (14/15 passed, expected RED). Database and CRM logic SMEs confirmed these are real gaps; no completion claim made.
+
+Task 2: implementation checkpoint `efc1472` — extended RED 11/17 passed, final focused compatibility 33/33 passed, production foundation 105/105 plus real PostgreSQL schema/RLS/tenant negatives passed, full suite 1,579/1,579 passed, build passed, audit 0; independent review found three concrete gaps.
+
+Task 2: fix round 1/5 (3 addressed, 0 open — commits `efc1472..cfb0232`; composite opportunity/pipeline history FK; deterministic stage order; advisory-lock-sensitive concurrency test). RED 12/14; GREEN 14/14; production foundation 105/105 plus real PostgreSQL verification passed; scoped re-review PASS.
+
+Task 3: implementation checkpoint `ccd0007` — RED 0/9; focused 46/46; production foundation 117/117 plus real PostgreSQL schema 15, 32 forced-RLS tables and work/reminder negatives; full suite 1,591/1,591; build passed; audit 0. Independent review found five concrete gaps.
+
+Task 3: fix round 1/5 (5 addressed, 0 open — commits `ccd0007..d7fbaaf`; exact subject registration; immutable subject identity; recorded-time timeline snapshot; strict cursor validation; complete mutation HTTP coverage). RED 10/15; GREEN 15/15; compatibility 22/22; production foundation 120/120; full suite 1,594/1,594; scoped re-review PASS.
+
+Task 4: implementation checkpoint `cdec3c1`; independent review found four concrete gaps. Fix round 1/5 (4 addressed, 0 open — commits `cdec3c1..03bd74d`; stale preview reconciliation; people-only mappings; typed report operators; complete artifact HTTP refusal matrix). RED 9/14; GREEN 13/13; focused compatibility 45/45; production foundation 139/139 plus real PostgreSQL schema 16, 35 forced-RLS tables, stale-preview and organization-mapping negatives; clean full suite 1,613/1,613; build passed; audit 0; scoped re-review PASS.
+
+Task 5: implementation checkpoint pending commit — auth hard-reload CSRF recovery; build-time production/synthetic/legacy entry isolation; capability-driven responsive CRM workspace; abortable tenant/search flows; accessible pipeline/timeline/report/import journeys; deterministic resettable synthetic evaluation. Focused 16/16; production foundation 148/148 plus real PostgreSQL verification; clean final full suite 1,623/1,623; production and synthetic builds passed; audit 0; browser host unavailable and browser acceptance remains explicit; independent review pending.
+
+Task 5: fix round 1/5 (4 addressed, 1 open — central 401 state purge; modular core/work journeys still lacked authoritative assignment data; rendered synthetic mutation/reset; capability-aware report save/import/export; accessible mobile drawer). RED 3/10; GREEN 31/31; production foundation 164/164 plus real PostgreSQL schema 16 and 35 forced-RLS tables; clean final full suite 1,638/1,638; both mode builds passed; audit 0; browser host remains unavailable.
+
+Task 5: fix round 2/5 (1 addressed, 0 open — commits `ad47835..d16ef7f`; authoritative subject/version detail; assignment-safe active-member catalog; member selects; rendered task/owner optimistic behavior). Backend RED 17/21 and UI RED 9/12; focused GREEN 55/55; production foundation 171/171 plus real PostgreSQL schema 16 and 35 forced-RLS tables; clean final full suite 1,645/1,645; both mode builds passed; audit 0; scoped re-review PASS.
+
+Task 6: implementation checkpoint pending commit — RED certification 0/6, with separate RED cycles for logout 401 handling, attachment byte-access policy, production build provenance and the explicit TDD-discipline plan gate; focused GREEN 47/47; certification GREEN 9/9; PostgreSQL foundation schema 16, forced RLS on 35 tenant tables and two-tenant negatives; real PostgreSQL/S3-compatible verification 46/46 including encrypted backup/readback/fresh-target restore; full suite 1,654/1,654; production and synthetic builds passed; audit 0; TDD discipline 0 focused/0 skipped. Two completed security-scan findings were remediated TDD-first. Browser engine, provider topology/recovery and customer UAT remain unobserved; no external or paid action was taken. Independent whole-branch post-fix review remains pending.
+
+Task 6: fix round 1/5 (5 addressed, 0 open pending scoped re-review — credential-safe direct/composed verifier failures; real measured PostgreSQL CRM capacity workload; exact-once startup pool cleanup; required control sequence/function privilege assertions; dedicated loopback PostgreSQL/MinIO operating prerequisites). RED 0/7; focused GREEN 27/27; PostgreSQL foundation schema 16, 35 forced-RLS tables and capacity profile 40 operations/0 errors/pool max 2/max concurrent queries 2/40 actual queries/1 query per operation; real PostgreSQL/S3-compatible verification 46/46; full suite 1,660/1,660; both builds passed; audit 0; TDD discipline 0 focused/0 skipped. Ephemeral MinIO stopped/removed; no provider or paid action taken.

@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "design-system-font",
+        "value": "newsreader",
+        "createdAt": "2026-11-12T00:40:01.189Z",
+        "reason": "Task 5 design plan intentionally reserves installed Newsreader for workspace and record identity headings"
+      }
+    ]
+  }
+}

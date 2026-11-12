@@ -1,0 +1,146 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
+import {readFileSync} from 'node:fs';
+import {transformSync} from 'esbuild';
+import express from 'express';
+import React from 'react';
+import {renderToStaticMarkup} from 'react-dom/server';
+import {once} from 'node:events';
+import {installCrmRoutes} from '../server/production/crmRoutes.js';
+import {createCrmRepository} from '../server/production/crmRepository.js';
+import {createCrmReportingService} from '../server/production/crmReportingService.js';
+
+const root=new URL('../',import.meta.url),flush=()=>new Promise(resolve=>setTimeout(resolve,0));
+const find=(node,predicate)=>{if(!node||typeof node!=='object')return null;if(predicate(node))return node;for(const child of React.Children.toArray(node.props?.children)){const match=find(child,predicate);if(match)return match;}return null;};
+function harness(path,dependencies={}){let index=0,state=[],effects=[];const mock={...React,useState(initial){const i=index++;if(!(i in state))state[i]=typeof initial==='function'?initial():initial;return[state[i],value=>state[i]=typeof value==='function'?value(state[i]):value];},useRef(initial){const i=index++;return state[i]??=({current:initial});},useEffect(fn){index++;effects.push(fn);},useMemo(fn){index++;return fn();},lazy(){return()=>null;}};const module={exports:{}},code=transformSync(readFileSync(new URL(path,root),'utf8'),{loader:'jsx',format:'cjs'}).code,require=id=>id==='react'?mock:id.endsWith('.css')?{}:dependencies[id]||{__esModule:true,default:()=>null};new Function('require','module','exports',code)(require,module,module.exports);return {render(props){index=0;effects=[];return module.exports.default(props);},effects:()=>effects};}
+
+test('opportunity cards preserve exact cents instead of rounding to whole currency units',()=>{
+ const h=harness('src/production/PipelineBoard.jsx'),tree=h.render({client:{request:async()=>({})},initialData:{pipelines:[{pipelineId:'p',name:'Pipeline',stages:[{stageId:'s',name:'Open',position:1,probability:10}]}],opportunities:[{opportunityId:'o',name:'Exact amount',stageId:'s',amountCents:12345,currency:'USD',version:1}]}});
+ assert.match(renderToStaticMarkup(tree),/\$123\.45/);
+});
+
+test('pipeline board loads bounded opportunity pages beyond the first 100',async()=>{
+ const pipeline={pipelineId:'p',name:'Pipeline',stages:[{stageId:'s',name:'Open',position:1,probability:10}]},first=Array.from({length:100},(_,index)=>({opportunityId:`first-${index}`,name:`First ${index}`,stageId:'s',amountCents:100,currency:'USD',version:1})),calls=[];
+ const client={request:async path=>{calls.push(path);if(path==='/crm/pipelines')return {pipelines:[pipeline]};const query=new URLSearchParams(path.split('?')[1]),offset=Number(query.get('offset')||0);return {opportunities:offset===0?first:offset===100?[{opportunityId:'beyond',name:'Beyond first page',stageId:'s',amountCents:250,currency:'USD',version:1}]:[]};}};
+ const h=harness('src/production/PipelineBoard.jsx'),props={client};h.render(props);h.effects()[0]();await flush();await flush();
+ const html=renderToStaticMarkup(h.render(props));assert.match(html,/Beyond first page/);assert.ok(calls.includes('/crm/opportunities?limit=100&offset=100'));
+});
+
+test('pipeline board accepts the exact 1000-record ceiling after one bounded overflow probe',async()=>{
+ const pipeline={pipelineId:'p',name:'Pipeline',stages:[{stageId:'s',name:'Open',position:1,probability:10}]},calls=[],client={request:async path=>{calls.push(path);if(path==='/crm/pipelines')return {pipelines:[pipeline]};const query=new URLSearchParams(path.split('?')[1]),offset=Number(query.get('offset')||0),limit=Number(query.get('limit')||100);return {opportunities:offset<1000?Array.from({length:limit},(_,index)=>({opportunityId:`op-${offset+index}`,name:`Opportunity ${offset+index}`,stageId:'s',amountCents:100,currency:'USD',version:1})):[]};}};
+ const h=harness('src/production/PipelineBoard.jsx'),props={client};h.render(props);h.effects()[0]();await flush();await flush();
+ assert.match(renderToStaticMarkup(h.render(props)),/Opportunity 999/);assert.ok(calls.includes('/crm/opportunities?limit=1&offset=1000'));
+});
+
+test('pipeline overflow offers a supported status filter and reloads a bounded narrowed board',async()=>{
+ const pipeline={pipelineId:'p',name:'Pipeline',stages:[{stageId:'s',name:'Open',position:1,probability:10}]},calls=[];
+ const client={request:async path=>{calls.push(path);if(path==='/crm/pipelines')return {pipelines:[pipeline]};const query=new URLSearchParams(path.split('?')[1]),offset=Number(query.get('offset')||0),limit=Number(query.get('limit')||100),status=query.get('status');if(status==='open')return {opportunities:offset===0?[{opportunityId:'filtered',name:'Narrowed opportunity',stageId:'s',amountCents:100,currency:'USD',version:1}]:[]};return {opportunities:offset<1000?Array.from({length:limit},(_,index)=>({opportunityId:`op-${offset+index}`,name:`Opportunity ${offset+index}`,stageId:'s',amountCents:100,currency:'USD',version:1})):[{opportunityId:'overflow'}]};}};
+ const h=harness('src/production/PipelineBoard.jsx'),props={client};h.render(props);h.effects()[0]();await flush();await flush();let tree=h.render(props),filter=find(tree,node=>node.type==='select'&&node.props.name==='opportunityStatus');
+ assert.ok(filter);filter.props.onChange({target:{value:'open'}});tree=h.render(props);const narrow=find(tree,node=>node.type==='button'&&React.Children.toArray(node.props.children).includes('Load filtered board'));assert.ok(narrow);await narrow.props.onClick();await flush();tree=h.render(props);
+ assert.match(renderToStaticMarkup(tree),/Narrowed opportunity/);assert.match(renderToStaticMarkup(tree),/Showing Open opportunities/);assert.ok(calls.some(path=>path.includes('/crm/opportunities?')&&new URLSearchParams(path.split('?')[1]).get('status')==='open'));
+});
+
+test('filtered ready board retains an accessible control to switch or clear its bounded status query',async()=>{
+ const pipeline={pipelineId:'p',name:'Pipeline',stages:[{stageId:'open',name:'Open',kind:'open',position:1,probability:10},{stageId:'won',name:'Won',kind:'won',position:2,probability:100}]},calls=[];let allowAll=false;
+ const client={request:async path=>{calls.push(path);if(path==='/crm/pipelines')return {pipelines:[pipeline]};const query=new URLSearchParams(path.split('?')[1]),offset=Number(query.get('offset')||0),limit=Number(query.get('limit')||100),status=query.get('status');if(status==='open')return {opportunities:offset===0?[{opportunityId:'open-one',name:'Open opportunity',stageId:'open',amountCents:100,currency:'USD',version:1}]:[]};if(status==='won')return {opportunities:offset===0?[{opportunityId:'won-one',name:'Won opportunity',stageId:'won',amountCents:200,currency:'USD',version:1}]:[]};if(allowAll)return {opportunities:offset===0?[{opportunityId:'all-one',name:'All statuses',stageId:'open',amountCents:300,currency:'USD',version:1}]:[]};return {opportunities:offset<1000?Array.from({length:limit},(_,index)=>({opportunityId:`op-${offset+index}`,stageId:'open'})):[{opportunityId:'overflow'}]};}};
+ const h=harness('src/production/PipelineBoard.jsx'),props={client};h.render(props);h.effects()[0]();await flush();await flush();let tree=h.render(props);find(tree,node=>node.props?.name==='opportunityStatus').props.onChange({target:{value:'open'}});tree=h.render(props);await find(tree,node=>node.type==='button'&&React.Children.toArray(node.props.children).includes('Load filtered board')).props.onClick();await flush();tree=h.render(props);
+ let filterForm=find(tree,node=>node.type==='form'&&node.props['aria-label']==='Pipeline status filter');assert.ok(filterForm);let filter=find(tree,node=>node.props?.name==='opportunityStatus');assert.equal(filter.props.value,'open');filter.props.onChange({target:{value:'won'}});tree=h.render(props);filterForm=find(tree,node=>node.type==='form'&&node.props['aria-label']==='Pipeline status filter');await filterForm.props.onSubmit({preventDefault(){}});await flush();tree=h.render(props);
+ assert.match(renderToStaticMarkup(tree),/Showing Won opportunities/);assert.match(renderToStaticMarkup(tree),/Won opportunity/);assert.ok(calls.some(path=>new URLSearchParams(path.split('?')[1]).get('status')==='won'));
+ filter=find(tree,node=>node.props?.name==='opportunityStatus');filter.props.onChange({target:{value:''}});allowAll=true;tree=h.render(props);filterForm=find(tree,node=>node.type==='form'&&node.props['aria-label']==='Pipeline status filter');await filterForm.props.onSubmit({preventDefault(){}});await flush();tree=h.render(props);const html=renderToStaticMarkup(tree);
+ assert.match(html,/All statuses/);assert.doesNotMatch(html,/Showing (?:Open|Won|Lost) opportunities/);assert.ok(calls.includes('/crm/opportunities?limit=100&offset=0'));
+});
+
+test('moving an opportunity out of the active status filter removes it while keeping the filter visible',async()=>{
+ const pipeline={pipelineId:'p',name:'Pipeline',stages:[{stageId:'open',name:'Open',kind:'open',position:1,probability:10},{stageId:'won',name:'Won',kind:'won',position:2,probability:100}]},calls=[];
+ const client={request:async(path,options={})=>{calls.push([path,options]);if(path==='/crm/pipelines')return {pipelines:[pipeline]};if(path.startsWith('/crm/opportunities?')){const query=new URLSearchParams(path.split('?')[1]),status=query.get('status'),offset=Number(query.get('offset')||0),limit=Number(query.get('limit')||100);if(status==='open')return {opportunities:offset===0?[{opportunityId:'filtered',name:'Filtered opportunity',stageId:'open',amountCents:100,currency:'USD',version:1}]:[]};return {opportunities:offset<1000?Array.from({length:limit},(_,index)=>({opportunityId:`op-${offset+index}`,stageId:'open'})):[{opportunityId:'overflow'}]};}if(path==='/crm/opportunities/filtered/stage')return {opportunity:{}};throw new Error(path);}};
+ const h=harness('src/production/PipelineBoard.jsx'),props={client};h.render(props);h.effects()[0]();await flush();await flush();let tree=h.render(props);find(tree,node=>node.props?.name==='opportunityStatus').props.onChange({target:{value:'open'}});tree=h.render(props);await find(tree,node=>node.type==='button'&&React.Children.toArray(node.props.children).includes('Load filtered board')).props.onClick();await flush();tree=h.render(props);
+ find(tree,node=>node.type==='select'&&!node.props.name).props.onChange({target:{value:'won'}});tree=h.render(props);await find(tree,node=>node.type==='button'&&React.Children.toArray(node.props.children).includes('Move opportunity')).props.onClick();tree=h.render(props);const html=renderToStaticMarkup(tree);
+ assert.doesNotMatch(html,/Filtered opportunity/);assert.match(html,/Showing Open opportunities/);
+ assert.ok(calls.some(([path,options])=>path==='/crm/opportunities/filtered/stage'&&options.body.stageId==='won'));
+});
+
+test('a move completed after a filtered reload cannot mutate the newly loaded board generation',async()=>{
+ const pipeline={pipelineId:'p',name:'Pipeline',stages:[{stageId:'open',name:'Open',kind:'open',position:1,probability:10},{stageId:'won',name:'Won',kind:'won',position:2,probability:100}]};let resolveMove;const moveResponse=new Promise(resolve=>{resolveMove=resolve;});
+ const client={request:async(path,options={})=>{if(path==='/crm/pipelines')return {pipelines:[pipeline]};if(path==='/crm/opportunities/filtered/stage')return moveResponse;if(path.startsWith('/crm/opportunities?')){const query=new URLSearchParams(path.split('?')[1]),status=query.get('status'),offset=Number(query.get('offset')||0),limit=Number(query.get('limit')||100);if(status==='open')return {opportunities:offset===0?[{opportunityId:'filtered',name:'Old open opportunity',stageId:'open',amountCents:100,currency:'USD',version:1}]:[]};if(status==='won')return {opportunities:offset===0?[{opportunityId:'filtered',name:'Fresh won opportunity',stageId:'won',amountCents:100,currency:'USD',version:7}]:[]};return {opportunities:offset<1000?Array.from({length:limit},(_,index)=>({opportunityId:`op-${offset+index}`,stageId:'open'})):[{opportunityId:'overflow'}]};}throw new Error(path);}};
+ const h=harness('src/production/PipelineBoard.jsx'),props={client};h.render(props);h.effects()[0]();await flush();await flush();let tree=h.render(props);find(tree,node=>node.props?.name==='opportunityStatus').props.onChange({target:{value:'open'}});tree=h.render(props);await find(tree,node=>node.type==='button'&&React.Children.toArray(node.props.children).includes('Load filtered board')).props.onClick();await flush();tree=h.render(props);find(tree,node=>node.type==='select'&&!node.props.name).props.onChange({target:{value:'won'}});tree=h.render(props);const oldMove=find(tree,node=>node.type==='button'&&React.Children.toArray(node.props.children).includes('Move opportunity')).props.onClick();
+ tree=h.render(props);find(tree,node=>node.props?.name==='opportunityStatus').props.onChange({target:{value:'won'}});tree=h.render(props);await find(tree,node=>node.type==='form'&&node.props['aria-label']==='Pipeline status filter').props.onSubmit({preventDefault(){}});await flush();resolveMove({opportunity:{}});await oldMove;tree=h.render(props);
+ assert.match(renderToStaticMarkup(tree),/Fresh won opportunity/);assert.match(renderToStaticMarkup(tree),/Showing Won opportunities/);
+});
+
+test('party directory offers bounded paging and appends the next page',async()=>{
+ const first=Array.from({length:100},(_,index)=>({partyId:`party-${index}`,displayName:`Party ${String(index).padStart(3,'0')}`,partyType:'person',status:'active',version:1})),second={partyId:'party-100',displayName:'Party 100',partyType:'person',status:'active',version:1},calls=[];
+ const client={request:async path=>{calls.push(path);const query=new URLSearchParams(path.split('?')[1]),offset=Number(query.get('offset')||0);return {parties:offset===0?first:offset===100?[second]:[]};}};
+ const modules=[{code:'core',capabilities:{read:true,write:true,export:true}}],session={identity:{identityId:'identity',displayName:'Staff'},membership:{membershipId:'membership',role:'staff'}};
+ const h=harness('src/production/CrmWorkspace.jsx'),props={client,session,memberships:[],modules,initialRoute:'people'};h.render(props);h.effects()[0]();await flush();await flush();let tree=h.render(props),more=find(tree,node=>node.type==='button'&&React.Children.toArray(node.props.children).includes('Load more relationships'));
+ assert.ok(more);await more.props.onClick();await flush();tree=h.render(props);assert.match(renderToStaticMarkup(tree),/Party 100/);assert.ok(calls.includes('/crm/parties?limit=100&offset=100'));
+});
+
+test('party paging offset counts server rows separately from a locally created relationship',async()=>{
+ const first=Array.from({length:100},(_,index)=>({partyId:`party-${index}`,displayName:`Party ${index}`,partyType:'person',status:'active',version:1})),local={partyId:'local-party',displayName:'Local relationship',partyType:'person',status:'active',version:1},calls=[];
+ let createProps;const client={request:async path=>{calls.push(path);return {parties:[]};}},create={__esModule:true,default:props=>{createProps=props;return React.createElement('p',null,'Create relationship');}},modules=[{code:'core',capabilities:{read:true,write:true,export:true}}],session={identity:{identityId:'signed-in',displayName:'Staff'},membership:{membershipId:'membership',role:'staff'}};
+ const h=harness('src/production/CrmWorkspace.jsx',{'./RelationshipCreate.jsx':create}),props={client,session,memberships:[],modules,initialRoute:'people',initialParties:first};let tree=h.render(props);find(tree,node=>node.type==='button'&&React.Children.toArray(node.props.children).includes('Add relationship')).props.onClick();tree=h.render(props);renderToStaticMarkup(tree);createProps.onCreated(local);tree=h.render(props);await find(tree,node=>node.type==='button'&&React.Children.toArray(node.props.children).includes('Load more relationships')).props.onClick();
+ assert.ok(calls.includes('/crm/parties?limit=100&offset=100'));assert.equal(calls.includes('/crm/parties?limit=100&offset=101'),false);
+});
+
+test('CRM workspace passes the restored identity to relationship owner fallback',()=>{
+ const captured=[],relationship={__esModule:true,default:props=>{captured.push(props);return React.createElement('p',null,'Relationship detail');}},party={partyId:'party-1',displayName:'Party',partyType:'person',status:'active',version:1},modules=[{code:'core',capabilities:{read:true,write:true,export:true}}],session={identity:{identityId:'signed-in-identity',displayName:'Staff'},membership:{membershipId:'membership',role:'staff'}};
+ const h=harness('src/production/CrmWorkspace.jsx',{'./RelationshipWorkspace.jsx':relationship});renderToStaticMarkup(h.render({client:{request:async()=>({})},session,memberships:[],modules,initialRoute:'people',initialParties:[party]}));
+ assert.equal(captured[0].signedInIdentityId,'signed-in-identity');
+});
+
+test('intermediate-width navigation keeps destination labels and Sign out visible',()=>{
+ const css=readFileSync(new URL('src/production/production.css',root),'utf8'),medium=css.match(/@media \(max-width:900px\)([\s\S]*?)@media \(max-width:700px\)/)?.[1]||'';
+ assert.doesNotMatch(medium,/prod-rail nav button span[^}]*display:none/);assert.doesNotMatch(medium,/prod-rail footer>button[^}]*display:none/);
+});
+
+test('desktop navigation rail scrolls when its content exceeds the viewport',()=>{
+ const css=readFileSync(new URL('src/production/production.css',root),'utf8'),rail=css.match(/\.prod-rail\{([^}]*)\}/)?.[1]||'';
+ assert.match(rail,/overflow-y:auto/);
+ assert.match(css,/\.prod-rail\s+:focus-visible\{[^}]*outline[^}]*#fff/i);
+});
+
+test('production typography uses the application design system without a second display-font dependency',()=>{
+ const css=readFileSync(new URL('src/production/production.css',root),'utf8'),entry=readFileSync(new URL('src/main.jsx',root),'utf8'),manifest=readFileSync(new URL('package.json',root),'utf8');
+ assert.doesNotMatch(css,/Newsreader/i);assert.doesNotMatch(entry,/newsreader/i);assert.doesNotMatch(manifest,/newsreader/i);
+});
+
+test('authorized note detail reads only the requested current revision body',async t=>{
+ const tenantId=randomUUID(),identityId=randomUUID(),noteId=randomUUID(),subjectId=randomUUID(),calls=[];
+ const service={getNote:async input=>{calls.push(input);return {noteId,subjectId,title:'Private note',body:'Authorized current body',currentRevision:2,version:2};}};
+ const pass=(req,res,next)=>next(),session=(req,res,next)=>{req.productionSession={tenantId,identityId,membership:{role:'viewer'}};next();};
+ const app=express();app.use(express.json());installCrmRoutes(app,{crmService:service,requireTenantSession:session,requireCsrf:pass,requireRecentAuthentication:pass});app.use((error,req,res,next)=>res.status(error.status||500).json({error:error.message}));
+ const server=app.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>new Promise(resolve=>server.close(resolve)));
+ const response=await fetch(`http://127.0.0.1:${server.address().port}/api/crm/notes/${noteId}`);assert.equal(response.status,200);const body=await response.json();assert.equal(body.note.body,'Authorized current body');assert.deepEqual(calls[0],{noteId,tenantId,actorRole:'viewer',actorIdentityId:identityId});
+});
+
+test('changing a lead or opportunity subject owner updates the canonical sales row in the same transaction',async()=>{
+ for(const subjectType of ['lead','opportunity']){
+  const tenantId=randomUUID(),subjectId=randomUUID(),actorIdentityId=randomUUID(),ownerIdentityId=randomUUID(),calls=[];
+  const session={query:async(sql,values=[])=>{calls.push(String(sql));if(String(sql).includes('/*subject:lock*/'))return {rows:[{tenant_id:tenantId,subject_id:subjectId,subject_type:subjectType,owner_identity_id:null,version:1,created_at:new Date().toISOString(),updated_at:new Date().toISOString()}],rowCount:1};if(String(sql).includes('/*membership:active*/'))return {rows:[{active:true}],rowCount:1};if(String(sql).includes('/*subject:owner-update*/'))return {rows:[{tenant_id:tenantId,subject_id:subjectId,subject_type:subjectType,owner_identity_id:ownerIdentityId,version:2}],rowCount:1};if(String(sql).includes('/*ownership-event:insert*/'))return {rows:[],rowCount:1};if(String(sql).includes(`/*${subjectType}:owner-sync*/`))return {rows:[],rowCount:1};throw new Error(`Unexpected query: ${sql}`);}};
+  const tenantPool={withTenantSession:async(tenant,fn)=>fn(session),withTransaction:async(tenant,fn)=>fn(session)},repository=createCrmRepository({tenantPool});
+  await repository.changeSubjectOwner({tenantId,subjectId,newOwnerIdentityId:ownerIdentityId,expectedVersion:1,actorIdentityId});
+  assert.ok(calls.some(sql=>sql.includes(`/*${subjectType}:owner-sync*/`)),`${subjectType} owner must stay synchronized`);
+ }
+});
+
+test('timestamp lte report filters include the entire requested end day',async()=>{
+ const tenantId=randomUUID();let captured;
+ const service=createCrmReportingService({tenantPool:{withTenantSession:async(tenant,fn)=>fn({query:async(sql,values)=>{captured={sql,values};return {rows:[]};}})},moduleService:{authorize:async()=>({allowed:true})}});
+ await service.executeReport({tenantId,actorRole:'viewer',definition:{dataset:'activities',columns:['summary'],filters:[{field:'occurredAt',operator:'lte',value:'2026-11-11'}]}});
+ assert.match(captured.sql,/occurred_at<\(\$2::date \+ INTERVAL '1 day'\)/);assert.equal(captured.values[1],'2026-11-11');
+});
+
+test('relationship conflict reload refreshes selected task and note versions without replacing the note draft',async()=>{
+ const party={partyId:randomUUID(),partyType:'person',displayName:'Current party',status:'active',version:1},member={identityId:randomUUID(),displayName:'Staff',role:'staff'},taskId=randomUUID(),noteId=randomUUID(),writes=[];let taskReads=0,noteReads=0,noteWrites=0;
+ const task=version=>({taskId,subjectId:party.partyId,title:'Selected task',details:'Current details',status:'open',ownerIdentityId:member.identityId,version}),note=version=>({noteId,subjectId:party.partyId,title:'Selected note',body:`Server body ${version}`,currentRevision:version,version});
+ const client={request:async(path,options={})=>{if(path===`/crm/parties/${party.partyId}`)return {party};if(path.endsWith('/contacts?limit=100'))return {contacts:[]};if(path===`/crm/subjects/${party.partyId}`)return {subject:{subjectId:party.partyId,subjectType:'party',ownerIdentityId:member.identityId,version:1}};if(path==='/crm/members')return {members:[member]};if(path.endsWith('/tasks?limit=50'))return {tasks:[task(1)],nextCursor:null};if(path.endsWith('/notes?limit=50'))return {notes:[note(1)],nextCursor:null};if(path===`/crm/tasks/${taskId}`&&options.method===undefined)return {task:task(++taskReads)};if(path===`/crm/notes/${noteId}`&&options.method===undefined)return {note:note(++noteReads)};if(path===`/crm/tasks/${taskId}`&&options.method==='PATCH'){writes.push(options.body);return {task:{...task(3),status:options.body.status}};}if(path===`/crm/notes/${noteId}/revisions`){writes.push(options.body);if(noteWrites++===0)throw Object.assign(new Error('changed'),{status:409});return {note:note(3)};}throw new Error(path);}};
+ const h=harness('src/production/RelationshipWorkspace.jsx'),props={client,party,writable:true,signedInIdentityId:member.identityId};h.render(props);h.effects()[0]();await flush();await flush();let tree=h.render(props);find(tree,node=>node.props?.name==='savedTask').props.onChange({target:{value:taskId}});await flush();tree=h.render(props);find(tree,node=>node.props?.name==='savedNote').props.onChange({target:{value:noteId}});await flush();tree=h.render(props);find(tree,node=>node.props?.name==='noteBody').props.onChange({target:{name:'noteBody',value:'Unsaved reviewed draft'}});tree=h.render(props);await find(tree,node=>node.type==='form'&&node.props['aria-label']==='Revise note').props.onSubmit({preventDefault(){}});await flush();tree=h.render(props);await find(tree,node=>node.type==='button'&&React.Children.toArray(node.props.children).includes('Reload current record')).props.onClick();await flush();tree=h.render(props);
+ assert.equal(find(tree,node=>node.props?.name==='noteBody').props.value,'Unsaved reviewed draft');await find(tree,node=>node.type==='button'&&React.Children.toArray(node.props.children).includes('Start task')).props.onClick();tree=h.render(props);await find(tree,node=>node.type==='form'&&node.props['aria-label']==='Revise note').props.onSubmit({preventDefault(){}});
+ assert.ok(writes.some(body=>body.status==='in_progress'&&body.expectedVersion===2));assert.ok(writes.some(body=>body.body==='Unsaved reviewed draft'&&body.expectedVersion===2));
+});
+
+test('dashboard failure renders unavailable instead of a zero total',async()=>{
+ const h=harness('src/production/ReportsWorkspace.jsx'),props={client:{request:async()=>{throw new Error('dashboard offline');}},modules:[{code:'core',capabilities:{read:true,write:true,export:true}}],role:'staff'};h.render(props);h.effects()[0]();await flush();const markup=renderToStaticMarkup(h.render(props));
+ assert.match(markup,/Dashboard unavailable/i);assert.doesNotMatch(markup,/>0<small>/);
+});
