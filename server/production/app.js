@@ -56,10 +56,11 @@ function defaultServices({config,controlPool,tenantPool,clock}){
 export function createProductionApp({config,controlPool,tenantPool,clock=()=>new Date(),services=null}={}){
  if(!config||config.processRole!=='web')throw new TypeError('Production application requires the web process role.');
  if(!controlPool||typeof controlPool.healthy!=='function'||!tenantPool||typeof tenantPool.healthy!=='function')throw new TypeError('Production application requires isolated control and tenant pools.');
+ if(!Array.isArray(config.network?.trustedProxyCidrs)||!config.network.trustedProxyCidrs.length)throw new TypeError('Production application requires an explicit trusted proxy allowlist.');
  const app=express(),resolved=services||defaultServices({config,controlPool,tenantPool,clock});
- app.disable('x-powered-by');app.set('trust proxy',config.limits.trustProxyHops);
+ app.disable('x-powered-by');app.set('trust proxy',config.network.trustedProxyCidrs);
  app.use(helmet({contentSecurityPolicy:{directives:{defaultSrc:["'self'"],baseUri:["'none'"],frameAncestors:["'none'"],objectSrc:["'none'"],scriptSrc:["'self'"],styleSrc:["'self'"],imgSrc:["'self'",'data:'],connectSrc:["'self'"]}},crossOriginEmbedderPolicy:{policy:'require-corp'}}));
- app.use((req,res,next)=>{const forwarded=req.get('X-Forwarded-Proto');if(!req.socket.encrypted&&forwarded!=='https')return res.status(400).json({error:'HTTPS is required.',code:'HTTPS_REQUIRED'});res.setHeader('Cache-Control','no-store');next();});
+ app.use((req,res,next)=>{const forwarded=req.get('X-Forwarded-Proto');if(forwarded!==undefined&&!/^(?:http|https)$/.test(forwarded))return res.status(400).json({error:'HTTPS is required.',code:'HTTPS_REQUIRED'});if(!req.secure)return res.status(400).json({error:'HTTPS is required.',code:'HTTPS_REQUIRED'});res.setHeader('Cache-Control','no-store');next();});
  app.use((req,res,next)=>{
   const origin=req.get('Origin');
   if(origin&&origin!==config.appOrigin)return res.status(403).json({error:'Origin is not allowed.',code:'ORIGIN_REFUSED'});

@@ -1,4 +1,5 @@
 import {isAbsolute,resolve} from 'node:path';
+import {isIP} from 'node:net';
 
 const fail=message=>{throw new Error(message);};
 const TLS_MODES=new Set(['require','verify-ca','verify-full']);
@@ -37,6 +38,25 @@ function integer(env,name,{min,max,defaultValue}){
  return value;
 }
 
+function trustedProxyCidrs(value){
+ if(typeof value!=='string'||!value.trim())fail('SaaS production requires TRUSTED_PROXY_CIDRS as an explicit IP or CIDR allowlist.');
+ const raw=value.split(',');
+ if(raw.length>32||raw.some(entry=>!entry.trim()))fail('SaaS production TRUSTED_PROXY_CIDRS must contain between 1 and 32 IP or CIDR entries.');
+ const entries=raw.map(entry=>{
+  const candidate=entry.trim(),parts=candidate.split('/');
+  if(parts.length>2||!parts[0])fail('SaaS production TRUSTED_PROXY_CIDRS contains an invalid IP or CIDR.');
+  const version=isIP(parts[0]),maximum=version===4?32:version===6?128:0;
+  if(!maximum)fail('SaaS production TRUSTED_PROXY_CIDRS contains an invalid IP or CIDR.');
+  if(parts.length===1)return parts[0];
+  if(!/^\d{1,3}$/.test(parts[1]))fail('SaaS production TRUSTED_PROXY_CIDRS contains an invalid IP or CIDR.');
+  const prefix=Number(parts[1]);
+  if(!Number.isSafeInteger(prefix)||prefix<1||prefix>maximum)fail('SaaS production TRUSTED_PROXY_CIDRS contains an unsafe or invalid CIDR prefix.');
+  return `${parts[0]}/${prefix}`;
+ });
+ if(new Set(entries).size!==entries.length)fail('SaaS production TRUSTED_PROXY_CIDRS cannot contain duplicate entries.');
+ return Object.freeze(entries);
+}
+
 function rejectedLegacySetting(env){
  if(['CLIENT_EVALUATION_MODE','DEMO_MODE','ALLOW_DEMO','ENABLE_ACCEPTANCE'].some(key=>env[key]===true||String(env[key]||'').toLowerCase()==='true'))return true;
  if(typeof env.CLIENT_EVALUATION_DATA_DIR==='string'&&env.CLIENT_EVALUATION_DATA_DIR.trim())return true;
@@ -63,8 +83,8 @@ export function resolveSaasRuntimeConfig(env=process.env,root=process.cwd()){
  if(typeof root!=='string'||!isAbsolute(resolve(root)))fail('SaaS production requires an absolute application root.');
  const cookieName=env.SESSION_COOKIE_NAME||'wimblo_session';
  if(!/^[A-Za-z][A-Za-z0-9_]{2,63}$/.test(cookieName))fail('SaaS production session cookie name is invalid.');
+ const network=Object.freeze({trustedProxyCidrs:env.PROCESS_ROLE==='web'?trustedProxyCidrs(env.TRUSTED_PROXY_CIDRS):Object.freeze([])});
  const limits=Object.freeze({
-  trustProxyHops:integer(env,'TRUST_PROXY_HOPS',{min:1,max:3,defaultValue:1}),
   dbPoolMax:integer(env,'DB_POOL_MAX',{min:1,max:50,defaultValue:10}),
   jobConcurrency:integer(env,'JOB_CONCURRENCY',{min:1,max:32,defaultValue:4}),
   jobLeaseMs:integer(env,'JOB_LEASE_MS',{min:5000,max:300000,defaultValue:30000})
@@ -79,7 +99,7 @@ export function resolveSaasRuntimeConfig(env=process.env,root=process.cwd()){
   mode:'saas',root:resolve(root),processRole:env.PROCESS_ROLE,appOrigin,cookieName,
   tenantDatabaseUrl:env.DATABASE_URL,controlDatabaseUrl:env.CONTROL_DATABASE_URL,
   mfaEncryptionKey:env.MFA_ENCRYPTION_KEY,sessionSecret:env.SESSION_SECRET,backupEncryptionKey:env.BACKUP_ENCRYPTION_KEY,
-  objectStorage,backupStorage:Object.freeze({bucket:env.BACKUP_STORAGE_BUCKET,namespace:env.BACKUP_STORAGE_NAMESPACE,region:env.BACKUP_AWS_REGION||env.AWS_REGION,privateConfirmed:true}),
+  objectStorage,backupStorage:Object.freeze({bucket:env.BACKUP_STORAGE_BUCKET,namespace:env.BACKUP_STORAGE_NAMESPACE,region:env.BACKUP_AWS_REGION||env.AWS_REGION,privateConfirmed:true}),network,
   http,limits,publicMetadata
  });
 }

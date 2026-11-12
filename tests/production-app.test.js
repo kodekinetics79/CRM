@@ -8,7 +8,7 @@ import {startWorkerRuntime} from '../server/production/worker.js';
 const secret='database-password-must-never-leak';
 const config=()=>({
  processRole:'web',appOrigin:'https://crm.example.test',cookieName:'wimblo_session',mfaEncryptionKey:'11'.repeat(32),sessionSecret:'s'.repeat(40),
- limits:{trustProxyHops:1,dbPoolMax:4,jobConcurrency:2,jobLeaseMs:30_000},
+ network:{trustedProxyCidrs:['127.0.0.1/32']},limits:{dbPoolMax:4,jobConcurrency:2,jobLeaseMs:30_000},
  publicMetadata:()=>({mode:'saas',processRole:'web'})
 });
 const pool=(healthy=true)=>({healthy:async()=>healthy,withAdminSession:async fn=>fn({query:async()=>({rows:[],rowCount:0})}),withTenantSession:async(_tenant,fn)=>fn({query:async()=>({rows:[],rowCount:0})}),withTransaction:async(_tenant,fn)=>fn({query:async()=>({rows:[],rowCount:0})}),end:async()=>{}});
