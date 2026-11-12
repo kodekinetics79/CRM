@@ -12,6 +12,7 @@ import {createCrmImportService} from '../server/production/crmImportService.js';
 import {runRepresentativeCrmCapacity} from '../server/production/capacityCertification.js';
 import {redactCertificationDiagnostic} from './certification-redaction.mjs';
 import {runBoundedWorkerVerification} from './worker-verification.mjs';
+import {parsePostgresConnectionUrl} from '../server/persistence/databaseUrl.js';
 import {
   MIGRATIONS,
   SCHEMA_VERSION,
@@ -42,7 +43,7 @@ const tenantB=randomUUID();
 const tenantC=randomUUID();
 const identityId=randomUUID();
 
-const pools=[];
+const pools=[];let admin=null;
 const line=value=>process.stdout.write(redactCertificationDiagnostic(`${value}\n`,REDACTION_ENV));
 const assert=(condition,message)=>{if(!condition)throw new Error(message);};
 const identifier=value=>{
@@ -69,10 +70,8 @@ async function runStep(name,fn){
   line(`PASS ${name} (${Date.now()-started}ms)${evidence?` — ${evidence}`:''}`);
 }
 
-const admin=createPostgresPool({connectionString:BASE_URL,acquireAttempts:1,connectionTimeoutMs:3000,applicationName:'wimblo-foundation-verify-admin'});
-pools.push(admin);
-
 async function cleanup(){
+  if(!admin)return;
   for(const pool of pools.slice(1).reverse())await pool.end().catch(()=>{});
   await admin.withAdminSession(async session=>{
     await session.query('SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname=$1 AND pid <> pg_backend_pid()',[database]).catch(()=>{});
@@ -85,8 +84,10 @@ async function cleanup(){
 }
 
 async function main(){
-  const parsed=new URL(BASE_URL);
+  const parsed=parsePostgresConnectionUrl(BASE_URL,{label:'Foundation verification database URL',requireCredentials:true});
   if(!['127.0.0.1','localhost','::1'].includes(parsed.hostname))throw new Error('Foundation verification refuses non-loopback PostgreSQL targets. Use a dedicated disposable local database.');
+  admin=createPostgresPool({connectionString:BASE_URL,acquireAttempts:1,connectionTimeoutMs:3000,applicationName:'wimblo-foundation-verify-admin'});
+  pools.push(admin);
 
   await admin.withAdminSession(async session=>{
     await session.query(`CREATE ROLE ${identifier(ownerRole)} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE BYPASSRLS PASSWORD '${ownerPassword}'`);

@@ -18,4 +18,6 @@ test('CI supplies the dedicated disposable PostgreSQL endpoint used by real foun
  assert.match(workflow,/POSTGRES_PASSWORD:\s*wimblo-foundation/);
  assert.match(workflow,/POSTGRES_DB:\s*wimblo_foundation/);
  assert.match(workflow,/127\.0\.0\.1:57733:5432/);
+ assert.match(workflow,/- run: npm run verify:postgres-boundaries/);
+ assert.match(workflow,/- run: npm run verify:postgres-foundation/);
 });

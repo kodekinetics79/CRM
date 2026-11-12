@@ -4,6 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {
   MIGRATIONS,
   SCHEMA_VERSION,
+  TENANT_FOUNDATION_TABLES,
   PERSISTENCE_CODES,
   applicationRoleGrants,
   applyMigrations,
@@ -190,8 +191,12 @@ const CRM_RECOVERY_TABLES=Object.freeze([
  'crm_subjects','crm_activities','crm_tasks','crm_task_events','crm_notes','crm_note_revisions','crm_attachment_links','crm_ownership_events',
  'crm_saved_reports','crm_import_batches','crm_import_source_mappings'
 ]);
+const EXCLUDED_RECOVERY_TABLES=Object.freeze([
+ 'tenants','records','users','settings','audit_entries','gift_ledger','gift_allocations',
+ 'wimblo_platform.global_identities','wimblo_platform.memberships','wimblo_platform.module_catalog','wimblo_platform.control_audit'
+]);
 
-test('tenant logical backup restores and verifies every production CRM table',async()=>{
+test('tenant logical backup restores and verifies every production CRM and foundation table',async()=>{
  const source=await disposableDatabase({bypassRls:true}),target=await disposableDatabase({bypassRls:true});
  try{
   await source.owner.withAdminSession(session=>applyMigrations(session));
@@ -199,7 +204,7 @@ test('tenant logical backup restores and verifies every production CRM table',as
   for(const sql of applicationRoleGrants(source.tenantRole))await source.owner.withAdminSession(session=>session.query(sql));
   for(const sql of applicationRoleGrants(target.tenantRole))await target.owner.withAdminSession(session=>session.query(sql));
   const sourcePool=source.makeTenantPool(),targetPool=target.makeTenantPool(),tenantId=randomUUID(),partyId=randomUUID(),identityId=randomUUID();
-  const pipelineId=randomUUID(),stageId=randomUUID(),leadId=randomUUID(),opportunityId=randomUUID();
+  const pipelineId=randomUUID(),stageId=randomUUID(),leadId=randomUUID(),opportunityId=randomUUID(),moduleEventId=randomUUID(),jobId=randomUUID();
   const sourceRepository=await createPostgresRepository({pool:sourcePool,tenantId,tenant:{name:'CRM recovery source'}});
   const targetRepository=await createPostgresRepository({pool:targetPool,tenantId,tenant:{name:'CRM recovery target'}});
   for(const fixture of [source,target])await fixture.owner.withAdminSession(async session=>{
@@ -215,11 +220,19 @@ test('tenant logical backup restores and verifies every production CRM table',as
    await session.query("INSERT INTO opportunities(tenant_id,opportunity_id,party_id,pipeline_id,stage_id,lead_id,name,amount_cents,currency,probability,expected_close_date,status,owner_identity_id) VALUES($1,$2,$3,$4,$5,$6,'Recovered opportunity',12500,'USD',100,'2026-12-01','won',$7)",[tenantId,opportunityId,partyId,pipelineId,stageId,leadId,identityId]);
    await session.query("UPDATE leads SET status='converted',converted_opportunity_id=$3 WHERE tenant_id=$1 AND lead_id=$2",[tenantId,leadId,opportunityId]);
    await session.query("INSERT INTO crm_subjects(tenant_id,subject_id,subject_type,party_id,owner_identity_id) VALUES($1,$2,'party',$2,$3)",[tenantId,partyId,identityId]);
+   await session.query("INSERT INTO wimblo_platform.tenant_modules(tenant_id,module_key,state,enabled_at) VALUES($1,'core','enabled',now())",[tenantId]);
+   await session.query("INSERT INTO wimblo_platform.module_events(tenant_id,event_id,module_key,event_type,actor_identity_id,details) VALUES($1,$2,'core','enabled',$3,'{\"reason\":\"recovery\"}')",[tenantId,moduleEventId,identityId]);
+   await session.query("INSERT INTO wimblo_platform.durable_jobs(tenant_id,job_id,queue,kind,idempotency_key,payload,state,attempts) VALUES($1,$2,'default','recovery.job','recovery-foundation','{}','dead_lettered',1)",[tenantId,jobId]);
+   await session.query("INSERT INTO wimblo_platform.durable_job_attempts(tenant_id,job_id,attempt,worker_id,started_at,finished_at,outcome,error_code,error_detail) VALUES($1,$2,1,'recovery-worker',now(),now(),'dead_lettered','RECOVERY_TEST','retained')",[tenantId,jobId]);
+   await session.query("INSERT INTO wimblo_platform.dead_letter_jobs(tenant_id,job_id,reason_code,reason_detail) VALUES($1,$2,'RECOVERY_TEST','retained')",[tenantId,jobId]);
   });
   const backup=await createTenantBackup({repository:sourceRepository,encryptionKey:'d'.repeat(64),now:()=> '2026-11-11T12:00:00.000Z'});
   assert.ok(backup.manifest.digest.tenantData,'CRM tenant-table digest is missing from the backup manifest');
   for(const table of CRM_RECOVERY_TABLES)assert.ok(Object.hasOwn(backup.manifest.digest.tenantData,table),`${table} is absent from the backup manifest`);
+  for(const table of TENANT_FOUNDATION_TABLES)assert.ok(Object.hasOwn(backup.manifest.digest.tenantData,table),`${table} is absent from the backup manifest`);
+  for(const table of EXCLUDED_RECOVERY_TABLES)assert.equal(Object.hasOwn(backup.manifest.digest.tenantData,table),false,`${table} crossed its explicit backup boundary`);
   assert.equal(backup.manifest.digest.tenantData.parties.count,1);
+  for(const table of TENANT_FOUNDATION_TABLES)assert.equal(backup.manifest.digest.tenantData[table].count,1,`${table} source row was not captured`);
   const restored=await restoreTenantBackup({
    archive:backup.archive,encryptionKey:'d'.repeat(64),expectedTenantId:tenantId,closeTarget:false,
    createTargetRepository:()=>targetRepository
@@ -229,8 +242,18 @@ test('tenant logical backup restores and verifies every production CRM table',as
    const evidence=await verifyRestore({manifest:backup.manifest,source:sourceRepository,restored:restored.repository});
    assert.equal(evidence.verified,true);
    assert.equal(evidence.tenantData.parties.count,1);
-   const rows=await targetPool.withTenantSession(tenantId,session=>session.query('SELECT (SELECT count(*) FROM parties)::int AS parties,(SELECT count(*) FROM people)::int AS people,(SELECT count(*) FROM crm_subjects)::int AS subjects,(SELECT count(*) FROM leads WHERE status=\'converted\')::int AS converted_leads,(SELECT count(*) FROM opportunities WHERE lead_id=$1)::int AS linked_opportunities',[leadId]));
-   assert.deepEqual(rows.rows[0],{parties:1,people:1,subjects:1,converted_leads:1,linked_opportunities:1});
+   const rows=await targetPool.withTenantSession(tenantId,session=>session.query(`SELECT
+    (SELECT count(*) FROM parties)::int AS parties,
+    (SELECT count(*) FROM people)::int AS people,
+    (SELECT count(*) FROM crm_subjects)::int AS subjects,
+    (SELECT count(*) FROM leads WHERE status='converted')::int AS converted_leads,
+    (SELECT count(*) FROM opportunities WHERE lead_id=$1)::int AS linked_opportunities,
+    (SELECT count(*) FROM wimblo_platform.tenant_modules)::int AS tenant_modules,
+    (SELECT count(*) FROM wimblo_platform.module_events)::int AS module_events,
+    (SELECT count(*) FROM wimblo_platform.durable_jobs)::int AS durable_jobs,
+    (SELECT count(*) FROM wimblo_platform.durable_job_attempts)::int AS durable_job_attempts,
+    (SELECT count(*) FROM wimblo_platform.dead_letter_jobs)::int AS dead_letter_jobs`,[leadId]));
+   assert.deepEqual(rows.rows[0],{parties:1,people:1,subjects:1,converted_leads:1,linked_opportunities:1,tenant_modules:1,module_events:1,durable_jobs:1,durable_job_attempts:1,dead_letter_jobs:1});
   }finally{await restored.repository.close();}
  }finally{
   await Promise.all([source.cleanup(),target.cleanup()]);

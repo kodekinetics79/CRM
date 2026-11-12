@@ -58,7 +58,7 @@ export async function createTenantBackup({repository,encryptionKey,now=()=>new D
    payloadBytes:payload.length,
    payloadSha256:sha256(payload),
    digest,
-   scope:'One tenant: records, users, settings, audit, object metadata and production CRM tables owned by the persistence boundary. Private object bytes and control-plane identities/memberships are restored separately before dependent CRM rows.'
+   scope:'One tenant: records, users, settings, audit, object metadata, production CRM tables, module state and durable job history owned by the persistence boundary. Private object bytes and control-plane identities/memberships are restored separately before dependent tenant rows.'
   };
   const metadata=Buffer.from(JSON.stringify(manifest),'utf8');
   const iv=randomBytes(12),aad={format:FORMAT,version:VERSION,tenantId};
