@@ -35,7 +35,7 @@ npm run certify:crm:local
 
 This runs focused CRM certification tests, disposable two-tenant PostgreSQL verification, encrypted backup/readback/fresh-target restore reconciliation, the full test suite, production and synthetic builds, a high-severity dependency audit, and the focused/skipped-test discipline gate. Results must be recorded from a fresh run at the exact commit being promoted.
 
-The final post-review candidate completed local verification on 2026-11-11: full suite 1,734/1,734; PostgreSQL foundation schema version 18; explicit PostgreSQL boundary/integration tests 4/4; real PostgreSQL/S3-compatible verification 46/46 including encrypted backup/readback/fresh-target restore reconciliation; production and synthetic builds passed; dependency audit found 0 vulnerabilities; discipline gate reported 0 focused and 0 skipped. The bounded capacity profile remained 40 operations, 0 errors, pool maximum 2, observed concurrent queries 2, 40 actual queries, and 1 query per operation. Dedicated PostgreSQL and object-store containers were loopback-only, ephemeral, and removed after evidence capture. These are local results, not deployment, provider-backup, browser, or customer-acceptance evidence.
+The final post-review candidate completed local verification on 2026-11-12: full suite 1,741/1,741; PostgreSQL foundation schema version 18; explicit PostgreSQL boundary/integration tests 4/4; real PostgreSQL/S3-compatible verification 46/46 including encrypted backup/readback/fresh-target restore reconciliation; production and synthetic builds passed; dependency audit found 0 vulnerabilities; discipline gate reported 0 focused and 0 skipped. The bounded capacity profile remained 40 operations, 0 errors, pool maximum 2, observed concurrent queries 2, 40 actual queries, and 1 query per operation. Dedicated PostgreSQL and object-store containers were loopback-only, ephemeral, and removed after evidence capture. These are local results, not deployment, provider-backup, browser, or customer-acceptance evidence.
 
 Browser-engine acceptance is still unobserved on this machine because no compatible browser host is available. Do not describe source/render tests as browser acceptance.
 
@@ -62,6 +62,7 @@ Browser-engine acceptance is still unobserved on this machine because no compati
 3. Object-storage and backup configuration is validated, but the SaaS entrypoints do not yet compose customer byte upload/download or provider backup scheduling/restore consumers.
 4. The live Render project has one `0.5c-512mb` web service and no attached database. It runs the synthetic evaluator from `main`, with auto-deploy and PR previews off, no persistent production PostgreSQL, and no separately supervised SaaS worker. `/healthz` returns evaluator liveness, while `/ready` falls through to frontend HTML and is not a production-readiness probe.
 5. Browser acceptance and customer UAT remain separate gates.
+6. Authentication rate limiting is process-local for the current single-web-process design. Any future multi-replica web topology requires a reviewed shared durable limiter before production acceptance.
 
 ## Cost-safe provider observation
 
