@@ -98,7 +98,7 @@ test('an untrusted direct peer cannot rotate forwarded addresses around the logi
 
 const validEnv=()=>({
  NODE_ENV:'production',WIMBLO_RUNTIME:'saas',PROCESS_ROLE:'web',APP_ORIGIN:'https://app.wimblo.example',
- DATABASE_URL:'postgresql://wimblo_tenant_app:tenant-password@db.example.test/wimblo?sslmode=require',CONTROL_DATABASE_URL:'postgresql://wimblo_control_app:control-password@db.example.test/wimblo?sslmode=verify-full',
+ DATABASE_URL:'postgresql://wimblo_tenant_app:tenant-password@db.example.test/wimblo?sslmode=verify-full',CONTROL_DATABASE_URL:'postgresql://wimblo_control_app:control-password@db.example.test/wimblo?sslmode=verify-full',
  MFA_ENCRYPTION_KEY:'a'.repeat(64),SESSION_SECRET:'session-secret-with-at-least-thirty-two-characters',BACKUP_ENCRYPTION_KEY:'b'.repeat(64),
  DOCUMENT_STORAGE_PROVIDER:'s3',DOCUMENT_STORAGE_BUCKET:'wimblo-production-private',DOCUMENT_STORAGE_NAMESPACE:'production',DOCUMENT_STORAGE_PRIVATE_CONFIRMED:'true',
  BACKUP_STORAGE_BUCKET:'wimblo-production-backups',BACKUP_STORAGE_NAMESPACE:'production-backups',BACKUP_STORAGE_PRIVATE_CONFIRMED:'true',AWS_REGION:'us-east-1',AWS_ACCESS_KEY_ID:'SYNTHETIC_TEST_ACCESS',AWS_SECRET_ACCESS_KEY:'SYNTHETIC_TEST_SECRET',

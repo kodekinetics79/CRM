@@ -150,7 +150,7 @@ test('control startup assertion proves every runtime sequence and function privi
 test('tenant and control pools consume separate explicit TLS connection URLs',async()=>{
   const env={
     NODE_ENV:'production',
-    DATABASE_URL:'postgres://wimblo_app:tenant-secret@db.invalid/wimblo?sslmode=require',
+    DATABASE_URL:'postgres://wimblo_app:tenant-secret@db.invalid/wimblo?sslmode=verify-full',
     CONTROL_DATABASE_URL:'postgres://wimblo_control:control-secret@db.invalid/wimblo?sslmode=verify-full'
   };
   const tenant=poolFromEnv(env,{acquireAttempts:1});
@@ -163,5 +163,5 @@ test('tenant and control pools consume separate explicit TLS connection URLs',as
     await Promise.all([tenant.end(),control.end()]);
   }
   assert.throws(()=>controlPoolFromEnv({...env,CONTROL_DATABASE_URL:''}),/CONTROL_DATABASE_URL is required/);
-  assert.throws(()=>controlPoolFromEnv({...env,CONTROL_DATABASE_URL:'postgres://wimblo_control:x@db.invalid/wimblo'}),/CONTROL_DATABASE_URL must require TLS/);
+  assert.throws(()=>controlPoolFromEnv({...env,CONTROL_DATABASE_URL:'postgres://wimblo_control:x@db.invalid/wimblo'}),/CONTROL_DATABASE_URL must authenticate.*sslmode=verify-full/);
 });

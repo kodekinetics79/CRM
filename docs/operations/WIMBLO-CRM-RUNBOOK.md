@@ -61,9 +61,9 @@ Provision a third, non-runtime migration owner. It may be `NOSUPERUSER`, but it 
 
 ## Backup and recovery
 
-Local certification runs the existing encrypted logical backup contract: create backup, authenticate/read the archive, restore to a fresh target, and reconcile schema, row counts, per-collection digests, audits, users, and integer-cent totals. This proves local code behavior, not provider backup scheduling or durability.
+Local certification runs the encrypted logical backup contract: create backup, authenticate/read the archive, restore to a fresh target, and reconcile schema, row counts, per-table digests for every production CRM table, audits, users, and integer-cent totals. Control-plane identities and memberships must be restored before tenant CRM rows that reference them. This proves local code behavior, not provider backup scheduling or durability.
 
-Before production acceptance, record private provider evidence for backup creation, immutable readback, fresh-environment restore, CRM record reconciliation, RPO, RTO, key custody, and retention. If `pg_dump` or provider snapshots are used, restore into a disposable target and compare tenant counts and representative CRM checksums before declaring the drill successful.
+The production readiness RPO is 24 hours. The evidence timestamp may be at most 86,400 seconds old; exactly 86,400 seconds passes and 86,401 seconds blocks promotion. Before production acceptance, record private provider evidence for backup creation, immutable readback, fresh-environment restore, every CRM table's reconciliation, measured RTO, key custody, and retention. If `pg_dump` or provider snapshots are used, restore into a disposable target and compare tenant counts and CRM table checksums before declaring the drill successful.
 
 ## Attachment policy
 

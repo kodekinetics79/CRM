@@ -17,6 +17,7 @@
 
 import pg from 'pg';
 import {PERSISTENCE_CODES,PersistenceError,persistenceFail,assertTenantId} from './contract.js';
+import {parsePostgresConnectionUrl} from './databaseUrl.js';
 
 const DEFAULTS=Object.freeze({
  max:10,
@@ -211,11 +212,7 @@ export function createPostgresPool(options={}){
 function poolFromNamedEnv(env,key,applicationName,overrides={}){
  if(!env[key])persistenceFail(PERSISTENCE_CODES.INVALID,`${key} is required; the persistence boundary never guesses a database.`);
  const production=env.NODE_ENV==='production';
- let url;
- try{url=new URL(env[key]);}
- catch{persistenceFail(PERSISTENCE_CODES.INVALID,`${key} must be a valid PostgreSQL connection URL.`);}
- if(!['postgres:','postgresql:'].includes(url.protocol))persistenceFail(PERSISTENCE_CODES.INVALID,`${key} must be a PostgreSQL connection URL.`);
- if(production&&!['require','verify-ca','verify-full'].includes(url.searchParams.get('sslmode')||''))persistenceFail(PERSISTENCE_CODES.INVALID,`Production ${key} must require TLS (sslmode=require or stronger).`);
+ parsePostgresConnectionUrl(env[key],{label:key,production,invalid:message=>persistenceFail(PERSISTENCE_CODES.INVALID,message)});
  return createPostgresPool({connectionString:env[key],applicationName,...overrides});
 }
 

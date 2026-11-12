@@ -48,6 +48,7 @@ const CONTROL_PLANE_SEQUENCE='wimblo_platform.control_audit_audit_id_seq';
 const CONTROL_PLANE_FUNCTIONS=Object.freeze(['wimblo_platform.tenant_state(uuid)','wimblo_platform.runnable_tenant_ids()','wimblo_platform.dead_letter_count()']);
 const TENANT_RUNTIME_FUNCTIONS=Object.freeze(['wimblo_platform.active_membership(uuid,uuid)']);
 const SECURITY_DEFINER_FUNCTIONS=Object.freeze([...CONTROL_PLANE_FUNCTIONS,...TENANT_RUNTIME_FUNCTIONS]);
+const TENANT_FORBIDDEN_CONTROL_TABLES=Object.freeze([...CONTROL_PLANE_TABLES,'wimblo_platform.control_audit']);
 
 const identifier=name=>{
  if(typeof name!=='string'||!/^[a-z_][a-z0-9_]{0,62}$/.test(name))persistenceFail(PERSISTENCE_CODES.INVALID,'A role name must be a simple lower-case identifier.');
@@ -173,5 +174,26 @@ export async function assertRowLevelSecurityEffective(session){
   return null;
  }).filter(Boolean);
  if(problems.length)persistenceFail(PERSISTENCE_CODES.ISOLATION,`Tenant isolation is not in force: ${problems.join(', ')}.`);
- return {role:role.name,superuser:false,bypassRls:false,tables:TENANT_TABLES.length,forced:true};
+ const {rows:controlTables}=await session.query(
+  `SELECT object_name,
+          (has_table_privilege(current_user,object_name,'SELECT')
+           OR has_table_privilege(current_user,object_name,'INSERT')
+           OR has_table_privilege(current_user,object_name,'UPDATE')
+           OR has_table_privilege(current_user,object_name,'DELETE')
+           OR has_table_privilege(current_user,object_name,'TRUNCATE')
+           OR has_table_privilege(current_user,object_name,'REFERENCES')
+           OR has_table_privilege(current_user,object_name,'TRIGGER')) AS has_privilege
+   FROM unnest($1::text[]) AS forbidden(object_name)`,[TENANT_FORBIDDEN_CONTROL_TABLES]);
+ const exposedTables=controlTables.filter(item=>item.has_privilege).map(item=>item.object_name);
+ const {rows:functions}=await session.query(
+  `SELECT signature,has_function_privilege(current_user,signature,'EXECUTE') AS executable
+   FROM unnest($1::text[]) AS inspected(signature)`,[SECURITY_DEFINER_FUNCTIONS]);
+ const functionAccess=new Map(functions.map(item=>[item.signature,item.executable]));
+ const exposedFunctions=CONTROL_PLANE_FUNCTIONS.filter(signature=>functionAccess.get(signature));
+ const missingFunctions=TENANT_RUNTIME_FUNCTIONS.filter(signature=>!functionAccess.get(signature));
+ if(exposedTables.length||exposedFunctions.length||missingFunctions.length){
+  const details=[...exposedTables,...exposedFunctions,...missingFunctions.map(signature=>`${signature} (required execute missing)`)];
+  persistenceFail(PERSISTENCE_CODES.ISOLATION,`The application role "${role.name}" has unsafe or incomplete control-plane privileges: ${details.join(', ')}.`);
+ }
+ return {role:role.name,superuser:false,bypassRls:false,tables:TENANT_TABLES.length,forced:true,controlPlaneTables:0,tenantFunctions:TENANT_RUNTIME_FUNCTIONS.length};
 }

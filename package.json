@@ -18,6 +18,7 @@
     "evaluate": "node scripts/evaluate.mjs",
     "verify:postgres": "node scripts/postgres-verify.mjs",
     "verify:postgres-foundation": "node scripts/postgres-foundation-verify.mjs",
+    "verify:postgres-boundaries": "node --test tests/integration/production-database-boundaries-postgres.test.js",
     "check:production-foundation": "node scripts/production-foundation-check.mjs",
     "certify:production-foundation:local": "npm run test:production-foundation && npm run build && npm audit --audit-level=high",
     "certify:crm:local": "node scripts/crm-production-certify.mjs"

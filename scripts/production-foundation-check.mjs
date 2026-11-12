@@ -17,6 +17,8 @@ const GATES=Object.freeze([
  ['dead-letters','deadLetters','DEAD_LETTERS_PRESENT'],['backup-configuration','backup','BACKUP_CONFIGURATION_INVALID']
 ]);
 
+export const PRODUCTION_BACKUP_RPO_SECONDS=24*60*60;
+
 const pass=(key,value,expectedSchemaVersion)=>{
  if(!value?.valid)return false;
  if(key==='runtimeRoles')return value.distinct===true;
@@ -26,7 +28,7 @@ const pass=(key,value,expectedSchemaVersion)=>{
  if(key==='mfaKey')return value.distinctFromBackup===true;
  if(key==='processes')return value.webHealthy===true&&value.workerHealthy===true&&Number.isFinite(value.ageSeconds)&&value.ageSeconds>=0&&value.ageSeconds<=300;
  if(key==='deadLetters')return value.count===0;
- if(key==='backup')return value.configured===true&&value.privateConfirmed===true&&Number.isFinite(value.ageSeconds)&&value.ageSeconds>=0;
+ if(key==='backup')return value.configured===true&&value.privateConfirmed===true&&Number.isFinite(value.ageSeconds)&&value.ageSeconds>=0&&value.ageSeconds<=PRODUCTION_BACKUP_RPO_SECONDS;
  return true;
 };
 
@@ -90,8 +92,7 @@ export async function collectProductionFoundationEvidence(env=process.env,{now=D
    const {rows}=await session.query(`SELECT n.nspname,c.relname,c.relrowsecurity,c.relforcerowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE (n.nspname='public' AND c.relname=ANY($1)) OR (n.nspname='wimblo_platform' AND c.relname=ANY($2))`,[TENANT_TABLES,TENANT_FOUNDATION_TABLES.map(table=>table.split('.')[1])]);
    const forced=rows.filter(row=>row.relrowsecurity&&row.relforcerowsecurity).length;
    evidence.rowLevelSecurity={valid:isolated.forced===true&&forced===TENANT_TABLES.length+TENANT_FOUNDATION_TABLES.length,forcedTables:forced,expectedTables:TENANT_TABLES.length+TENANT_FOUNDATION_TABLES.length};
-   const {rows:[privileges]}=await session.query(`SELECT has_table_privilege(current_user,'wimblo_platform.global_identities','SELECT') OR has_table_privilege(current_user,'wimblo_platform.control_audit','SELECT') AS exposed`);
-   evidence.controlPrivileges={valid:privileges?.exposed===false};
+   evidence.controlPrivileges={valid:isolated.controlPlaneTables===0&&isolated.tenantFunctions===1};
    return role;
   });
   const control=await readOnly(controlPool,async session=>{

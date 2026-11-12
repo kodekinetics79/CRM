@@ -1,8 +1,8 @@
 import {isAbsolute,resolve} from 'node:path';
 import {isIP} from 'node:net';
+import {parsePostgresConnectionUrl} from '../persistence/databaseUrl.js';
 
 const fail=message=>{throw new Error(message);};
-const TLS_MODES=new Set(['require','verify-ca','verify-full']);
 const REGIONS=new Set(['us-east-1','us-east-2','us-west-1','us-west-2','ca-central-1','ca-west-1']);
 const safeName=value=>typeof value==='string'&&/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(value);
 const bucket=value=>typeof value==='string'&&/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(value);
@@ -16,12 +16,8 @@ function exactOrigin(value){
 }
 
 function databaseUrl(value){
- try{
-  const url=new URL(value);
-  if(!['postgres:','postgresql:'].includes(url.protocol)||!url.username||!url.hostname||!url.pathname||url.pathname==='/')return null;
-  if(!TLS_MODES.has(url.searchParams.get('sslmode')||''))return null;
-  return url;
- }catch{return null;}
+ try{return parsePostgresConnectionUrl(value,{label:'SaaS production database URL',production:true,requireCredentials:true});}
+ catch{return null;}
 }
 
 function key32(value){
@@ -70,7 +66,7 @@ export function resolveSaasRuntimeConfig(env=process.env,root=process.cwd()){
  if(!appOrigin)fail('SaaS production requires APP_ORIGIN to be an exact HTTPS origin.');
  if(!env.DATABASE_URL||!env.CONTROL_DATABASE_URL)fail('SaaS production requires DATABASE_URL and CONTROL_DATABASE_URL.');
  const tenantUrl=databaseUrl(env.DATABASE_URL),controlUrl=databaseUrl(env.CONTROL_DATABASE_URL);
- if(!tenantUrl||!controlUrl)fail('SaaS production database URLs must require TLS.');
+ if(!tenantUrl||!controlUrl)fail('SaaS production database URLs must authenticate certificates and hostnames with sslmode=verify-full and cannot override authority host or port.');
  if(tenantUrl.username.toLowerCase()===controlUrl.username.toLowerCase())fail('SaaS tenant and control databases require distinct runtime roles.');
  if(rejectedLegacySetting(env))fail('SaaS production rejects evaluator, demo, temporary-storage and synchronous PostgreSQL settings.');
  if(!key32(env.MFA_ENCRYPTION_KEY))fail('SaaS production requires a valid 32-byte MFA_ENCRYPTION_KEY.');

@@ -20,7 +20,7 @@ import {
  validateFinancialBatch,FINANCIAL_COLLECTION,assertRepositoryContract
 } from './contract.js';
 import {readSchemaVersion} from './migrations.js';
-import {assertRowLevelSecurityEffective} from './roles.js';
+import {assertRowLevelSecurityEffective,TENANT_TABLES} from './roles.js';
 
 const assertCollection=c=>{if(!isCollection(c))persistenceFail(PERSISTENCE_CODES.INVALID,`Collection name "${c}" is invalid.`);return c;};
 const assertId=id=>{if(!isRecordId(id))persistenceFail(PERSISTENCE_CODES.INVALID,`Record identity "${id}" is invalid.`);return id;};
@@ -32,6 +32,14 @@ const likeTerm=term=>'%'+term.replace(/([\\%_])/g,'\\$1')+'%';
 const userOf=row=>({id:row.user_id,name:row.name,email:row.email,role:row.role,passwordHash:row.password_hash,active:Boolean(row.active),version:Number(row.version)});
 const auditOf=row=>({id:toInt(row.audit_id,'Audit identity'),actor:row.actor,action:row.action,collection:row.collection??null,recordId:row.record_id??null,at:isoAt(row.at),details:parseJson(row.details,'Audit detail')});
 const auditChecksum=entry=>sha256(canonicalJson({actor:entry.actor,action:entry.action,collection:entry.collection,recordId:entry.recordId,at:entry.at,details:entry.details}));
+const LEGACY_DUMP_TABLES=new Set(['tenants','records','users','settings','audit_entries','gift_ledger','gift_allocations']);
+const TENANT_DATA_TABLES=Object.freeze(TENANT_TABLES.filter(table=>!LEGACY_DUMP_TABLES.has(table)));
+const sqlIdentifier=value=>{if(!/^[a-z_][a-z0-9_]{0,62}$/.test(value))persistenceFail(PERSISTENCE_CODES.VERIFICATION,'Tenant backup contains an unsafe SQL identifier.');return `"${value}"`;};
+const backupValue=value=>value instanceof Date?value.toISOString():Array.isArray(value)?value.map(backupValue):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).map(([key,item])=>[key,backupValue(item)])):value;
+const tenantDataDigest=data=>Object.fromEntries(TENANT_DATA_TABLES.map(table=>{
+ const rows=data[table]||[];
+ return [table,{count:rows.length,digest:digestOf(rows.map(row=>sha256(canonicalJson(row))))}];
+}));
 
 /**
  * @param {object} options
@@ -55,6 +63,38 @@ export async function createPostgresRepository({pool,tenantId,tenant={},ensureTe
  const active=new AsyncLocalStorage();
  const read=fn=>{const session=active.getStore();return session?fn(session):pool.withTenantSession(tenant_id,fn);};
  const write=fn=>{const session=active.getStore();return session?fn(session):pool.withTransaction(tenant_id,fn);};
+
+ async function readTenantData(session){
+  const data={};
+  for(const table of TENANT_DATA_TABLES){
+   const {rows}=await session.query(`SELECT * FROM ${sqlIdentifier(table)} WHERE tenant_id=$1`,[tenant_id]);
+   data[table]=rows.map(backupValue).sort((left,right)=>canonicalJson(left).localeCompare(canonicalJson(right)));
+  }
+  return data;
+ }
+
+ async function importTenantData(session,data={}){
+  const counts={},convertedLeads=[];
+  for(const table of TENANT_DATA_TABLES){
+   const rows=data[table]||[];
+   if(!Array.isArray(rows))persistenceFail(PERSISTENCE_CODES.INVALID,`Tenant backup table "${table}" must be an array.`);
+   for(const row of rows){
+    if(!row||typeof row!=='object'||row.tenant_id!==tenant_id)persistenceFail(PERSISTENCE_CODES.INVALID,`Tenant backup table "${table}" contains a row outside the selected tenant.`);
+    const insertRow=table==='leads'&&row.status==='converted'&&row.converted_opportunity_id
+     ? {...row,status:'qualified',converted_opportunity_id:null}
+     : row;
+    if(insertRow!==row)convertedLeads.push({leadId:row.lead_id,opportunityId:row.converted_opportunity_id});
+    const columns=Object.keys(insertRow).sort();
+    if(!columns.length)persistenceFail(PERSISTENCE_CODES.INVALID,`Tenant backup table "${table}" contains an empty row.`);
+    await session.query(`INSERT INTO ${sqlIdentifier(table)}(${columns.map(sqlIdentifier).join(',')}) VALUES(${columns.map((_,index)=>`$${index+1}`).join(',')})`,columns.map(column=>insertRow[column]));
+   }
+   counts[table]=rows.length;
+  }
+  for(const conversion of convertedLeads)await session.query(
+   "UPDATE leads SET status='converted',converted_opportunity_id=$3 WHERE tenant_id=$1 AND lead_id=$2",
+   [tenant_id,conversion.leadId,conversion.opportunityId]);
+  return counts;
+ }
 
  if(ensureTenant){
   const residency=tenant.residency||null;
@@ -263,6 +303,7 @@ export async function createPostgresRepository({pool,tenantId,tenant={},ensureTe
    const userRows=await session.query('SELECT * FROM users WHERE tenant_id=$1 ORDER BY user_id COLLATE "C"',[tenant_id]);
    const auditRows=await session.query('SELECT * FROM audit_entries WHERE tenant_id=$1 ORDER BY audit_id',[tenant_id]);
    const settingsRows=await session.query('SELECT data FROM settings WHERE tenant_id=$1',[tenant_id]);
+   const tenantData=await readTenantData(session);
    return {
     tenantId:tenant_id,
     schemaVersion,
@@ -277,7 +318,8 @@ export async function createPostgresRepository({pool,tenantId,tenant={},ensureTe
     totals:{records:totalRecords,users:userRows.rowCount,audit:auditRows.rowCount},
     users:{count:userRows.rowCount,digest:digestOf(userRows.rows.map(r=>sha256(canonicalJson(userOf(r)))))},
     audit:{count:auditRows.rowCount,digest:digestOf(auditRows.rows.map(r=>auditChecksum(auditOf(r))))},
-    settings:{checksum:sha256(settingsRows.rows.length?settingsRows.rows[0].data:canonicalJson({}))}
+    settings:{checksum:sha256(settingsRows.rows.length?settingsRows.rows[0].data:canonicalJson({}))},
+    tenantData:tenantDataDigest(tenantData)
    };
   }),
 
@@ -286,6 +328,7 @@ export async function createPostgresRepository({pool,tenantId,tenant={},ensureTe
    const users=await session.query('SELECT * FROM users WHERE tenant_id=$1 ORDER BY user_id COLLATE "C"',[tenant_id]);
    const audit=await session.query('SELECT * FROM audit_entries WHERE tenant_id=$1 ORDER BY audit_id',[tenant_id]);
    const settings=await session.query('SELECT data FROM settings WHERE tenant_id=$1',[tenant_id]);
+   const tenantData=await readTenantData(session);
    return {
     format:'wimblo-persistence-tenant-dump',
     version:1,
@@ -295,7 +338,8 @@ export async function createPostgresRepository({pool,tenantId,tenant={},ensureTe
     settings:settings.rows.length?parseJson(settings.rows[0].data,'Settings'):{},
     users:users.rows.map(userOf),
     records:records.rows.map(r=>({collection:r.collection,id:r.record_id,record:parseJson(r.data,'Record')})),
-    audit:audit.rows.map(auditOf)
+    audit:audit.rows.map(auditOf),
+    tenantData
    };
   }),
 
@@ -303,14 +347,16 @@ export async function createPostgresRepository({pool,tenantId,tenant={},ensureTe
    if(!dump||dump.format!=='wimblo-persistence-tenant-dump')persistenceFail(PERSISTENCE_CODES.INVALID,'An explicit Wimblo tenant dump is required.');
    return repository.transaction(async()=>{
     const session=active.getStore();
+    const tenantOccupancy=TENANT_DATA_TABLES.map(table=>`(SELECT COUNT(*) FROM ${sqlIdentifier(table)} WHERE tenant_id=$1)`).join('+');
     const occupied=await session.query(
-     `SELECT (SELECT COUNT(*) FROM records WHERE tenant_id=$1)+(SELECT COUNT(*) FROM users WHERE tenant_id=$1)+(SELECT COUNT(*) FROM audit_entries WHERE tenant_id=$1) AS n`,[tenant_id]);
+     `SELECT (SELECT COUNT(*) FROM records WHERE tenant_id=$1)+(SELECT COUNT(*) FROM users WHERE tenant_id=$1)+(SELECT COUNT(*) FROM audit_entries WHERE tenant_id=$1)+${tenantOccupancy} AS n`,[tenant_id]);
     if(toInt(occupied.rows[0].n,'Occupancy'))persistenceFail(PERSISTENCE_CODES.CONFLICT,'Restore target is not empty; restores go into a fresh tenant so an existing one is never partially overwritten.');
     if(dump.settings&&Object.keys(dump.settings).length)await repository.putSettings(dump.settings);
     for(const user of dump.users||[])await repository.putUser(user);
     for(const row of dump.records||[])await writeRecordRow(session,row.collection,row.record,{create:true});
+    const tenantData=await importTenantData(session,dump.tenantData);
     for(const entry of dump.audit||[])await appendAuditRow(session,entry);
-    return {records:(dump.records||[]).length,users:(dump.users||[]).length,audit:(dump.audit||[]).length};
+    return {records:(dump.records||[]).length,users:(dump.users||[]).length,audit:(dump.audit||[]).length,tenantData};
    });
   },
 

@@ -4,7 +4,7 @@ import {resolveSaasRuntimeConfig} from '../server/production/runtimeConfig.js';
 
 const validEnv=()=>({
  NODE_ENV:'production',WIMBLO_RUNTIME:'saas',PROCESS_ROLE:'web',APP_ORIGIN:'https://app.wimblo.example',
- DATABASE_URL:'postgresql://wimblo_tenant_app:tenant-password@db.example.test/wimblo?sslmode=require',
+ DATABASE_URL:'postgresql://wimblo_tenant_app:tenant-password@db.example.test/wimblo?sslmode=verify-full',
  CONTROL_DATABASE_URL:'postgresql://wimblo_control_app:control-password@db.example.test/wimblo?sslmode=verify-full',
  MFA_ENCRYPTION_KEY:'a'.repeat(64),SESSION_SECRET:'session-secret-with-at-least-thirty-two-characters',BACKUP_ENCRYPTION_KEY:'b'.repeat(64),
  DOCUMENT_STORAGE_PROVIDER:'s3',DOCUMENT_STORAGE_BUCKET:'wimblo-production-private',DOCUMENT_STORAGE_NAMESPACE:'production',DOCUMENT_STORAGE_PRIVATE_CONFIRMED:'true',
@@ -27,8 +27,8 @@ test('SaaS production requires distinct tenant and control database URLs with TL
  const missing=validEnv();delete missing.DATABASE_URL;
  assert.throws(()=>resolveSaasRuntimeConfig(missing,'/srv/wimblo'),{message:'SaaS production requires DATABASE_URL and CONTROL_DATABASE_URL.'});
  const noTls={...validEnv(),DATABASE_URL:'postgresql://wimblo_tenant_app:password@db.example.test/wimblo'};
- assert.throws(()=>resolveSaasRuntimeConfig(noTls,'/srv/wimblo'),{message:'SaaS production database URLs must require TLS.'});
- const sameRole={...validEnv(),CONTROL_DATABASE_URL:'postgresql://wimblo_tenant_app:other-password@db.example.test/wimblo?sslmode=require'};
+ assert.throws(()=>resolveSaasRuntimeConfig(noTls,'/srv/wimblo'),{message:'SaaS production database URLs must authenticate certificates and hostnames with sslmode=verify-full and cannot override authority host or port.'});
+ const sameRole={...validEnv(),CONTROL_DATABASE_URL:'postgresql://wimblo_tenant_app:other-password@db.example.test/wimblo?sslmode=verify-full'};
  assert.throws(()=>resolveSaasRuntimeConfig(sameRole,'/srv/wimblo'),{message:'SaaS tenant and control databases require distinct runtime roles.'});
 });
 
