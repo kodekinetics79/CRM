@@ -1,10 +1,13 @@
 import React,{useEffect,useMemo,useState} from 'react';
 
-const money=(cents,currency='USD')=>new Intl.NumberFormat(undefined,{style:'currency',currency,maximumFractionDigits:0}).format(Number(cents||0)/100);
+const PAGE_SIZE=100,BOARD_LIMIT=1000;
+const money=(cents,currency='USD')=>new Intl.NumberFormat(undefined,{style:'currency',currency,minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(cents||0)/100);
+
+async function loadOpportunityPages(client,signal){const all=[];for(let offset=0;offset<BOARD_LIMIT;offset+=PAGE_SIZE){const result=await client.request(`/crm/opportunities?limit=${PAGE_SIZE}&offset=${offset}`,{signal}),page=result.opportunities||[];all.push(...page);if(page.length<PAGE_SIZE)return all;}const overflow=await client.request(`/crm/opportunities?limit=1&offset=${BOARD_LIMIT}`,{signal});if((overflow.opportunities||[]).length)throw new Error(`This board exceeds the ${BOARD_LIMIT}-opportunity display limit. Narrow the pipeline before continuing.`);return all;}
 
 export default function PipelineBoard({client,readOnly=false,initialData=null}){
  const [data,setData]=useState(initialData),[status,setStatus]=useState(initialData?'ready':'loading'),[error,setError]=useState(''),[moving,setMoving]=useState(null);
- async function load(signal){setStatus('loading');setError('');try{const [pipelines,opportunities]=await Promise.all([client.request('/crm/pipelines',{signal}),client.request('/crm/opportunities?limit=100',{signal})]);setData({pipelines:pipelines.pipelines||[],opportunities:opportunities.opportunities||[]});setStatus('ready');}catch(e){if(e.name!=='AbortError'){setError(e.message);setStatus('error');}}}
+ async function load(signal){setStatus('loading');setError('');try{const [pipelines,opportunities]=await Promise.all([client.request('/crm/pipelines',{signal}),loadOpportunityPages(client,signal)]);setData({pipelines:pipelines.pipelines||[],opportunities});setStatus('ready');}catch(e){if(e.name!=='AbortError'){setError(e.message);setStatus('error');}}}
  useEffect(()=>{if(initialData)return;const controller=new AbortController();load(controller.signal);return()=>controller.abort();},[client,initialData]);
  const pipeline=data?.pipelines?.[0],stages=useMemo(()=>[...(pipeline?.stages||[])].sort((a,b)=>a.position-b.position),[pipeline]);
  async function move(opportunity){const selection=moving?.id===opportunity.opportunityId?moving.stageId:opportunity.stageId;if(selection===opportunity.stageId)return;setError('');try{await client.request(`/crm/opportunities/${opportunity.opportunityId}/stage`,{method:'POST',body:{stageId:selection,expectedVersion:opportunity.version}});setData(current=>({...current,opportunities:current.opportunities.map(item=>item.opportunityId===opportunity.opportunityId?{...item,stageId:selection,version:item.version+1}:item)}));setMoving(null);}catch(e){setError(e.status===409?'This opportunity changed. Reload the latest record before moving it.':e.message);}}

@@ -184,6 +184,7 @@ const mapOpportunity=row=>row?{
 const mapSubject=row=>row?{tenantId:row.tenant_id,subjectId:row.subject_id,subjectType:row.subject_type,ownerIdentityId:row.owner_identity_id??null,version:Number(row.version),createdAt:row.created_at,updatedAt:row.updated_at}:null;
 const mapTask=row=>row?{tenantId:row.tenant_id,taskId:row.task_id,subjectId:row.subject_id,title:row.title,details:row.details??null,status:row.status,ownerIdentityId:row.owner_identity_id,dueAt:row.due_at??null,reminderAt:row.reminder_at??null,completedAt:row.completed_at??null,version:Number(row.version),createdAt:row.created_at,updatedAt:row.updated_at}:null;
 const mapNote=row=>row?{tenantId:row.tenant_id,noteId:row.note_id,subjectId:row.subject_id,title:row.title,currentRevision:Number(row.current_revision),version:Number(row.version),createdAt:row.created_at,updatedAt:row.updated_at}:null;
+const mapNoteDetail=row=>row?{...mapNote(row),body:row.body,revisionOccurredAt:row.revision_occurred_at}:null;
 const mapAttachment=row=>row?{tenantId:row.tenant_id,linkId:row.link_id,subjectId:row.subject_id,objectId:row.object_id,objectRevision:Number(row.object_revision),fileName:row.file_name,contentType:row.content_type,sizeBytes:Number(row.size_bytes),actorIdentityId:row.actor_identity_id,occurredAt:row.occurred_at,accessPolicy:{scope:'tenant-metadata-reference',grantsByteAccess:false}}:null;
 
 export function createCrmRepository({tenantPool,jobRepository=null,clock=timestamp}={}){
@@ -736,6 +737,12 @@ export function createCrmRepository({tenantPool,jobRepository=null,clock=timesta
     });
   }
 
+  async function getNote(tenantId,noteId){
+    const tenant=uuid(tenantId,'Tenant ID'),note=uuid(noteId,'Note ID');
+    const {rows:[row]}=await tenantPool.withTenantSession(tenant,session=>session.query(`/*note:get-current*/ SELECT n.tenant_id,n.note_id,n.subject_id,n.title,n.current_revision,n.version,n.created_at,n.updated_at,r.body,r.occurred_at AS revision_occurred_at FROM crm_notes n JOIN crm_note_revisions r ON r.tenant_id=n.tenant_id AND r.note_id=n.note_id AND r.revision=n.current_revision WHERE n.tenant_id=$1 AND n.note_id=$2`,[tenant,note]));
+    if(!row)persistenceFail(PERSISTENCE_CODES.NOT_FOUND,'Note was not found.');return mapNoteDetail(row);
+  }
+
   async function linkAttachment(input){
     const tenant=uuid(input.tenantId,'Tenant ID'),linkId=uuid(input.linkId??randomUUID(),'Attachment link ID'),subjectId=uuid(input.subjectId,'Subject ID'),actor=uuid(input.actorIdentityId,'Actor identity ID');
     const objectId=text(input.objectId,'Object ID',500),objectRevision=version(input.objectRevision),fileName=text(input.fileName,'File name',255);
@@ -756,6 +763,10 @@ export function createCrmRepository({tenantPool,jobRepository=null,clock=timesta
       await requireActiveMembership(session,tenant,actor);if(owner)await requireActiveMembership(session,tenant,owner);
       if((current.owner_identity_id??null)===owner)fail('Subject owner must change.');
       const {rows:[updated]}=await session.query(`/*subject:owner-update*/ UPDATE crm_subjects SET owner_identity_id=$3,version=version+1,updated_at=$4::timestamptz WHERE tenant_id=$1 AND subject_id=$2 AND version=$5 RETURNING *`,[tenant,subjectId,owner,now(),expected]);
+      if(current.subject_type==='lead'||current.subject_type==='opportunity'){
+        const table=current.subject_type==='lead'?'leads':'opportunities',idColumn=current.subject_type==='lead'?'lead_id':'opportunity_id',synced=await session.query(`/*${current.subject_type}:owner-sync*/ UPDATE ${table} SET owner_identity_id=$3,version=version+1,updated_at=$4::timestamptz WHERE tenant_id=$1 AND ${idColumn}=$2`,[tenant,subjectId,owner,now()]);
+        if(synced.rowCount!==1)persistenceFail(PERSISTENCE_CODES.CONFLICT,'Sales ownership could not be synchronized.');
+      }
       await session.query(`/*ownership-event:insert*/ INSERT INTO crm_ownership_events(tenant_id,event_id,subject_id,from_owner_identity_id,to_owner_identity_id,actor_identity_id,occurred_at) VALUES($1,$2,$3,$4,$5,$6,$7::timestamptz)`,[tenant,randomUUID(),subjectId,current.owner_identity_id,owner,actor,now()]);
       return mapSubject(updated);
     });
@@ -793,5 +804,5 @@ export function createCrmRepository({tenantPool,jobRepository=null,clock=timesta
     });
   }
 
-  return Object.freeze({createPerson,createOrganization,getParty,listParties,updateParty,createContact,listContacts,createRelationship,listRelationships,ensureDefaultPipeline,createLead,convertLead,changeOpportunityStage,listPipelines,listLeads,listOpportunities,getSubject,getSubjectType,getTaskSubject,getNoteSubject,createActivity,createTask,updateTask,processTaskReminder,createNote,reviseNote,linkAttachment,changeSubjectOwner,listTimeline});
+  return Object.freeze({createPerson,createOrganization,getParty,listParties,updateParty,createContact,listContacts,createRelationship,listRelationships,ensureDefaultPipeline,createLead,convertLead,changeOpportunityStage,listPipelines,listLeads,listOpportunities,getSubject,getSubjectType,getTaskSubject,getNoteSubject,createActivity,createTask,updateTask,processTaskReminder,createNote,getNote,reviseNote,linkAttachment,changeSubjectOwner,listTimeline});
 }

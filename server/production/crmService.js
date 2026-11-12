@@ -66,6 +66,7 @@ export function createCrmService({repository,moduleService,memberDirectory=null}
     createTask:async input=>{await workContext(input,'write');return repository.createTask(input);},
     updateTask:async input=>{await artifactWorkContext(input,'write',repository.getTaskSubject);return repository.updateTask(input);},
     createNote:async input=>{await workContext(input,'write');return repository.createNote(input);},
+    getNote:async input=>{await artifactWorkContext(input,'read',repository.getNoteSubject);return repository.getNote(input.tenantId,input.noteId);},
     reviseNote:async input=>{await artifactWorkContext(input,'write',repository.getNoteSubject);return repository.reviseNote(input);},
     linkAttachment:async input=>{await workContext(input,'write');return repository.linkAttachment(input);},
     changeSubjectOwner:async input=>{await workContext(input,'write');return repository.changeSubjectOwner(input);},

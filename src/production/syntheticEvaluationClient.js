@@ -38,7 +38,7 @@ export function createSyntheticEvaluationClient(){
   if(path==='/modules')return ok({modules:state.modules});
   if(path==='/crm/members')return ok({members:[{identityId:state.identity.identityId,displayName:state.identity.displayName,role:state.membership.role}]});
   if(path==='/crm/parties'&&verb==='GET')return ok({parties:state.parties});
-  if(path.startsWith('/crm/parties?')&&verb==='GET'){const query=new URLSearchParams(path.split('?')[1]),needle=(query.get('search')||'').toLowerCase();return ok({parties:state.parties.filter(item=>item.displayName.toLowerCase().includes(needle))});}
+  if(path.startsWith('/crm/parties?')&&verb==='GET'){const query=new URLSearchParams(path.split('?')[1]),needle=(query.get('search')||'').toLowerCase(),offset=Number(query.get('offset')||0),limit=Number(query.get('limit')||50);return ok({parties:state.parties.filter(item=>item.displayName.toLowerCase().includes(needle)).slice(offset,offset+limit)});}
   const contactsMatch=path.match(/^\/crm\/parties\/([^/?]+)\/contacts(?:\?.*)?$/);
   if(contactsMatch&&verb==='GET')return ok({contacts:state.contacts[contactsMatch[1]]||[]});
   if(contactsMatch&&verb==='POST'){const contact={contactId:uuid(sequence++),partyId:contactsMatch[1],...body,displayValue:body.value,status:'active',version:1};(state.contacts[contactsMatch[1]]??=[]).push(contact);return ok({contact});}

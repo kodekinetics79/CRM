@@ -133,6 +133,7 @@ export function installCrmRoutes(app,{crmService,crmReportingService=null,crmImp
   app.post('/api/crm/subjects/:subjectId/tasks',...write,async(req,res)=>res.status(201).json({task:await crmService.createTask({...parse(taskSchema,req.body),subjectId:req.params.subjectId,...context(req)})}));
   app.patch('/api/crm/tasks/:taskId',...write,async(req,res)=>res.json({task:await crmService.updateTask({...parse(taskUpdateSchema,req.body),taskId:req.params.taskId,...context(req)})}));
   app.post('/api/crm/subjects/:subjectId/notes',...write,async(req,res)=>res.status(201).json({note:await crmService.createNote({...parse(noteSchema,req.body),subjectId:req.params.subjectId,...context(req)})}));
+  app.get('/api/crm/notes/:noteId',...read,async(req,res)=>res.json({note:await crmService.getNote({noteId:req.params.noteId,...context(req)})}));
   app.post('/api/crm/notes/:noteId/revisions',...write,async(req,res)=>res.status(201).json({note:await crmService.reviseNote({...parse(noteRevisionSchema,req.body),noteId:req.params.noteId,...context(req)})}));
   app.post('/api/crm/subjects/:subjectId/attachments',...write,async(req,res)=>res.status(201).json({attachment:await crmService.linkAttachment({...parse(attachmentSchema,req.body),subjectId:req.params.subjectId,...context(req)})}));
   app.patch('/api/crm/subjects/:subjectId/owner',...write,async(req,res)=>res.json({subject:await crmService.changeSubjectOwner({...parse(ownerSchema,req.body),subjectId:req.params.subjectId,...context(req)})}));
