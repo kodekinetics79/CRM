@@ -63,9 +63,12 @@ export async function runWorker({repository,handlers,signal,concurrency=4,tenant
 export async function startWorkerRuntime({config,repository,handlers={},tenantIds,signal,pools=[],run=runWorker,verify=async()=>{}}={}){
  if(config?.processRole!=='worker')throw new Error('SaaS worker entrypoint requires the worker process role.');
  if(typeof run!=='function')throw new TypeError('SaaS worker entrypoint requires a polling function.');
- await verify();const controller=new AbortController(),abort=()=>controller.abort();if(signal?.aborted)abort();else signal?.addEventListener?.('abort',abort,{once:true});
- const running=Promise.resolve().then(()=>run({repository,handlers,tenantIds,signal:controller.signal,concurrency:config.limits?.jobConcurrency??1}));let closed=false;
- return {running,async close(){if(closed)return;closed=true;controller.abort();await running.catch(()=>{});signal?.removeEventListener?.('abort',abort);await Promise.allSettled(pools.map(pool=>pool.end()));}};
+ let poolClose;const closePools=()=>poolClose??=Promise.allSettled(pools.map(pool=>pool.end()));
+ try{await verify();}catch(error){await closePools();throw error;}
+ const controller=new AbortController(),abort=()=>controller.abort();if(signal?.aborted)abort();else signal?.addEventListener?.('abort',abort,{once:true});
+ const execution=Promise.resolve().then(()=>run({repository,handlers,tenantIds,signal:controller.signal,concurrency:config.limits?.jobConcurrency??1}));
+ const running=execution.catch(async error=>{controller.abort();signal?.removeEventListener?.('abort',abort);await closePools();throw error;});let closed=false;
+ return {running,async close(){if(closed)return;closed=true;controller.abort();await running.catch(()=>{});signal?.removeEventListener?.('abort',abort);await closePools();}};
 }
 
 export async function main(env=process.env){

@@ -8,6 +8,7 @@ import {
   applicationRoleGrants,
   controlPlaneRoleGrants,
   assertControlPlaneRole,
+  CONTROL_PLANE_TABLES,
   poolFromEnv,
   controlPoolFromEnv,
   PERSISTENCE_CODES
@@ -127,6 +128,23 @@ test('tenant and control-plane grants are distinct, least-privilege and identifi
     assert.match(error.message,/superuser/i);
     return true;
   });
+});
+
+test('control startup assertion proves every runtime sequence and function privilege',async()=>{
+ const calls=[];
+ const session={async query(sql,values=[]){
+  calls.push(sql);
+  if(sql.includes('FROM pg_roles'))return {rows:[{name:'wimblo_control',rolsuper:false,rolbypassrls:false}]};
+  if(sql.includes('has_schema_privilege'))return {rows:[{usable:true}]};
+  if(sql.includes('information_schema.tables')&&sql.includes("table_schema = 'wimblo_platform'")){return {rows:CONTROL_PLANE_TABLES.map(table=>({table_name:table,can_select:true,can_insert:true,can_update:true,can_delete:true}))};}
+  if(sql.includes('information_schema.tables'))return {rows:[]};
+  if(sql.includes('has_sequence_privilege'))return {rows:[{usable:true}]};
+  if(sql.includes('has_function_privilege'))return {rows:[{signature:'wimblo_platform.tenant_state(uuid)',executable:true},{signature:'wimblo_platform.runnable_tenant_ids()',executable:true},{signature:'wimblo_platform.dead_letter_count()',executable:true}]};
+  throw new Error(`unexpected assertion query: ${sql} ${values.length}`);
+ }};
+ await assertControlPlaneRole(session);
+ assert.ok(calls.some(sql=>sql.includes('has_sequence_privilege')));
+ assert.ok(calls.some(sql=>sql.includes('has_function_privilege')));
 });
 
 test('tenant and control pools consume separate explicit TLS connection URLs',async()=>{

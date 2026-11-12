@@ -10,8 +10,9 @@ const closeServer=server=>new Promise((resolveClose,reject)=>{if(!server?.close)
 export async function startWebRuntime({config,app,pools=[],listen,verify=async()=>{}}={}){
  if(config?.processRole!=='web')throw new Error('SaaS web entrypoint requires the web process role.');
  if(typeof listen!=='function')throw new TypeError('SaaS web entrypoint requires an HTTP listener factory.');
- await verify();const server=await listen(app);let closed=false;
- return {server,async close(){if(closed)return;closed=true;await closeServer(server);await Promise.allSettled(pools.map(pool=>pool.end()));}};
+ let poolClose;const closePools=()=>poolClose??=Promise.allSettled(pools.map(pool=>pool.end()));let server;
+ try{await verify();server=await listen(app);}catch(error){await closePools();throw error;}
+ let closed=false;return {server,async close(){if(closed)return;closed=true;try{await closeServer(server);}finally{await closePools();}}};
 }
 
 export async function main(env=process.env){

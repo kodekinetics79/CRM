@@ -26,6 +26,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {redactCertificationDiagnostic} from './certification-redaction.mjs';
 import {S3Client,PutObjectCommand,GetObjectCommand,DeleteObjectCommand,CreateBucketCommand,HeadBucketCommand} from '@aws-sdk/client-s3';
 import {
  createPostgresPool,applyMigrations,planMigrations,readSchemaVersion,MIGRATIONS,SCHEMA_VERSION,MIGRATION_LEDGER_TABLE,
@@ -41,6 +42,7 @@ const BASE_URL=process.env.WIMBLO_VERIFY_PG_URL||'postgres://wimblo:wimblo-verif
 const S3_ENDPOINT=process.env.WIMBLO_VERIFY_S3_ENDPOINT||'http://127.0.0.1:57734';
 const S3_ACCESS_KEY=process.env.WIMBLO_VERIFY_S3_ACCESS_KEY||'wimbloverify';
 const S3_SECRET_KEY=process.env.WIMBLO_VERIFY_S3_SECRET_KEY||'wimblo-verify-secret';
+const REDACTION_ENV={...process.env,WIMBLO_VERIFY_PG_URL:BASE_URL,WIMBLO_VERIFY_S3_ENDPOINT:S3_ENDPOINT,WIMBLO_VERIFY_S3_ACCESS_KEY:S3_ACCESS_KEY,WIMBLO_VERIFY_S3_SECRET_KEY:S3_SECRET_KEY};
 const COMMANDS={PutObjectCommand,GetObjectCommand,DeleteObjectCommand};
 const STAMP=Date.now().toString(36);
 const MAIN_DB=`wimblo_verify_main_${STAMP}`,RESTORE_DB=`wimblo_verify_restore_${STAMP}`;
@@ -49,7 +51,7 @@ const KEY='a'.repeat(64),OBJECT_KEY='b'.repeat(64);
 
 const results=[];
 let failures=0;
-const line=text=>process.stdout.write(text+'\n');
+const line=text=>process.stdout.write(redactCertificationDiagnostic(`${text}\n`,REDACTION_ENV));
 async function step(name,fn){
  const started=Date.now();
  try{
@@ -78,8 +80,8 @@ const appUrl=database=>{const u=new URL(BASE_URL);u.pathname='/'+database;u.user
 
 async function main(){
  line('\nWimblo persistence — Phase 4 verification against real infrastructure');
- line(`PostgreSQL: ${BASE_URL.replace(/\/\/[^@]*@/,'//[redacted]@')}`);
- line(`Object store: ${S3_ENDPOINT}\n`);
+ line('PostgreSQL: configured target (details redacted)');
+ line('Object store: configured target (details redacted)\n');
 
  // ---------------------------------------------------------------- preflight
  const admin=createPostgresPool({connectionString:BASE_URL,acquireAttempts:1,connectionTimeoutMs:3000});
@@ -87,7 +89,7 @@ async function main(){
   const {rows}=await admin.withAdminSession(s=>s.query('SELECT version() AS v'));
   line(`Server: ${rows[0].v.split(',')[0]}\n`);
  }catch(e){
-  line(`\nFATAL: no PostgreSQL server at ${BASE_URL}. Start the dedicated container documented at the top of this file.\n  ${e.message}\n`);
+  line(`\nFATAL: no PostgreSQL server at the configured target. Start the dedicated container documented at the top of this file.\n  ${e.message}\n`);
   await admin.end().catch(()=>{});
   process.exit(2);
  }
@@ -95,7 +97,7 @@ async function main(){
  const bucket=`wimblo-verify-${STAMP}`;
  try{await s3.send(new CreateBucketCommand({Bucket:bucket}));await s3.send(new HeadBucketCommand({Bucket:bucket}));}
  catch(e){
-  line(`\nFATAL: no S3-compatible object store at ${S3_ENDPOINT}. Start the dedicated MinIO container documented at the top of this file.\n  ${e.message}\n`);
+  line(`\nFATAL: no S3-compatible object store at the configured target. Start the dedicated MinIO container documented at the top of this file.\n  ${e.message}\n`);
   await admin.end().catch(()=>{});
   process.exit(2);
  }

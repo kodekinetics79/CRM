@@ -8,6 +8,8 @@ import {createControlRepository} from '../server/production/controlRepository.js
 import {createCrmRepository} from '../server/production/crmRepository.js';
 import {createJobRepository} from '../server/production/jobRepository.js';
 import {createCrmImportService} from '../server/production/crmImportService.js';
+import {runRepresentativeCrmCapacity} from '../server/production/capacityCertification.js';
+import {redactCertificationDiagnostic} from './certification-redaction.mjs';
 import {
   MIGRATIONS,
   SCHEMA_VERSION,
@@ -23,6 +25,7 @@ import {
 } from '../server/persistence/index.js';
 
 const BASE_URL=process.env.WIMBLO_FOUNDATION_VERIFY_PG_URL||'postgres://wimblo_admin:wimblo-foundation@127.0.0.1:57733/wimblo_foundation';
+const REDACTION_ENV={...process.env,WIMBLO_FOUNDATION_VERIFY_PG_URL:BASE_URL};
 const stamp=`${process.pid}_${Date.now().toString(36)}`.toLowerCase();
 const database=`wimblo_foundation_${stamp}`;
 const tenantRole=`wimblo_tenant_${stamp}`;
@@ -35,7 +38,7 @@ const tenantC=randomUUID();
 const identityId=randomUUID();
 
 const pools=[];
-const line=value=>process.stdout.write(`${value}\n`);
+const line=value=>process.stdout.write(redactCertificationDiagnostic(`${value}\n`,REDACTION_ENV));
 const assert=(condition,message)=>{if(!condition)throw new Error(message);};
 const identifier=value=>{
   if(!/^[a-z_][a-z0-9_]{0,62}$/.test(value))throw new Error(`Unsafe generated identifier: ${value}`);
@@ -323,6 +326,14 @@ async function main(){
   await tenantPool.withTransaction(tenantA,session=>session.query("INSERT INTO wimblo_platform.tenant_modules(tenant_id,module_key,state) VALUES($1,'core','enabled')",[tenantA]));
   await tenantPool.withTransaction(tenantB,session=>session.query("INSERT INTO wimblo_platform.tenant_modules(tenant_id,module_key,state) VALUES($1,'core','enabled')",[tenantB]));
 
+  await runStep('representative CRM capacity stays inside measured query and pool bounds',async()=>{
+    const evidence=await runRepresentativeCrmCapacity({tenantPool,tenantId:tenantA,operations:40,concurrency:4,poolMax:2});
+    assert(evidence.operations===40&&evidence.errors===0,'representative CRM workload did not complete cleanly');
+    assert(evidence.actualQueries===40&&evidence.queriesPerOperation===1,'representative CRM workload exceeded its query budget');
+    assert(evidence.maxConcurrentQueries<=2&&evidence.maxConcurrentOperations<=2,'representative CRM workload exceeded its pool/concurrency bound');
+    return `workload=${evidence.workload}, operations=${evidence.operations}, errors=${evidence.errors}, elapsed=${evidence.elapsedMs}ms, pool-max=${evidence.poolMax}, max-concurrent-queries=${evidence.maxConcurrentQueries}, queries=${evidence.actualQueries}, queries-per-operation=${evidence.queriesPerOperation}`;
+  });
+
   await runStep('durable jobs claim concurrently, recover expired leases and fence stale completion',async()=>{
     let clockMs=Date.parse('2026-11-11T12:00:00.000Z');
     const jobs=createJobRepository({tenantPool,clock:()=>new Date(clockMs),leaseMs:1_000,retryBaseMs:100,retryMaxMs:200});
@@ -335,7 +346,7 @@ async function main(){
     const [a,b]=await Promise.all([jobs.claim({tenantId:tenantA,workerId:'verify-worker-a'}),jobs.claim({tenantId:tenantA,workerId:'verify-worker-b'})]);
     assert(a.length===1&&b.length===1&&a[0].jobId!==b[0].jobId,'concurrent claims did not receive distinct rows');
     assert((await jobs.claim({tenantId:tenantA,workerId:'verify-worker-c'})).length===0,'already leased rows were claimed twice');
-    const stale=a[0];clockMs+=1_001;
+    const stale=[a[0],b[0]].sort((left,right)=>left.jobId.localeCompare(right.jobId))[0];clockMs+=1_001;
     const [reclaimed]=await jobs.claim({tenantId:tenantA,workerId:'verify-worker-c'});
     assert(reclaimed.jobId===stale.jobId&&reclaimed.attempts===2,'expired lease was not reclaimed as the next attempt');
     const completed=await jobs.complete({...reclaimed,workerId:'verify-worker-c'});
@@ -439,6 +450,6 @@ async function main(){
 }
 
 main().catch(error=>{
-  process.stderr.write(`FOUNDATION VERIFICATION FAILED: ${error.message}\n`);
+  process.stderr.write(redactCertificationDiagnostic(`FOUNDATION VERIFICATION FAILED: ${error.message}\n`,REDACTION_ENV));
   process.exitCode=1;
 }).finally(cleanup);

@@ -12,6 +12,16 @@ test('recovery self-test reconciles backup, readback and restored records withou
  assert.deepEqual(evidence,{status:'passed',backupRows:3,readbackRows:3,restoredRows:3,digestMatch:true});
  assert.doesNotMatch(`${result.stdout}${result.stderr}`,/private-user|private-pass|db\.invalid|private-aws-secret/);
 });
+test('actual verifier and composed certification failure redact configured credentials',()=>{
+ const canaryUrl='postgres://certify-canary-user:certify-canary-password@127.0.0.1:1/certify_canary';
+ for(const [script,args] of [['scripts/postgres-verify.mjs',[]],['scripts/crm-production-certify.mjs',['--verify-postgres']]]){
+  const result=spawnSync(process.execPath,[script,...args],{cwd:new URL('../',import.meta.url),encoding:'utf8',env:{...process.env,WIMBLO_VERIFY_PG_URL:canaryUrl}});
+  const output=`${result.stdout}${result.stderr}`;
+  assert.notEqual(result.status,0,script);
+  assert.match(output,/no PostgreSQL server|PostgreSQL verification failed/i,script);
+  assert.doesNotMatch(output,/certify-canary-user|certify-canary-password|certify_canary|postgres:\/\//i,script);
+ }
+});
 test('certification plan is deterministic and separates local proof from provider proof',()=>{
  const result=run('--plan');assert.equal(result.status,0,result.stderr||result.stdout);
  const plan=JSON.parse(result.stdout);
@@ -24,4 +34,11 @@ test('the ordinary production build emits the SaaS client rather than the legacy
  const assets=new URL('../dist/assets/',import.meta.url),javascript=readdirSync(assets).filter(name=>name.endsWith('.js')).map(name=>readFileSync(new URL(name,assets),'utf8')).join('\n');
  assert.match(javascript,/Sign-out not confirmed/);
  assert.doesNotMatch(javascript,/About 1,622 representative designations/);
+});
+test('runbook names dedicated loopback infrastructure and cleanup without provider claims',()=>{
+ const runbook=readFileSync(new URL('../docs/operations/WIMBLO-CRM-RUNBOOK.md',import.meta.url),'utf8');
+ assert.match(runbook,/dedicated.*loopback PostgreSQL/i);
+ assert.match(runbook,/S3-compatible.*MinIO/i);
+ assert.match(runbook,/stop.*remove.*container/i);
+ assert.match(runbook,/never.*provider/i);
 });

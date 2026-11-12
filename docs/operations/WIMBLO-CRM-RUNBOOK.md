@@ -14,11 +14,20 @@ npm run certify:crm:local
 
 The command runs focused CRM security/capacity/recovery tests, the disposable two-tenant PostgreSQL foundation verifier, the existing encrypted backup/readback/fresh-target restore verifier, the full regression suite, production and synthetic builds, the high-severity dependency audit, and the focused/skipped-test discipline gate. It stops at the first failure and never converts local evidence into provider claims.
 
+Local infrastructure is an explicit prerequisite: use a dedicated disposable loopback PostgreSQL 17 database on `127.0.0.1:57733` and a dedicated S3-compatible MinIO container on `127.0.0.1:57734`. Never point these destructive verifiers at a shared, remote, staging, or production database. Start the containers with the documented local-only credentials in the verifier headers, confirm their loopback port bindings, and stop and remove each verification container after evidence is captured. This local setup never proves provider readiness or provider recovery.
+
+The bounded capacity gate runs 40 real `crm.listParties` repository operations against the disposable PostgreSQL database. It records errors, elapsed time, configured pool maximum, observed operation/query concurrency, actual queries, and queries per operation; invented counters are not accepted as capacity evidence.
+
+Verifier and composed-certifier diagnostics redact configured URLs, database names, user names, passwords, access keys, tokens, and endpoints while retaining safe error categories such as connection refusal, schema mismatch, and failed invariant names. Treat any unredacted infrastructure output as a failed release gate.
+
 Web and worker startup also fail before listening or polling unless both database connections prove:
 
 - current checksum-protected schema version;
 - a non-superuser, non-`BYPASSRLS` tenant role with forced RLS on every tenant table;
-- a distinct least-privilege control-plane role with no tenant-business-table privileges.
+- a distinct least-privilege control-plane role with no tenant-business-table privileges;
+- control-role access to the audit sequence and `tenant_state`, `runnable_tenant_ids`, and `dead_letter_count` functions required at runtime.
+
+Any verification, listener, or worker-loop failure must close every initialized database pool exactly once before the process exits. Repeated shutdown signals must remain idempotent.
 
 ## Deployment topology required
 

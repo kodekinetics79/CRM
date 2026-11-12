@@ -75,3 +75,26 @@ test('web starts only HTTP and worker starts only polling through separate compo
  const worker=await startWorkerRuntime({config:{processRole:'worker'},run:async()=>{polled++;},repository:{},handlers:{},tenantIds:[],signal:AbortSignal.abort(),pools:[]});await worker.close();
  assert.equal(listened,1);assert.equal(polled,1);
 });
+
+test('startup verification failure closes initialized web and worker pools exactly once',async()=>{
+ for(const kind of ['web','worker']){
+  let ended=0,started=0;const pools=[{end:async()=>{ended++;}},{end:async()=>{ended++;}}],failure=new Error('startup certification failed');
+  const start=kind==='web'
+   ? startWebRuntime({config:{processRole:'web'},app:{},pools,verify:async()=>{throw failure;},listen:async()=>{started++;}})
+   : startWorkerRuntime({config:{processRole:'worker'},repository:{},handlers:{},tenantIds:[],pools,verify:async()=>{throw failure;},run:async()=>{started++;}});
+  await assert.rejects(()=>start,/startup certification failed/);assert.equal(started,0);assert.equal(ended,2);
+ }
+});
+
+test('web listener failure closes initialized pools exactly once',async()=>{
+ let ended=0;const pools=[{end:async()=>{ended++;}},{end:async()=>{ended++;}}];
+ await assert.rejects(()=>startWebRuntime({config:{processRole:'web'},app:{},pools,verify:async()=>{},listen:async()=>{throw new Error('listen failed');}}),/listen failed/);
+ assert.equal(ended,2);
+});
+
+test('worker loop rejection closes initialized pools and later close is idempotent',async()=>{
+ let ended=0;const pools=[{end:async()=>{ended++;}},{end:async()=>{ended++;}}];
+ const runtime=await startWorkerRuntime({config:{processRole:'worker'},repository:{},handlers:{},tenantIds:[],pools,verify:async()=>{},run:async()=>{throw new Error('worker loop failed');}});
+ await assert.rejects(()=>runtime.running,/worker loop failed/);await new Promise(resolve=>setImmediate(resolve));assert.equal(ended,2);
+ await runtime.close();assert.equal(ended,2);
+});

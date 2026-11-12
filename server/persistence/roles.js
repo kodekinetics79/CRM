@@ -44,6 +44,8 @@ export const CONTROL_PLANE_TABLES=Object.freeze([
  'wimblo_platform.mfa_challenges',
  'wimblo_platform.module_catalog'
 ]);
+const CONTROL_PLANE_SEQUENCE='wimblo_platform.control_audit_audit_id_seq';
+const CONTROL_PLANE_FUNCTIONS=Object.freeze(['wimblo_platform.tenant_state(uuid)','wimblo_platform.runnable_tenant_ids()','wimblo_platform.dead_letter_count()']);
 
 const identifier=name=>{
  if(typeof name!=='string'||!/^[a-z_][a-z0-9_]{0,62}$/.test(name))persistenceFail(PERSISTENCE_CODES.INVALID,'A role name must be a simple lower-case identifier.');
@@ -121,7 +123,12 @@ export async function assertControlPlaneRole(session){
       OR (table_schema = 'wimblo_platform' AND table_name = ANY($2))`,[TENANT_TABLES,TENANT_FOUNDATION_TABLES.map(table=>table.split('.')[1])]);
  const exposed=business.filter(row=>row.has_business_access).map(row=>row.table_name);
  if(exposed.length)persistenceFail(PERSISTENCE_CODES.ISOLATION,`The control-plane role "${role.name}" can access tenant business tables: ${exposed.join(', ')}.`);
- return {role:role.name,superuser:false,bypassRls:false,platformTables:CONTROL_PLANE_TABLES.length,businessTables:0};
+ const {rows:[sequence]}=await session.query(`SELECT has_sequence_privilege(current_user,$1,'USAGE,SELECT') AS usable`,[CONTROL_PLANE_SEQUENCE]);
+ if(!sequence?.usable)persistenceFail(PERSISTENCE_CODES.ISOLATION,`The control-plane role "${role.name}" cannot use the required control audit sequence.`);
+ const {rows:functions}=await session.query(`SELECT signature,has_function_privilege(current_user,signature,'EXECUTE') AS executable FROM unnest($1::text[]) AS required(signature)`,[CONTROL_PLANE_FUNCTIONS]);
+ const executable=new Map(functions.map(item=>[item.signature,item.executable])),missingFunctions=CONTROL_PLANE_FUNCTIONS.filter(signature=>!executable.get(signature));
+ if(missingFunctions.length)persistenceFail(PERSISTENCE_CODES.ISOLATION,`The control-plane role "${role.name}" cannot execute required runtime functions: ${missingFunctions.join(', ')}.`);
+ return {role:role.name,superuser:false,bypassRls:false,platformTables:CONTROL_PLANE_TABLES.length,businessTables:0,sequences:1,functions:CONTROL_PLANE_FUNCTIONS.length};
 }
 
 /**
