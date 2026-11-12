@@ -117,6 +117,18 @@ export async function createTenantBackup({repository,encryptionKey,now=()=>new D
  }finally{key.fill(0);}
 }
 
+export async function publishTenantBackup({archive,tenantId,encryptionKey,store,maxBytes=MAX_ARCHIVE_BYTES}={}){
+ const bytes=Buffer.isBuffer(archive)?archive:Buffer.from(archive||[]),tenant=assertTenantId(tenantId);
+ if(!Number.isSafeInteger(maxBytes)||maxBytes<1||maxBytes>MAX_ARCHIVE_BYTES||!bytes.length||bytes.length>maxBytes)persistenceFail(PERSISTENCE_CODES.INVALID,'Encrypted logical backup exceeds the publication limit.');
+ if(!store||store.offHost!==true||store.private!==true||typeof store.putImmutable!=='function'||typeof store.readVersion!=='function')persistenceFail(PERSISTENCE_CODES.INVALID,'A private off-host immutable archive store with readback is required.');
+ const {manifest}=readBackupManifest({archive:bytes,encryptionKey,expectedTenantId:tenant}),archiveSha256=sha256(bytes),reference=await store.putImmutable({tenantId:tenant,bytes,sha256:archiveSha256});
+ const validVersion=store.versioned===false?reference?.versionId===null:typeof reference?.versionId==='string'&&reference.versionId.length>0;
+ if(!reference||typeof reference.key!=='string'||!reference.key||!validVersion)persistenceFail(PERSISTENCE_CODES.VERIFICATION,'Off-host store did not return the required immutable object identity.');
+ const readback=await store.readVersion({tenantId:tenant,key:reference.key,versionId:reference.versionId,maxBytes});
+ if(!(readback instanceof Uint8Array)||readback.length!==bytes.length||sha256(readback)!==archiveSha256)persistenceFail(PERSISTENCE_CODES.VERIFICATION,'Off-host logical backup readback verification failed.');
+ return {tenantId:tenant,schemaVersion:manifest.schemaVersion,archiveSha256,archiveBytes:bytes.length,key:reference.key,versionId:reference.versionId,createdAt:new Date().toISOString(),verified:true,offHost:true,encrypted:true};
+}
+
 export function readBackupManifest({archive,encryptionKey,expectedTenantId=null}={}){
  const key=parseBackupKey(encryptionKey);
  try{

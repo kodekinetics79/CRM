@@ -46,8 +46,9 @@ export const CONTROL_PLANE_TABLES=Object.freeze([
 ]);
 const CONTROL_PLANE_SEQUENCE='wimblo_platform.control_audit_audit_id_seq';
 const CONTROL_PLANE_FUNCTIONS=Object.freeze(['wimblo_platform.tenant_state(uuid)','wimblo_platform.runnable_tenant_ids()','wimblo_platform.dead_letter_count()']);
-const TENANT_RUNTIME_FUNCTIONS=Object.freeze(['wimblo_platform.active_membership(uuid,uuid)']);
-const SECURITY_DEFINER_FUNCTIONS=Object.freeze([...CONTROL_PLANE_FUNCTIONS,...TENANT_RUNTIME_FUNCTIONS]);
+const TENANT_SECURITY_DEFINER_FUNCTIONS=Object.freeze(['wimblo_platform.active_membership(uuid,uuid)']);
+const TENANT_RUNTIME_FUNCTIONS=Object.freeze(['public.wimblo_current_tenant()',...TENANT_SECURITY_DEFINER_FUNCTIONS]);
+const SECURITY_DEFINER_FUNCTIONS=Object.freeze([...CONTROL_PLANE_FUNCTIONS,...TENANT_SECURITY_DEFINER_FUNCTIONS]);
 const TENANT_FORBIDDEN_CONTROL_TABLES=Object.freeze([...CONTROL_PLANE_TABLES,'wimblo_platform.control_audit']);
 
 const identifier=name=>{
@@ -59,6 +60,7 @@ const identifier=name=>{
 export function applicationRoleGrants(role){
  const name=identifier(role);
  return [
+  `GRANT USAGE ON SCHEMA public TO ${name}`,
   `GRANT USAGE ON SCHEMA wimblo_platform TO ${name}`,
   ...TENANT_TABLES.filter(table=>!APPEND_ONLY_TENANT_TABLES.includes(table)&&!MUTABLE_NO_DELETE_TENANT_TABLES.includes(table)).map(table=>`GRANT SELECT, INSERT, UPDATE, DELETE ON ${table} TO ${name}`),
   ...APPEND_ONLY_TENANT_TABLES.map(table=>`GRANT SELECT, INSERT ON ${table} TO ${name}`),
@@ -90,6 +92,7 @@ export async function assertSecurityDefinerOwnersBypassRls(session){
 export function controlPlaneRoleGrants(role){
  const name=identifier(role);
  return [
+  `GRANT USAGE ON SCHEMA public TO ${name}`,
   `GRANT USAGE ON SCHEMA wimblo_platform TO ${name}`,
   ...TENANT_TABLES.map(table=>`REVOKE ALL PRIVILEGES ON ${table} FROM ${name}`),
   ...TENANT_FOUNDATION_TABLES.map(table=>`REVOKE ALL PRIVILEGES ON ${table} FROM ${name}`),
@@ -189,7 +192,7 @@ export async function assertRowLevelSecurityEffective(session){
  const exposedTables=controlTables.filter(item=>item.has_privilege).map(item=>item.object_name);
  const {rows:functions}=await session.query(
   `SELECT signature,has_function_privilege(current_user,signature,'EXECUTE') AS executable
-   FROM unnest($1::text[]) AS inspected(signature)`,[SECURITY_DEFINER_FUNCTIONS]);
+   FROM unnest($1::text[]) AS inspected(signature)`,[[...CONTROL_PLANE_FUNCTIONS,...TENANT_RUNTIME_FUNCTIONS]]);
  const functionAccess=new Map(functions.map(item=>[item.signature,item.executable]));
  const exposedFunctions=CONTROL_PLANE_FUNCTIONS.filter(signature=>functionAccess.get(signature));
  const missingFunctions=TENANT_RUNTIME_FUNCTIONS.filter(signature=>!functionAccess.get(signature));

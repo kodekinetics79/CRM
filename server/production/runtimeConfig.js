@@ -7,6 +7,12 @@ const REGIONS=new Set(['us-east-1','us-east-2','us-west-1','us-west-2','ca-centr
 const safeName=value=>typeof value==='string'&&/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(value);
 const bucket=value=>typeof value==='string'&&/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(value);
 
+function neonStorageEndpoint(value){
+ let url;try{url=new URL(value);}catch{fail('Neon storage requires a credential-free HTTPS branch endpoint.');}
+ if(url.protocol!=='https:'||url.username||url.password||url.search||url.hash||url.pathname!=='/'||!/^br-[a-z0-9-]+\.storage\.c-[a-z0-9-]+\.(?:us-east-1|us-east-2|eu-central-1|ap-southeast-1)\.aws\.neon\.tech$/.test(url.hostname))fail('Neon storage requires a credential-free HTTPS branch endpoint.');
+ return url.origin;
+}
+
 function exactOrigin(value){
  try{
   const url=new URL(value);
@@ -53,6 +59,18 @@ function trustedProxyCidrs(value){
  return Object.freeze(entries);
 }
 
+function trustedNetwork(env,appOrigin){
+ if(env.PROCESS_ROLE!=='web')return Object.freeze({trustedProxyCidrs:Object.freeze([])});
+ if(env.TRUSTED_PROXY_PROVIDER){
+  if(env.TRUSTED_PROXY_PROVIDER!=='render')fail('SaaS production trusted proxy provider is invalid.');
+  if(env.TRUSTED_PROXY_CIDRS)fail('SaaS production Render proxy mode cannot be combined with TRUSTED_PROXY_CIDRS.');
+  const origin=new URL(appOrigin);
+  if(env.RENDER!=='true'||env.RENDER_EXTERNAL_HOSTNAME!==origin.hostname)fail('SaaS production Render proxy mode requires an attested matching Render hostname.');
+  return Object.freeze({trustedProxyProvider:'render',trustedProxyCidrs:Object.freeze([])});
+ }
+ return Object.freeze({trustedProxyCidrs:trustedProxyCidrs(env.TRUSTED_PROXY_CIDRS)});
+}
+
 function rejectedLegacySetting(env){
  if(['CLIENT_EVALUATION_MODE','DEMO_MODE','ALLOW_DEMO','ENABLE_ACCEPTANCE'].some(key=>env[key]===true||String(env[key]||'').toLowerCase()==='true'))return true;
  if(typeof env.CLIENT_EVALUATION_DATA_DIR==='string'&&env.CLIENT_EVALUATION_DATA_DIR.trim())return true;
@@ -72,14 +90,19 @@ export function resolveSaasRuntimeConfig(env=process.env,root=process.cwd()){
  if(!key32(env.MFA_ENCRYPTION_KEY))fail('SaaS production requires a valid 32-byte MFA_ENCRYPTION_KEY.');
  if(typeof env.SESSION_SECRET!=='string'||Buffer.byteLength(env.SESSION_SECRET,'utf8')<32)fail('SaaS production requires SESSION_SECRET with at least 32 bytes.');
  if(!key32(env.BACKUP_ENCRYPTION_KEY))fail('SaaS production requires a valid 32-byte BACKUP_ENCRYPTION_KEY.');
- if(env.DOCUMENT_STORAGE_PROVIDER!=='s3'||!bucket(env.DOCUMENT_STORAGE_BUCKET)||!safeName(env.DOCUMENT_STORAGE_NAMESPACE)||env.DOCUMENT_STORAGE_PRIVATE_CONFIRMED!=='true'||!REGIONS.has(env.AWS_REGION))fail('SaaS production requires verified private document storage in an approved region.');
+ if(!['s3','neon'].includes(env.DOCUMENT_STORAGE_PROVIDER)||!bucket(env.DOCUMENT_STORAGE_BUCKET)||!safeName(env.DOCUMENT_STORAGE_NAMESPACE)||env.DOCUMENT_STORAGE_PRIVATE_CONFIRMED!=='true'||!REGIONS.has(env.AWS_REGION))fail('SaaS production requires verified private document storage in an approved region.');
  if(!bucket(env.BACKUP_STORAGE_BUCKET)||!safeName(env.BACKUP_STORAGE_NAMESPACE)||env.BACKUP_STORAGE_PRIVATE_CONFIRMED!=='true'||!REGIONS.has(env.BACKUP_AWS_REGION||env.AWS_REGION))fail('SaaS production requires verified private backup storage in an approved region.');
  if(!env.AWS_ACCESS_KEY_ID||!env.AWS_SECRET_ACCESS_KEY)fail('SaaS production requires server-only object storage credentials.');
- if(env.AWS_ENDPOINT_URL||env.AWS_ENDPOINT_URL_S3||env.BACKUP_AWS_ENDPOINT_URL||env.BACKUP_AWS_ENDPOINT_URL_S3)fail('SaaS production object storage cannot use a custom endpoint.');
+ if(env.AWS_ENDPOINT_URL||env.BACKUP_AWS_ENDPOINT_URL)fail('SaaS production object storage cannot use a generic custom endpoint.');
+ const storageProvider=env.DOCUMENT_STORAGE_PROVIDER,backupProvider=env.BACKUP_STORAGE_PROVIDER||storageProvider;
+ if(!['s3','neon'].includes(backupProvider))fail('SaaS production backup storage provider is invalid.');
+ const documentEndpoint=storageProvider==='neon'?neonStorageEndpoint(env.AWS_ENDPOINT_URL_S3):null;
+ const backupEndpoint=backupProvider==='neon'?neonStorageEndpoint(env.BACKUP_AWS_ENDPOINT_URL_S3||env.AWS_ENDPOINT_URL_S3):null;
+ if(storageProvider==='s3'&&env.AWS_ENDPOINT_URL_S3||backupProvider==='s3'&&env.BACKUP_AWS_ENDPOINT_URL_S3)fail('Native S3 production storage cannot use a custom endpoint.');
  if(typeof root!=='string'||!isAbsolute(resolve(root)))fail('SaaS production requires an absolute application root.');
  const cookieName=env.SESSION_COOKIE_NAME||'wimblo_session';
  if(!/^[A-Za-z][A-Za-z0-9_]{2,63}$/.test(cookieName))fail('SaaS production session cookie name is invalid.');
- const network=Object.freeze({trustedProxyCidrs:env.PROCESS_ROLE==='web'?trustedProxyCidrs(env.TRUSTED_PROXY_CIDRS):Object.freeze([])});
+ const network=trustedNetwork(env,appOrigin);
  const limits=Object.freeze({
   dbPoolMax:integer(env,'DB_POOL_MAX',{min:1,max:50,defaultValue:10}),
   jobConcurrency:integer(env,'JOB_CONCURRENCY',{min:1,max:32,defaultValue:4}),
@@ -87,15 +110,15 @@ export function resolveSaasRuntimeConfig(env=process.env,root=process.cwd()){
  });
  const http=Object.freeze({host:'0.0.0.0',port:integer(env,'PORT',{min:1,max:65535,defaultValue:3000})});
  const objectStorage=Object.freeze({
-  provider:'s3',bucket:env.DOCUMENT_STORAGE_BUCKET,namespace:env.DOCUMENT_STORAGE_NAMESPACE,region:env.AWS_REGION,privateConfirmed:true,
+  provider:storageProvider,bucket:env.DOCUMENT_STORAGE_BUCKET,namespace:env.DOCUMENT_STORAGE_NAMESPACE,region:env.AWS_REGION,endpoint:documentEndpoint,privateConfirmed:true,
   credentials:Object.freeze({accessKeyId:env.AWS_ACCESS_KEY_ID,secretAccessKey:env.AWS_SECRET_ACCESS_KEY,...(env.AWS_SESSION_TOKEN?{sessionToken:env.AWS_SESSION_TOKEN}:{})})
  });
- const publicMetadata=()=>Object.freeze({mode:'saas',processRole:env.PROCESS_ROLE,appOrigin,cookieName,objectStorage:Object.freeze({provider:'s3',region:env.AWS_REGION,privateConfirmed:true}),http,limits});
+ const publicMetadata=()=>Object.freeze({mode:'saas',processRole:env.PROCESS_ROLE,appOrigin,cookieName,objectStorage:Object.freeze({provider:storageProvider,region:env.AWS_REGION,privateConfirmed:true}),http,limits});
  return Object.freeze({
   mode:'saas',root:resolve(root),processRole:env.PROCESS_ROLE,appOrigin,cookieName,
   tenantDatabaseUrl:env.DATABASE_URL,controlDatabaseUrl:env.CONTROL_DATABASE_URL,
   mfaEncryptionKey:env.MFA_ENCRYPTION_KEY,sessionSecret:env.SESSION_SECRET,backupEncryptionKey:env.BACKUP_ENCRYPTION_KEY,
-  objectStorage,backupStorage:Object.freeze({bucket:env.BACKUP_STORAGE_BUCKET,namespace:env.BACKUP_STORAGE_NAMESPACE,region:env.BACKUP_AWS_REGION||env.AWS_REGION,privateConfirmed:true}),network,
+  objectStorage,backupStorage:Object.freeze({provider:backupProvider,bucket:env.BACKUP_STORAGE_BUCKET,namespace:env.BACKUP_STORAGE_NAMESPACE,region:env.BACKUP_AWS_REGION||env.AWS_REGION,endpoint:backupEndpoint,privateConfirmed:true}),network,
   http,limits,publicMetadata
  });
 }

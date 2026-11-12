@@ -42,33 +42,34 @@ Operate three logical components:
 2. SaaS web/API process using `npm run start:saas:web`.
 3. SaaS worker process using `npm run start:saas:worker`.
 
-The SaaS web composition now serves the built `dist` bundle and API from one exact origin. The checked-in `render.yaml` stages the existing `Wimblo_CRM` web service plus a separate worker, keeps auto-deploy disabled, and validates through the Render CLI. It is preparation, not an activated deployment. Applying it would replace the live evaluator backend and create a paid worker, so the rollback, cost, secrets, migration, proxy, and storage gates below must be complete first.
+The SaaS web composition serves the built `dist` bundle and API from one exact origin. The checked-in `render.yaml` stages the existing paid `Wimblo_CRM` web service plus a separate worker, keeps service auto-deploy disabled, and validates through the Render CLI. The synthetic evaluator is isolated on the free `Wimblo_CRM_Evaluator` service; `vercel.json` routes only evaluator API traffic to that service. Keep Blueprint Auto Sync disabled in Render as well as service auto-deploy.
 
 ## Provider and cost checkpoint
 
-Read-only inspection on 2026-11-12 established these boundaries:
+Inspection and controlled provisioning on 2026-11-12 established these boundaries:
 
-- the existing Render `Wimblo_CRM` web service already uses the `0.5c-512mb` plan and can be repurposed without adding another web service, but doing so replaces the evaluator backend;
+- the existing Render `Wimblo_CRM` web service uses the `0.5c-512mb` plan and can be repurposed without adding another paid web service;
+- the synthetic evaluator clone `Wimblo_CRM_Evaluator` uses Render's free web plan. It is intentionally ephemeral and may cold-start; its exact evaluator commit and direct login must pass before changing the Vercel rewrite;
 - Render does not offer a free background-worker plan; the staged `0.5c-512mb` worker adds the provider's current $7/month compute charge;
 - Free Render Postgres expires after 30 days and has no backups, so it is not a production option; paid Render Postgres currently starts at $6/month;
-- an existing usage-based Neon Launch project named `wimblo` exists in `aws-us-east-1`, but it currently contains only Neon's auth schema and owner role—not the Wimblo schema, migration owner, tenant role, or control role;
-- the current shell exposes no object-storage credentials, and no private document/backup bucket has been provider-verified for this promotion;
-- Render documents TLS termination and forwarded headers but does not publish an exact ingress peer CIDR list. The application must not use a wildcard, guessed subnet, or hop-count trust rule. Obtain supported provider evidence or choose an ingress with a verifiable proxy range before setting `TRUSTED_PROXY_CIDRS`.
+- the existing Neon Launch project `wimblo` is in `aws-us-east-1`; main is migrated through schema version 18 and has separate migration, tenant-runtime, and control-runtime roles;
+- Neon main has private `wimblo-production-documents` and `wimblo-production-backups` buckets. Live synthetic write/read/delete plus anonymous-read denial must pass before each promotion;
+- Render terminates TLS, redirects HTTP, keeps the application port off the public internet, and documents the first forwarded address as the real client. `TRUSTED_PROXY_PROVIDER=render` is accepted only when Render's injected hostname exactly matches `APP_ORIGIN`; do not generalize this profile or add wildcard CIDRs.
 
-No Blueprint apply, provider role/schema creation, bucket creation, secret write, service cutover, or paid worker activation is authorized by this preparation checkpoint alone.
+The owner approved the described production completion plan, including the `0.5c-512mb` worker charge. Do not add another paid service, enable autoscaling, or accept an unreviewed provider upgrade.
 
 ## Required private configuration
 
 Follow `server/production/runtimeConfig.js` as the authoritative validator. Keep database URLs, MFA/session keys, object-storage credentials, evidence bindings, and backup keys in provider secret storage. Never paste them into tickets, logs, Git, screenshots, or certification output. Use distinct TLS database URLs for tenant and control roles.
 
-The SaaS web runtime also requires `TRUSTED_PROXY_CIDRS`, a comma-separated allowlist containing only the exact IP addresses or CIDR ranges of the managed HTTPS ingress that connects directly to the web process. Record provider evidence for those ranges and that the ingress overwrites client-supplied forwarding headers before promotion; never use `0.0.0.0/0`, `::/0`, a hop count, or an end-user/client range. Requests from any other peer cannot use `X-Forwarded-Proto` to satisfy HTTPS enforcement or `X-Forwarded-For` to select an authentication rate-limit bucket. A deployment that previously set only `TRUST_PROXY_HOPS` must replace it with the verified allowlist before the SaaS web process can start. The non-HTTP worker does not require this ingress setting.
+On Render, set `TRUSTED_PROXY_PROVIDER=render`; Render supplies `RENDER=true` and `RENDER_EXTERNAL_HOSTNAME`. Startup rejects the profile unless the injected hostname exactly matches the hostname in `APP_ORIGIN`. The profile uses Render's documented first-address forwarding contract so appended client spoof entries cannot rotate authentication rate limits. Never set wildcard CIDRs or reuse this provider profile elsewhere. The non-HTTP worker does not use ingress trust.
 
 Provision a third, non-runtime migration owner. It may be `NOSUPERUSER`, but it must hold `BYPASSRLS`; `applyMigrations` refuses before forced-RLS DDL, global backfills, or definer-function creation when the effective migration owner has neither `SUPERUSER` nor `BYPASSRLS`. This credential owns the schema and reviewed definer functions, runs only the explicit migration job, and must never be supplied to the web or worker process. Tenant and control runtime roles remain `NOSUPERUSER NOBYPASSRLS`. After every migration, rerun the tenant/control grants because new runtime functions are not granted through `PUBLIC`.
 
 ## Health and readiness
 
-- `/health` is process liveness only.
-- `/ready` proves pool connectivity only after startup certification has proved schema and role controls.
+- `/health` is process liveness and deliberately works on Render's internal HTTP health probe without forwarded TLS headers.
+- `/ready` remains behind HTTPS/origin enforcement and proves pool connectivity only after startup certification has proved schema, role controls, private document storage, and private backup storage. The web does not listen at all if startup certification fails.
 - Worker evidence must show polling through the control-only runnable-tenant function and tenant-scoped job claims.
 - Exact deployed commit SHA, process type, restart persistence, migration state, and bundle provenance must be recorded independently.
 

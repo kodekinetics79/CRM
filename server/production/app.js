@@ -57,10 +57,12 @@ function defaultServices({config,controlPool,tenantPool,clock}){
 export function createProductionApp({config,controlPool,tenantPool,clock=()=>new Date(),services=null}={}){
  if(!config||config.processRole!=='web')throw new TypeError('Production application requires the web process role.');
  if(!controlPool||typeof controlPool.healthy!=='function'||!tenantPool||typeof tenantPool.healthy!=='function')throw new TypeError('Production application requires isolated control and tenant pools.');
- if(!Array.isArray(config.network?.trustedProxyCidrs)||!config.network.trustedProxyCidrs.length)throw new TypeError('Production application requires an explicit trusted proxy allowlist.');
+ const renderProxy=config.network?.trustedProxyProvider==='render';
+ if(!renderProxy&&(!Array.isArray(config.network?.trustedProxyCidrs)||!config.network.trustedProxyCidrs.length))throw new TypeError('Production application requires an explicit trusted proxy allowlist.');
  const app=express(),resolved=services||defaultServices({config,controlPool,tenantPool,clock});
- app.disable('x-powered-by');app.set('trust proxy',config.network.trustedProxyCidrs);
+ app.disable('x-powered-by');app.set('trust proxy',renderProxy?true:config.network.trustedProxyCidrs);
  app.use(helmet({contentSecurityPolicy:{directives:{defaultSrc:["'self'"],baseUri:["'none'"],frameAncestors:["'none'"],objectSrc:["'none'"],scriptSrc:["'self'"],styleSrc:["'self'"],imgSrc:["'self'",'data:'],connectSrc:["'self'"]}},crossOriginEmbedderPolicy:{policy:'require-corp'}}));
+ app.get('/health',(req,res)=>{res.setHeader('Cache-Control','no-store');res.json({status:'ok',service:'wimblo-web'});});
  app.use((req,res,next)=>{const forwarded=req.get('X-Forwarded-Proto');if(forwarded!==undefined&&!/^(?:http|https)$/.test(forwarded))return res.status(400).json({error:'HTTPS is required.',code:'HTTPS_REQUIRED'});if(!req.secure)return res.status(400).json({error:'HTTPS is required.',code:'HTTPS_REQUIRED'});res.setHeader('Cache-Control','no-store');next();});
  app.use((req,res,next)=>{
   const origin=req.get('Origin');
@@ -71,7 +73,6 @@ export function createProductionApp({config,controlPool,tenantPool,clock=()=>new
  });
  app.use('/api/crm/imports',express.text({limit:'1mb',type:'text/csv'}));
  app.use(express.json({limit:'64kb',strict:true,type:'application/json'}));
- app.get('/health',(req,res)=>res.json({status:'ok',service:'wimblo-web'}));
  app.get('/ready',async(req,res)=>{try{const [control,tenant]=await Promise.all([controlPool.healthy(),tenantPool.healthy()]);return control&&tenant?res.json({status:'ready'}):res.status(503).json({status:'unavailable'});}catch{return res.status(503).json({status:'unavailable'});}});
  app.use(['/api/auth/login','/api/auth/mfa/verify'],createRateLimit({clock}));
  const mfaConfirmationRateLimit=createRateLimit({clock,rejectAtCapacity:true,keyFor:req=>req.productionSession?.identityId?`identity:${req.productionSession.identityId}`:`ip:${req.ip||'unknown'}`});

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {assertRowLevelSecurityEffective,CONTROL_PLANE_TABLES,TENANT_TABLES,PERSISTENCE_CODES} from '../server/persistence/index.js';
 
 const FUNCTIONS=Object.freeze([
+ 'public.wimblo_current_tenant()',
  'wimblo_platform.tenant_state(uuid)',
  'wimblo_platform.runnable_tenant_ids()',
  'wimblo_platform.dead_letter_count()',
@@ -10,11 +11,14 @@ const FUNCTIONS=Object.freeze([
 ]);
 
 function tenantSession({tablePrivilege=null,functionPrivilege=null}={}){
- return {async query(sql){
+ return {async query(sql,params=[]){
   if(sql.includes('FROM pg_roles'))return {rows:[{name:'wimblo_tenant',rolsuper:false,rolbypassrls:false}]};
   if(sql.includes('FROM pg_class'))return {rows:TENANT_TABLES.map(relname=>({relname,relrowsecurity:true,relforcerowsecurity:true}))};
   if(sql.includes('has_table_privilege'))return {rows:[...CONTROL_PLANE_TABLES,'wimblo_platform.control_audit'].map(object_name=>({object_name,has_privilege:object_name===tablePrivilege}))};
-  if(sql.includes('has_function_privilege'))return {rows:FUNCTIONS.map(signature=>({signature,executable:signature==='wimblo_platform.active_membership(uuid,uuid)'||signature===functionPrivilege}))};
+  if(sql.includes('has_function_privilege')){
+   assert.ok(params[0].includes('public.wimblo_current_tenant()'));
+   return {rows:FUNCTIONS.map(signature=>({signature,executable:['public.wimblo_current_tenant()','wimblo_platform.active_membership(uuid,uuid)'].includes(signature)||signature===functionPrivilege}))};
+  }
   throw new Error(`Unexpected tenant-role assertion query: ${sql}`);
  }};
 }

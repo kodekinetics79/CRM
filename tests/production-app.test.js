@@ -31,10 +31,10 @@ async function fixture(t,{controlHealthy=true,tenantHealthy=true,serviceError,re
 }
 
 test('production baseline sets Helmet CSP, exact CORS and no framework disclosure',async t=>{
- const f=await fixture(t),response=await f.request('/health');assert.equal(response.status,200);
+ const f=await fixture(t),response=await f.request('/ready');assert.equal(response.status,200);
  assert.match(response.headers.get('content-security-policy')||'',/default-src 'self'/);assert.equal(response.headers.get('x-content-type-options'),'nosniff');assert.equal(response.headers.get('x-powered-by'),null);
  assert.equal(response.headers.get('cross-origin-embedder-policy'),'require-corp');assert.equal(response.headers.get('cache-control'),'no-store');
- assert.equal(response.headers.get('access-control-allow-origin'),'https://crm.example.test');assert.match(response.headers.get('vary')||'',/Origin/);assert.equal((await response.json()).status,'ok');
+ assert.equal(response.headers.get('access-control-allow-origin'),'https://crm.example.test');assert.match(response.headers.get('vary')||'',/Origin/);assert.equal((await response.json()).status,'ready');
  const preflight=await f.request('/api/crm/parties/example',{method:'OPTIONS'});
  assert.equal(preflight.status,204);assert.equal(preflight.headers.get('access-control-allow-methods'),'GET,POST,PATCH');
  assert.equal(preflight.headers.get('access-control-allow-headers'),'Content-Type,X-CSRF-Token,Idempotency-Key,X-Source-System,If-Match,X-Source-SHA256');
@@ -42,9 +42,9 @@ test('production baseline sets Helmet CSP, exact CORS and no framework disclosur
 
 test('HTTP, foreign origins, unknown routes and legacy CRM routes fail closed',async t=>{
  const f=await fixture(t);
- const http=await f.request('/health',{headers:{'X-Forwarded-Proto':'http'}});assert.equal(http.status,400);
- const ambiguous=await f.request('/health',{headers:{'X-Forwarded-Proto':'https,http'}});assert.equal(ambiguous.status,400);
- const foreign=await f.request('/health',{headers:{Origin:'https://attacker.example'}});assert.equal(foreign.status,403);assert.equal(foreign.headers.get('access-control-allow-origin'),null);
+ const http=await f.request('/ready',{headers:{'X-Forwarded-Proto':'http'}});assert.equal(http.status,400);
+ const ambiguous=await f.request('/ready',{headers:{'X-Forwarded-Proto':'https,http'}});assert.equal(ambiguous.status,400);
+ const foreign=await f.request('/ready',{headers:{Origin:'https://attacker.example'}});assert.equal(foreign.status,403);assert.equal(foreign.headers.get('access-control-allow-origin'),null);
  for(const path of ['/missing','/api/records/constituents']){const response=await f.request(path);assert.equal(response.status,404);assert.deepEqual(await response.json(),{error:'Not found.',code:'NOT_FOUND'});}
 });
 
@@ -139,6 +139,20 @@ test('startup verification failure closes initialized web and worker pools exact
    : startWorkerRuntime({config:{processRole:'worker'},repository:{},handlers:{},tenantIds:[],pools,verify:async()=>{throw failure;},run:async()=>{started++;}});
   await assert.rejects(()=>start,/startup certification failed/);assert.equal(started,0);assert.equal(ended,2);
  }
+});
+
+test('SaaS web certification verifies database roles plus document and backup storage before listen',async()=>{
+ const module=await import('../server/production/web.js');
+ assert.equal(typeof module.certifyWebDependencies,'function','web dependency certifier is missing');
+ const calls=[];
+ const proof=await module.certifyWebDependencies({
+  tenantPool:{},controlPool:{},
+  documentStorage:{verifyReadiness:async()=>{calls.push('documents');return {verified:true};}},
+  backupStorage:{verifyReadiness:async()=>{calls.push('backups');return {verified:true};}},
+  certifyPools:async()=>{calls.push('database');return {database:true};}
+ });
+ assert.deepEqual(calls,['database','documents','backups']);assert.deepEqual(proof,{database:{database:true},documents:{verified:true},backups:{verified:true}});
+ await assert.rejects(()=>module.certifyWebDependencies({tenantPool:{},controlPool:{},documentStorage:null,backupStorage:{verifyReadiness:async()=>({verified:true})},certifyPools:async()=>({})}),/document and backup storage/);
 });
 
 test('web listener failure closes initialized pools exactly once',async()=>{

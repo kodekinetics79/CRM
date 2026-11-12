@@ -57,3 +57,35 @@ test('SaaS listener settings are validated before process composition',()=>{
  const config=resolveSaasRuntimeConfig(validEnv(),'/srv/wimblo');assert.deepEqual(config.http,{host:'0.0.0.0',port:3000});
  for(const port of ['0','65536','invalid'])assert.throws(()=>resolveSaasRuntimeConfig({...validEnv(),PORT:port},'/srv/wimblo'),/PORT must be an integer between 1 and 65535/);
 });
+
+test('SaaS production accepts only an attested Render edge profile without a wildcard proxy range',()=>{
+ const env={...validEnv(),TRUSTED_PROXY_CIDRS:undefined,TRUSTED_PROXY_PROVIDER:'render',RENDER:'true',RENDER_EXTERNAL_HOSTNAME:'app.wimblo.example'};
+ assert.deepEqual(resolveSaasRuntimeConfig(env,'/srv/wimblo').network,{trustedProxyProvider:'render',trustedProxyCidrs:[]});
+ for(const changes of [
+  {RENDER:undefined},
+  {RENDER:'false'},
+  {RENDER_EXTERNAL_HOSTNAME:undefined},
+  {RENDER_EXTERNAL_HOSTNAME:'other.wimblo.example'},
+  {TRUSTED_PROXY_PROVIDER:'unknown'}
+ ])assert.throws(()=>resolveSaasRuntimeConfig({...env,...changes},'/srv/wimblo'),/trusted proxy|Render/i);
+});
+
+test('SaaS production accepts verified private Neon storage only with its credential-free branch endpoint',()=>{
+ const env={
+  ...validEnv(),
+  DOCUMENT_STORAGE_PROVIDER:'neon',
+  AWS_ENDPOINT_URL_S3:'https://br-production.storage.c-11.us-east-1.aws.neon.tech',
+  BACKUP_AWS_ENDPOINT_URL_S3:'https://br-production.storage.c-11.us-east-1.aws.neon.tech'
+ };
+ const config=resolveSaasRuntimeConfig(env,'/srv/wimblo');
+ assert.equal(config.objectStorage.provider,'neon');
+ assert.equal(config.objectStorage.endpoint,env.AWS_ENDPOINT_URL_S3);
+ assert.equal(config.backupStorage.provider,'neon');
+ assert.equal(config.backupStorage.endpoint,env.BACKUP_AWS_ENDPOINT_URL_S3);
+ assert.equal(JSON.stringify(config.publicMetadata()).includes('storage.c-11'),false);
+ for(const changes of [
+  {AWS_ENDPOINT_URL_S3:undefined},
+  {AWS_ENDPOINT_URL_S3:'http://unsafe.example.test'},
+  {AWS_ENDPOINT_URL_S3:'https://key:secret@example.test'}
+ ])assert.throws(()=>resolveSaasRuntimeConfig({...env,...changes},'/srv/wimblo'),/Neon storage requires a credential-free HTTPS branch endpoint/);
+});

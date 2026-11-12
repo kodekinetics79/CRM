@@ -5,7 +5,7 @@ import {
  createPrivateObjectStore,createMemoryObjectBackend,createMemoryObjectCatalog,parseObjectKey,
  OBJECT_CONTENT_TYPES,OBJECT_MAX_BYTES,ENCRYPTION_ALGORITHM,
  resolveResidency,RESIDENCY_PROFILES,DEFAULT_RESIDENCY_PROFILE,RESIDENCY_AUTHORITY,CUSTODY_MODES,
- createSqliteRepository,createTenantBackup,readBackupManifest,restoreTenantBackup,verifyRestore,
+ createSqliteRepository,createTenantBackup,readBackupManifest,restoreTenantBackup,verifyRestore,publishTenantBackup,
  PERSISTENCE_CODES
 } from '../server/persistence/index.js';
 
@@ -212,6 +212,19 @@ test('a backup carries the counts, checksums and exact cent totals captured at t
   assert.match(archiveSha256,/^[a-f0-9]{64}$/);
   assert.equal(archive.includes(Buffer.from('alex@synthetic.invalid')),false,'the archive must not carry plaintext');
   assert.deepEqual(readBackupManifest({archive,encryptionKey:KEY}).manifest,manifest);
+ }finally{source.close();}
+});
+
+test('an encrypted logical backup publishes to and reads back from a versionless immutable store',async()=>{
+ const source=seeded(),objects=new Map(),offHost={offHost:true,private:true,versioned:false,
+  async putImmutable({tenantId,bytes,sha256}){const key=`backups/${tenantId}/${sha256}`;objects.set(key,Buffer.from(bytes));return {tenantId,key,versionId:null,sha256,size:bytes.length};},
+  async readVersion({key}){return objects.get(key);}
+ };
+ try{
+  const {archive}=await createTenantBackup({repository:source,encryptionKey:KEY}),proof=await publishTenantBackup({archive,tenantId:TENANT,encryptionKey:KEY,store:offHost});
+  assert.equal(proof.verified,true);assert.equal(proof.versionId,null);assert.equal(proof.archiveSha256,sha(archive));assert.equal(proof.tenantId,TENANT);
+  offHost.readVersion=async()=>Buffer.from('tampered');
+  await assert.rejects(()=>publishTenantBackup({archive,tenantId:TENANT,encryptionKey:KEY,store:offHost}),/readback verification/);
  }finally{source.close();}
 });
 

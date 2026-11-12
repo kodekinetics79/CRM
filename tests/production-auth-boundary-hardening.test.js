@@ -74,6 +74,7 @@ const appConfig=trustedProxyCidrs=>({
  processRole:'web',appOrigin:'https://crm.example.test',cookieName:'wimblo_session',mfaEncryptionKey:'11'.repeat(32),sessionSecret:'s'.repeat(40),
  network:{trustedProxyCidrs},limits:{trustProxyHops:1,dbPoolMax:4,jobConcurrency:2,jobLeaseMs:30_000}
 });
+const renderAppConfig=()=>({...appConfig([]),network:{trustedProxyProvider:'render',trustedProxyCidrs:[]}});
 async function listen(t,app,{remoteAddress,encrypted}={}){
  const server=remoteAddress||encrypted?createServer((req,res)=>{if(remoteAddress)Object.defineProperty(req.socket,'remoteAddress',{configurable:true,value:remoteAddress});if(encrypted)Object.defineProperty(req.socket,'encrypted',{configurable:true,value:true});app(req,res);}):app.listen(0,'127.0.0.1');
  if(remoteAddress||encrypted)server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>new Promise(resolve=>server.close(resolve)));return `http://127.0.0.1:${server.address().port}`;
@@ -81,10 +82,11 @@ async function listen(t,app,{remoteAddress,encrypted}={}){
 
 test('HTTPS trust rejects a direct forwarded-proto spoof while preserving an explicitly trusted ingress',async t=>{
  const direct=createProductionApp({config:appConfig(['10.0.0.0/8']),controlPool:pool(),tenantPool:pool(),services:services()}),directBase=await listen(t,direct);
- assert.equal((await fetch(`${directBase}/health`,{headers:{'X-Forwarded-Proto':'https'}})).status,400);
+ assert.equal((await fetch(`${directBase}/health`)).status,200);
+ assert.equal((await fetch(`${directBase}/ready`,{headers:{'X-Forwarded-Proto':'https'}})).status,400);
  const ingress=createProductionApp({config:appConfig(['127.0.0.1/32']),controlPool:pool(),tenantPool:pool(),services:services()}),ingressBase=await listen(t,ingress);
- assert.equal((await fetch(`${ingressBase}/health`,{headers:{'X-Forwarded-Proto':'https'}})).status,200);
- for(const value of ['https,http','https, https'])assert.equal((await fetch(`${ingressBase}/health`,{headers:{'X-Forwarded-Proto':value}})).status,400);
+ assert.equal((await fetch(`${ingressBase}/ready`,{headers:{'X-Forwarded-Proto':'https'}})).status,200);
+ for(const value of ['https,http','https, https'])assert.equal((await fetch(`${ingressBase}/ready`,{headers:{'X-Forwarded-Proto':value}})).status,400);
 });
 
 test('an untrusted direct peer cannot rotate forwarded addresses around the login rate limit',async t=>{
@@ -92,6 +94,15 @@ test('an untrusted direct peer cannot rotate forwarded addresses around the logi
  const statuses=[];
  for(let attempt=0;attempt<11;attempt++){
   const response=await fetch(`${base}/api/auth/login`,{method:'POST',headers:{'X-Forwarded-For':`198.51.100.${attempt+1}`,'Content-Type':'application/json'},body:'{"email":"first@example.test","password":"wrong"}'});statuses.push(response.status);
+ }
+ assert.deepEqual(statuses,[401,401,401,401,401,401,401,401,401,401,429]);
+});
+
+test('the Render profile uses the provider-set first address so appended spoof addresses cannot rotate the login limit',async t=>{
+ const app=createProductionApp({config:renderAppConfig(),controlPool:pool(),tenantPool:pool(),services:services()}),base=await listen(t,app);
+ const statuses=[];
+ for(let attempt=0;attempt<11;attempt++){
+  const response=await fetch(`${base}/api/auth/login`,{method:'POST',headers:{'X-Forwarded-Proto':'https','X-Forwarded-For':`198.51.100.10, 203.0.113.${attempt+1}`,'Content-Type':'application/json'},body:'{"email":"first@example.test","password":"wrong"}'});statuses.push(response.status);
  }
  assert.deepEqual(statuses,[401,401,401,401,401,401,401,401,401,401,429]);
 });

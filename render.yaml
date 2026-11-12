@@ -17,6 +17,8 @@ envVarGroups:
         value: saas
       - key: APP_ORIGIN
         sync: false
+      - key: TRUSTED_PROXY_PROVIDER
+        value: render
       - key: DATABASE_URL
         sync: false
       - key: CONTROL_DATABASE_URL
@@ -36,7 +38,7 @@ envVarGroups:
       - key: JOB_LEASE_MS
         value: "30000"
       - key: DOCUMENT_STORAGE_PROVIDER
-        value: s3
+        value: neon
       - key: DOCUMENT_STORAGE_BUCKET
         sync: false
       - key: DOCUMENT_STORAGE_NAMESPACE
@@ -49,6 +51,10 @@ envVarGroups:
         sync: false
       - key: AWS_SECRET_ACCESS_KEY
         sync: false
+      - key: AWS_ENDPOINT_URL_S3
+        sync: false
+      - key: BACKUP_STORAGE_PROVIDER
+        value: neon
       - key: BACKUP_STORAGE_BUCKET
         sync: false
       - key: BACKUP_STORAGE_NAMESPACE
@@ -57,6 +63,8 @@ envVarGroups:
         sync: false
       - key: BACKUP_AWS_REGION
         value: us-east-1
+      - key: BACKUP_AWS_ENDPOINT_URL_S3
+        sync: false
 
 services:
   # Existing paid evaluator service. Applying this definition is the production
@@ -70,17 +78,15 @@ services:
     autoDeploy: false
     buildCommand: npm ci --include=dev && npm run build
     startCommand: npm run start:saas:web
-    healthCheckPath: /ready
+    healthCheckPath: /health
     numInstances: 1
     maxShutdownDelaySeconds: 60
     envVars:
       - fromGroup: wimblo-saas-production
       - key: PROCESS_ROLE
         value: web
-      # Must be the exact documented Render ingress peer IP/CIDR allowlist.
-      # Never use 0.0.0.0/0, ::/0, a client range, or a guessed hop count.
-      - key: TRUSTED_PROXY_CIDRS
-        sync: false
+      # The application validates Render's injected hostname before enabling its
+      # provider-specific edge profile. No wildcard CIDR or guessed hop count.
 
   # Render does not offer free background workers. This service adds at least
   # the provider's current 0.5c-512mb worker charge when created.

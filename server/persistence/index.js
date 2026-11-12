@@ -35,7 +35,7 @@ export {
  createMemoryObjectCatalog,createPostgresObjectCatalog,parseObjectKey,
  OBJECT_CONTENT_TYPES,OBJECT_MAX_BYTES,OBJECT_STATES,ENCRYPTION_ALGORITHM
 } from './objectStore.js';
-export {createTenantBackup,readBackupManifest,restoreTenantBackup,verifyRestore,MAX_ARCHIVE_BYTES} from './backupRestore.js';
+export {createTenantBackup,readBackupManifest,restoreTenantBackup,verifyRestore,publishTenantBackup,MAX_ARCHIVE_BYTES} from './backupRestore.js';
 export {migrateSqliteWorkspaceToPostgres,inspectSqliteWorkspace} from './legacySqliteMigration.js';
 export {
  resolveResidency,residencyFromEnv,RESIDENCY_PROFILES,RESIDENCY_AUTHORITY,
