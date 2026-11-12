@@ -119,7 +119,7 @@ test('the schema carries the access paths search and reporting depend on, and ex
 
 test('the application role receives only the grants it needs, and its name is validated',()=>{
  const grants=applicationRoleGrants('wimblo_app');
- assert.equal(grants.length,TENANT_TABLES.length+TENANT_FOUNDATION_TABLES.length+2);
+ assert.equal(grants.length,TENANT_TABLES.length+TENANT_FOUNDATION_TABLES.length+3);
  assert.ok(grants.includes('GRANT USAGE ON SCHEMA wimblo_platform TO wimblo_app'));
  for(const table of TENANT_TABLES){
   const expected=['party_events','opportunity_stage_events','crm_activities','crm_task_events','crm_note_revisions','crm_attachment_links','crm_ownership_events'].includes(table)
@@ -130,6 +130,7 @@ test('the application role receives only the grants it needs, and its name is va
   assert.ok(grants.includes(expected),table);
  }
  for(const table of TENANT_FOUNDATION_TABLES)assert.ok(grants.includes(`GRANT SELECT, INSERT, UPDATE, DELETE ON ${table} TO wimblo_app`));
+ assert.ok(grants.includes('GRANT EXECUTE ON FUNCTION wimblo_platform.active_membership(uuid,uuid) TO wimblo_app'));
  assert.ok(grants.includes(`GRANT SELECT ON ${MIGRATION_LEDGER_TABLE} TO wimblo_app`));
  assert.equal(grants.some(g=>/GRANT ALL|SUPERUSER|BYPASSRLS/.test(g)),false);
  for(const bad of ['Robert; DROP TABLE records','wimblo app','','1role'])assert.throws(()=>applicationRoleGrants(bad),/lower-case identifier/);

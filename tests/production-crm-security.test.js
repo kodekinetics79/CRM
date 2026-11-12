@@ -79,7 +79,7 @@ test('attachment links are tenant metadata references and never grant object byt
  const session={query:async(sql,values=[])=>{
   if(['BEGIN','COMMIT','ROLLBACK'].includes(sql))return {rows:[],rowCount:0};
   if(sql.includes('subject:get'))return {rows:[{tenant_id:tenantId,subject_id:subjectId,subject_type:'party',version:1}],rowCount:1};
-  if(sql.includes('membership:active'))return {rows:[{identity_id:actorIdentityId}],rowCount:1};
+  if(sql.includes('membership:active'))return {rows:[{active:true}],rowCount:1};
   if(sql.includes('object:active'))return {rows:[{tenant_id:tenantId,object_id:'brief',revision:1,content_type:'application/pdf',size_bytes:42,state:'active'}],rowCount:1};
   if(sql.includes('attachment:insert'))return {rows:[{tenant_id:tenantId,link_id:linkId,subject_id:subjectId,object_id:'brief',object_revision:1,file_name:'brief.pdf',content_type:'application/pdf',size_bytes:42,actor_identity_id:actorIdentityId,occurred_at:now}],rowCount:1};
   throw new Error(`unexpected query: ${sql} ${values.length}`);

@@ -81,7 +81,7 @@ test('task creation appends history and reminder inside one transaction',async()
  const taskId=randomUUID();
  const f=scriptedPool((sql)=>{
   if(sql.includes('/*subject:get*/'))return {rows:[{tenant_id:tenantId,subject_id:subjectId,subject_type:'party',version:1}],rowCount:1};
-  if(sql.includes('/*membership:active*/'))return {rows:[{identity_id:ownerId}],rowCount:1};
+  if(sql.includes('/*membership:active*/'))return {rows:[{active:true}],rowCount:1};
   if(sql.includes('/*task:insert*/'))return {rows:[{tenant_id:tenantId,task_id:taskId,subject_id:subjectId,title:'Follow up',details:null,status:'open',owner_identity_id:ownerId,due_at:now,reminder_at:now,completed_at:null,version:1,created_at:now,updated_at:now}],rowCount:1};
   if(sql.includes('/*job:enqueue*/'))return {rows:[{tenant_id:tenantId,job_id:randomUUID(),queue:'default',kind:'crm.task_reminder',idempotency_key:`crm.task-reminder:${taskId}:1`,payload:{},state:'ready',priority:0,available_at:now,attempts:0,max_attempts:5,version:1,created_at:now,updated_at:now}],rowCount:1};
   return {rows:[],rowCount:1};
@@ -109,7 +109,7 @@ test('notes are revised immutably and attachment responses expose no storage top
  const noteId=randomUUID(),linkId=randomUUID();
  const f=scriptedPool((sql)=>{
   if(sql.includes('/*subject:get*/'))return {rows:[{tenant_id:tenantId,subject_id:subjectId,subject_type:'party',version:1}],rowCount:1};
-  if(sql.includes('/*membership:active*/'))return {rows:[{identity_id:actorId}],rowCount:1};
+  if(sql.includes('/*membership:active*/'))return {rows:[{active:true}],rowCount:1};
   if(sql.includes('/*note:lock*/'))return {rows:[{tenant_id:tenantId,note_id:noteId,subject_id:subjectId,title:'Research',current_revision:1,version:1,created_at:now,updated_at:now}],rowCount:1};
   if(sql.includes('/*note-revision:insert*/'))return {rows:[{tenant_id:tenantId,note_id:noteId,revision:2,subject_id:subjectId,body:'Second',actor_identity_id:actorId,occurred_at:now}],rowCount:1};
   if(sql.includes('/*note:update*/'))return {rows:[{tenant_id:tenantId,note_id:noteId,subject_id:subjectId,title:'Research',current_revision:2,version:2,created_at:now,updated_at:now}],rowCount:1};
@@ -128,7 +128,7 @@ test('notes are revised immutably and attachment responses expose no storage top
 test('ownership change validates active membership and records one optimistic transition',async()=>{
  const f=scriptedPool(sql=>{
   if(sql.includes('/*subject:lock*/'))return {rows:[{tenant_id:tenantId,subject_id:subjectId,subject_type:'party',owner_identity_id:null,version:1}],rowCount:1};
-  if(sql.includes('/*membership:active*/'))return {rows:[{identity_id:ownerId}],rowCount:1};
+  if(sql.includes('/*membership:active*/'))return {rows:[{active:true}],rowCount:1};
   if(sql.includes('/*subject:owner-update*/'))return {rows:[{tenant_id:tenantId,subject_id:subjectId,subject_type:'party',owner_identity_id:ownerId,version:2,created_at:now,updated_at:now}],rowCount:1};
   return {rows:[],rowCount:1};
  });

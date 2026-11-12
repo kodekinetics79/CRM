@@ -225,10 +225,10 @@ export function createCrmRepository({tenantPool,jobRepository=null,clock=timesta
 
   async function requireActiveMembership(session,tenant,identity){
     const {rows:[row]}=await session.query(
-      `/*membership:active*/ SELECT identity_id FROM wimblo_platform.memberships WHERE tenant_id=$1 AND identity_id=$2 AND status='active'`,
+      `/*membership:active*/ SELECT wimblo_platform.active_membership($1,$2) AS active`,
       [tenant,identity]
     );
-    if(!row)persistenceFail(PERSISTENCE_CODES.ISOLATION,'Active tenant membership is required.');
+    if(!row?.active)persistenceFail(PERSISTENCE_CODES.ISOLATION,'Active tenant membership is required.');
   }
 
   async function appendEvent(session,{tenantId,eventId=randomUUID(),targetType,targetId,action,actorIdentityId=null,details={}}){

@@ -929,6 +929,17 @@ export const MIGRATIONS=Object.freeze([
    `ALTER TABLE ${table} FORCE ROW LEVEL SECURITY`,
    `CREATE POLICY ${table}_tenant_isolation ON ${table} USING (tenant_id = wimblo_current_tenant()) WITH CHECK (tenant_id = wimblo_current_tenant())`
   ])
+  ]),
+ migration(17,'tenant-bound-active-membership-predicate',[
+  `CREATE FUNCTION wimblo_platform.active_membership(requested_tenant uuid,requested_identity uuid) RETURNS boolean
+   LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, wimblo_platform AS $fn$
+    SELECT requested_tenant = public.wimblo_current_tenant()
+       AND EXISTS (
+        SELECT 1 FROM wimblo_platform.memberships m
+        WHERE m.tenant_id=requested_tenant AND m.identity_id=requested_identity AND m.status='active'
+       )
+   $fn$`,
+  `REVOKE ALL ON FUNCTION wimblo_platform.active_membership(uuid,uuid) FROM PUBLIC`
  ])
 ]);
 
@@ -970,6 +981,15 @@ export function planMigrations(applied=[],list=MIGRATIONS){
  return {currentVersion:rows.length,targetVersion:list.length,pending:list.slice(rows.length)};
 }
 
+const GLOBAL_FORCED_RLS_BACKFILLS=new Set([9,15]);
+const migrationRequiresRlsBypass=entry=>GLOBAL_FORCED_RLS_BACKFILLS.has(entry.version)||entry.statements.some(statement=>/FORCE ROW LEVEL SECURITY|SECURITY DEFINER/.test(statement));
+
+export async function assertMigrationOwnerCanBypassRls(session){
+ const {rows:[role]}=await session.query('SELECT current_user AS name, rolsuper, rolbypassrls FROM pg_roles WHERE rolname=current_user');
+ if(!role||(!role.rolsuper&&!role.rolbypassrls))persistenceFail(PERSISTENCE_CODES.MIGRATION,`The migration owner${role?.name?` "${role.name}"`:''} must be a superuser or hold BYPASSRLS before installing forced-RLS schema, running global backfills, or owning control-plane SECURITY DEFINER functions.`);
+ return {role:role.name,superuser:Boolean(role.rolsuper),bypassRls:Boolean(role.rolbypassrls)};
+}
+
 /**
  * Apply pending migrations. Explicit by construction: a caller has to ask.
  * Each migration and its ledger row commit in one transaction, so a failure
@@ -983,6 +1003,7 @@ export async function applyMigrations(session,{list=MIGRATIONS,dryRun=false}={})
  if(dryRun)return {...plan,applied:[],dryRun:true};
  const applied=[];
  for(const entry of plan.pending){
+  if(migrationRequiresRlsBypass(entry))await assertMigrationOwnerCanBypassRls(session);
   await session.query('BEGIN');
   try{
    for(const statement of entry.statements)await session.query(statement);

@@ -26,6 +26,7 @@ Web and worker startup also fail before listening or polling unless both databas
 - a non-superuser, non-`BYPASSRLS` tenant role with forced RLS on every tenant table;
 - a distinct least-privilege control-plane role with no tenant-business-table privileges;
 - control-role access to the audit sequence and `tenant_state`, `runnable_tenant_ids`, and `dead_letter_count` functions required at runtime.
+- every required `SECURITY DEFINER` function is owned by a superuser or `BYPASSRLS` migration owner, so forced-RLS global lifecycle and readiness reads cannot silently disappear.
 
 Any verification, listener, or worker-loop failure must close every initialized database pool exactly once before the process exits. Repeated shutdown signals must remain idempotent.
 
@@ -42,6 +43,8 @@ The checked-in `render.yaml` currently starts the legacy SQLite application thro
 ## Required private configuration
 
 Follow `server/production/runtimeConfig.js` as the authoritative validator. Keep database URLs, MFA/session keys, object-storage credentials, evidence bindings, and backup keys in provider secret storage. Never paste them into tickets, logs, Git, screenshots, or certification output. Use distinct TLS database URLs for tenant and control roles.
+
+Provision a third, non-runtime migration owner. It may be `NOSUPERUSER`, but it must hold `BYPASSRLS`; `applyMigrations` refuses before forced-RLS DDL, global backfills, or definer-function creation when the effective migration owner has neither `SUPERUSER` nor `BYPASSRLS`. This credential owns the schema and reviewed definer functions, runs only the explicit migration job, and must never be supplied to the web or worker process. Tenant and control runtime roles remain `NOSUPERUSER NOBYPASSRLS`. After every migration, rerun the tenant/control grants because new runtime functions are not granted through `PUBLIC`.
 
 ## Health and readiness
 
@@ -64,7 +67,7 @@ An attachment link is an active same-tenant metadata reference. It never grants 
 
 - Session/logout anomaly: keep the browser in the explicit “Sign-out not confirmed” state, retry termination, revoke identity sessions through the operated control path, and preserve redacted audit evidence.
 - Tenant isolation or role assertion failure: stop web/worker startup; do not bypass the check.
-- Migration mismatch: run the explicit reviewed migration job with the owner role; runtime roles never migrate on connect.
+- Migration mismatch: run the explicit reviewed migration job with the dedicated `BYPASSRLS` owner role; runtime roles never migrate on connect. If the owner preflight fails, correct role provisioning rather than setting a tenant scope or bypassing the check.
 - Queue backlog/dead letters: suspend the affected handler if necessary, preserve tenant scope, inspect the control-only aggregate, and replay only with an idempotency proof.
 - Restore mismatch: quarantine the restored target and backup artifact; never promote a partially reconciled restore.
 

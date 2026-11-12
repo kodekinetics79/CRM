@@ -5,7 +5,7 @@ import {isAbsolute,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {
  MIGRATIONS,SCHEMA_VERSION,TENANT_TABLES,TENANT_FOUNDATION_TABLES,
- assertControlPlaneRole,assertRowLevelSecurityEffective,poolFromEnv,controlPoolFromEnv
+ assertControlPlaneRole,assertRowLevelSecurityEffective,assertSecurityDefinerOwnersBypassRls,poolFromEnv,controlPoolFromEnv
 } from '../server/persistence/index.js';
 import {resolveSaasRuntimeConfig} from '../server/production/runtimeConfig.js';
 
@@ -96,6 +96,7 @@ export async function collectProductionFoundationEvidence(env=process.env,{now=D
   });
   const control=await readOnly(controlPool,async session=>{
    await assertControlPlaneRole(session);
+   await assertSecurityDefinerOwnersBypassRls(session);
    const {rows:[role]}=await session.query('SELECT current_user AS name,rolsuper,rolbypassrls,rolcreatedb,rolcreaterole,rolreplication FROM pg_roles WHERE rolname=current_user');
    const {rows}=await session.query('SELECT version,name,checksum FROM wimblo_schema_migrations ORDER BY version');
    evidence.schema={valid:true,currentVersion:rows.at(-1)?.version??0,targetVersion:SCHEMA_VERSION,ledgerValid:rows.length===MIGRATIONS.length&&rows.every((row,index)=>row.version===MIGRATIONS[index].version&&row.name===MIGRATIONS[index].name&&row.checksum===MIGRATIONS[index].checksum)};

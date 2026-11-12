@@ -46,6 +46,8 @@ export const CONTROL_PLANE_TABLES=Object.freeze([
 ]);
 const CONTROL_PLANE_SEQUENCE='wimblo_platform.control_audit_audit_id_seq';
 const CONTROL_PLANE_FUNCTIONS=Object.freeze(['wimblo_platform.tenant_state(uuid)','wimblo_platform.runnable_tenant_ids()','wimblo_platform.dead_letter_count()']);
+const TENANT_RUNTIME_FUNCTIONS=Object.freeze(['wimblo_platform.active_membership(uuid,uuid)']);
+const SECURITY_DEFINER_FUNCTIONS=Object.freeze([...CONTROL_PLANE_FUNCTIONS,...TENANT_RUNTIME_FUNCTIONS]);
 
 const identifier=name=>{
  if(typeof name!=='string'||!/^[a-z_][a-z0-9_]{0,62}$/.test(name))persistenceFail(PERSISTENCE_CODES.INVALID,'A role name must be a simple lower-case identifier.');
@@ -61,8 +63,26 @@ export function applicationRoleGrants(role){
   ...APPEND_ONLY_TENANT_TABLES.map(table=>`GRANT SELECT, INSERT ON ${table} TO ${name}`),
   ...MUTABLE_NO_DELETE_TENANT_TABLES.map(table=>`GRANT SELECT, INSERT, UPDATE ON ${table} TO ${name}`),
   ...TENANT_FOUNDATION_TABLES.map(table=>`GRANT SELECT, INSERT, UPDATE, DELETE ON ${table} TO ${name}`),
+  ...TENANT_RUNTIME_FUNCTIONS.map(signature=>`GRANT EXECUTE ON FUNCTION ${signature} TO ${name}`),
   `GRANT SELECT ON ${MIGRATION_LEDGER_TABLE} TO ${name}`
  ];
+}
+
+/** Prove global and tenant-bound definer functions are owned by a role that can cross forced RLS deliberately. */
+export async function assertSecurityDefinerOwnersBypassRls(session){
+ if(!session||typeof session.query!=='function')persistenceFail(PERSISTENCE_CODES.ISOLATION,'A database session is required to inspect SECURITY DEFINER ownership.');
+ const {rows}=await session.query(
+  `SELECT required.signature,p.prosecdef,owner.rolname AS owner_name,owner.rolsuper,owner.rolbypassrls
+   FROM unnest($1::text[]) AS required(signature)
+   LEFT JOIN pg_proc p ON p.oid=to_regprocedure(required.signature)
+   LEFT JOIN pg_roles owner ON owner.oid=p.proowner`,[SECURITY_DEFINER_FUNCTIONS]);
+ const bySignature=new Map(rows.map(row=>[row.signature,row]));
+ const unsafe=SECURITY_DEFINER_FUNCTIONS.filter(signature=>{
+  const functionRole=bySignature.get(signature);
+  return !functionRole?.prosecdef||(!functionRole.rolsuper&&!functionRole.rolbypassrls);
+ });
+ if(unsafe.length)persistenceFail(PERSISTENCE_CODES.ISOLATION,`Required SECURITY DEFINER functions are missing or owned by roles that cannot bypass forced row-level security: ${unsafe.join(', ')}.`);
+ return {functions:SECURITY_DEFINER_FUNCTIONS.length,ownersBypassRls:true};
 }
 
 /** SQL an administrator runs once for a control-plane connection role. */

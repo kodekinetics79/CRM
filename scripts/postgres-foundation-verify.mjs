@@ -19,6 +19,7 @@ import {
   controlPlaneRoleGrants,
   assertRowLevelSecurityEffective,
   assertControlPlaneRole,
+  assertSecurityDefinerOwnersBypassRls,
   TENANT_TABLES,
   TENANT_FOUNDATION_TABLES,
   PERSISTENCE_CODES
@@ -28,8 +29,10 @@ const BASE_URL=process.env.WIMBLO_FOUNDATION_VERIFY_PG_URL||'postgres://wimblo_a
 const REDACTION_ENV={...process.env,WIMBLO_FOUNDATION_VERIFY_PG_URL:BASE_URL};
 const stamp=`${process.pid}_${Date.now().toString(36)}`.toLowerCase();
 const database=`wimblo_foundation_${stamp}`;
+const ownerRole=`wimblo_owner_${stamp}`;
 const tenantRole=`wimblo_tenant_${stamp}`;
 const controlRole=`wimblo_control_${stamp}`;
+const ownerPassword='wimblo-local-owner';
 const tenantPassword='wimblo-local-tenant';
 const controlPassword='wimblo-local-control';
 const tenantA=randomUUID();
@@ -74,6 +77,7 @@ async function cleanup(){
     await session.query(`DROP DATABASE IF EXISTS ${identifier(database)}`).catch(()=>{});
     await session.query(`DROP ROLE IF EXISTS ${identifier(tenantRole)}`).catch(()=>{});
     await session.query(`DROP ROLE IF EXISTS ${identifier(controlRole)}`).catch(()=>{});
+    await session.query(`DROP ROLE IF EXISTS ${identifier(ownerRole)}`).catch(()=>{});
   }).catch(()=>{});
   await admin.end().catch(()=>{});
 }
@@ -83,19 +87,20 @@ async function main(){
   if(!['127.0.0.1','localhost','::1'].includes(parsed.hostname))throw new Error('Foundation verification refuses non-loopback PostgreSQL targets. Use a dedicated disposable local database.');
 
   await admin.withAdminSession(async session=>{
+    await session.query(`CREATE ROLE ${identifier(ownerRole)} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE BYPASSRLS PASSWORD '${ownerPassword}'`);
     await session.query(`CREATE ROLE ${identifier(tenantRole)} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS PASSWORD '${tenantPassword}'`);
     await session.query(`CREATE ROLE ${identifier(controlRole)} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS PASSWORD '${controlPassword}'`);
-    await session.query(`CREATE DATABASE ${identifier(database)}`);
+    await session.query(`CREATE DATABASE ${identifier(database)} OWNER ${identifier(ownerRole)}`);
   });
 
-  const owner=createPostgresPool({connectionString:databaseUrl(database),max:2,applicationName:'wimblo-foundation-owner'});
+  const owner=createPostgresPool({connectionString:databaseUrl(database,ownerRole,ownerPassword),max:2,applicationName:'wimblo-foundation-owner'});
   const tenantPool=createPostgresPool({connectionString:databaseUrl(database,tenantRole,tenantPassword),max:2,applicationName:'wimblo-foundation-tenant'});
   const controlPool=createPostgresPool({connectionString:databaseUrl(database,controlRole,controlPassword),max:2,applicationName:'wimblo-foundation-control'});
   pools.push(owner,tenantPool,controlPool);
 
-  await runStep('explicit migrations apply versions 1 through 16',async()=>{
+  await runStep('explicit migrations apply versions 1 through 17 with a non-superuser BYPASSRLS owner',async()=>{
     const result=await owner.withAdminSession(session=>applyMigrations(session));
-    assert(result.currentVersion===16&&SCHEMA_VERSION===16,'schema did not reach version 16');
+    assert(result.currentVersion===17&&SCHEMA_VERSION===17,'schema did not reach version 17');
     assert(result.applied.map(entry=>entry.version).join(',')===MIGRATIONS.map(entry=>entry.version).join(','),'migration order differs');
     for(const sql of applicationRoleGrants(tenantRole))await owner.withAdminSession(session=>session.query(sql));
     for(const sql of controlPlaneRoleGrants(controlRole))await owner.withAdminSession(session=>session.query(sql));
@@ -116,7 +121,7 @@ async function main(){
 
   await runStep('tenant and control connections use distinct non-bypassing roles',async()=>{
     const tenantEvidence=await tenantPool.withAdminSession(session=>assertRowLevelSecurityEffective(session));
-    const controlEvidence=await controlPool.withAdminSession(session=>assertControlPlaneRole(session));
+    const controlEvidence=await controlPool.withAdminSession(async session=>{const evidence=await assertControlPlaneRole(session);await assertSecurityDefinerOwnersBypassRls(session);return evidence;});
     assert(tenantEvidence.role===tenantRole,'tenant connection role mismatch');
     assert(controlEvidence.role===controlRole,'control connection role mismatch');
     assert(tenantEvidence.role!==controlEvidence.role,'runtime roles are not distinct');
@@ -320,7 +325,7 @@ async function main(){
     const own=await tenantPool.withTenantSession(tenantA,session=>session.query('SELECT batch_id FROM crm_import_batches WHERE idempotency_key=$1',[key]));
     assert(own.rowCount===1&&own.rows[0].batch_id===batchA,'tenant-scoped import idempotency returned another tenant batch');
     await expectFailure(()=>controlPool.withAdminSession(session=>session.query('SELECT COUNT(*) FROM crm_saved_reports')),PERSISTENCE_CODES.ISOLATION,'control-role saved report read');
-    return 'schema=16, tenant-idempotency=isolated, stale-preview=refused, committed=immutable, person-mapping=enforced, delete=refused, control=refused';
+    return 'schema=17, tenant-idempotency=isolated, stale-preview=refused, committed=immutable, person-mapping=enforced, delete=refused, control=refused';
   });
 
   await tenantPool.withTransaction(tenantA,session=>session.query("INSERT INTO wimblo_platform.tenant_modules(tenant_id,module_key,state) VALUES($1,'core','enabled')",[tenantA]));

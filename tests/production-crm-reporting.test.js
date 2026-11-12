@@ -5,7 +5,7 @@ import {createCrmReportingService,validateReportDefinition} from '../server/prod
 import {randomUUID} from 'node:crypto';
 
 test('migration 16 adds lean governed reporting and import control tables',()=>{
- assert.equal(SCHEMA_VERSION,16);
+ assert.ok(SCHEMA_VERSION>=16);
  const sql=MIGRATIONS.find(entry=>entry.version===16)?.statements.join('\n')??'';
  for(const table of ['crm_saved_reports','crm_import_batches','crm_import_source_mappings']){
   assert.ok(TENANT_TABLES.includes(table),table);
