@@ -4,6 +4,7 @@ import express from 'express';
 import {once} from 'node:events';
 import {randomUUID} from 'node:crypto';
 import {installCrmRoutes} from '../server/production/crmRoutes.js';
+import {PERSISTENCE_CODES,persistenceFail} from '../server/persistence/contract.js';
 
 const tenantId=randomUUID(),identityId=randomUUID(),subjectId=randomUUID(),taskId=randomUUID(),noteId=randomUUID();
 const pass=(req,res,next)=>next();
@@ -20,7 +21,7 @@ async function request(app,path,{method='GET',body}={}){const server=app.listen(
 const service=()=>({
  listParties:async()=>[],getParty:async()=>({}),createPerson:async()=>({}),createOrganization:async()=>({}),updateParty:async()=>({}),listContacts:async()=>[],createContact:async()=>({}),listRelationships:async()=>[],createRelationship:async()=>({}),
  listPipelines:async()=>[],ensureDefaultPipeline:async()=>({}),listLeads:async()=>[],createLead:async()=>({}),convertLead:async()=>({}),listOpportunities:async()=>[],changeOpportunityStage:async()=>({}),
- createActivity:async input=>input,createTask:async input=>input,updateTask:async input=>input,createNote:async input=>input,reviseNote:async input=>input,linkAttachment:async input=>input,changeSubjectOwner:async input=>input,listTimeline:async input=>({items:[],nextCursor:null,input})
+ getSubject:async input=>({subjectId:input.subjectId,subjectType:'party',ownerIdentityId:identityId,version:4}),listAssignmentMembers:async()=>[{identityId,displayName:'Signed in staff',role:'staff'}],createActivity:async input=>input,createTask:async input=>input,updateTask:async input=>input,createNote:async input=>input,reviseNote:async input=>input,linkAttachment:async input=>input,changeSubjectOwner:async input=>input,listTimeline:async input=>({items:[],nextCursor:null,input})
 });
 
 test('work routes carry tenant role and actor context and viewer can read timeline',async()=>{
@@ -35,6 +36,16 @@ test('work routes carry tenant role and actor context and viewer can read timeli
  for(const [,input] of calls){assert.equal(input.tenantId,tenantId);assert.equal(input.actorIdentityId,identityId);if(input.subjectId)assert.equal(input.subjectId,subjectId);}
  assert.equal(calls.find(([name])=>name==='updateTask')[1].taskId,taskId);
  assert.equal(calls.find(([name])=>name==='reviseNote')[1].noteId,noteId);
+});
+
+test('subject detail and assignment member catalog are tenant-session reads with safe response fields',async()=>{
+ const calls=[],api=service();for(const name of ['getSubject','listAssignmentMembers']){const original=api[name];api[name]=async input=>{calls.push([name,input]);return original(input);};}const app=appFor(api,{role:'viewer'});
+ const subjectResponse=await request(app,`/api/crm/subjects/${subjectId}`),memberResponse=await request(app,'/api/crm/members');
+ assert.equal(subjectResponse.status,200);assert.deepEqual(await subjectResponse.json(),{subject:{subjectId,subjectType:'party',ownerIdentityId:identityId,version:4}});
+ assert.equal(memberResponse.status,200);const memberBody=await memberResponse.json();assert.deepEqual(memberBody,{members:[{identityId,displayName:'Signed in staff',role:'staff'}]});assert.doesNotMatch(JSON.stringify(memberBody),/password|email|security|hash/i);
+ for(const [,input] of calls){assert.equal(input.tenantId,tenantId);assert.equal(input.actorIdentityId,identityId);assert.equal(input.actorRole,'viewer');}
+ assert.equal((await request(appFor(api,{role:'helper'}),'/api/crm/members')).status,403);
+ const disabled=service();disabled.listAssignmentMembers=async()=>persistenceFail(PERSISTENCE_CODES.ISOLATION,'Core capability disabled');assert.equal((await request(appFor(disabled),'/api/crm/members')).status,403);
 });
 
 test('every work mutation is blocked for viewers and by CSRF or recent-auth middleware',async()=>{

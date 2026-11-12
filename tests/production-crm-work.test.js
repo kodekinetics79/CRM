@@ -138,6 +138,21 @@ test('ownership change validates active membership and records one optimistic tr
  assert.ok(f.calls.some(call=>call.sql.includes('/*ownership-event:insert*/')));
 });
 
+test('subject detail returns the tenant-scoped current owner and optimistic version',async()=>{
+ const f=scriptedPool(sql=>sql.includes('/*subject:get*/')?{rows:[{tenant_id:tenantId,subject_id:subjectId,subject_type:'party',owner_identity_id:ownerId,version:7,created_at:now,updated_at:now}],rowCount:1}:null);
+ const subject=await createCrmRepository({tenantPool:f.pool,clock}).getSubject(tenantId,subjectId);
+ assert.deepEqual(subject,{tenantId,subjectId,subjectType:'party',ownerIdentityId:ownerId,version:7,createdAt:now,updatedAt:now});
+ assert.deepEqual(f.calls.find(call=>call.sql.includes('/*subject:get*/')).values,[tenantId,subjectId]);
+});
+
+test('assignment catalog requires core read and forwards only the authenticated tenant actor',async()=>{
+ const calls=[],repository={createPerson(){},getSubjectType:async()=> 'party'},memberDirectory={listAssignmentMembers:async input=>(calls.push(input),[{identityId:ownerId,displayName:'Owner',role:'owner'}])},moduleService={authorize:async input=>({allowed:input.tenantId===tenantId&&input.code==='core'&&input.action==='read'})};
+ const service=createCrmService({repository,moduleService,memberDirectory});
+ assert.deepEqual(await service.listAssignmentMembers({tenantId,actorIdentityId:actorId,actorRole:'viewer'}),[{identityId:ownerId,displayName:'Owner',role:'owner'}]);
+ assert.deepEqual(calls,[{tenantId,actorIdentityId:actorId}]);
+ await assert.rejects(()=>service.listAssignmentMembers({tenantId:randomUUID(),actorIdentityId:actorId,actorRole:'viewer'}),error=>error.code===PERSISTENCE_CODES.ISOLATION);
+});
+
 test('work service requires core and sales capabilities for opportunity subjects',async()=>{
  const calls=[];
  const repository={

@@ -117,6 +117,15 @@ export function createIdentityService({repository,passwordHash,verifyPassword,in
   return (await repository.listMemberships(identityId,{status:'active'})).map(cleanMembership);
  }
 
+ async function listAssignmentMembers({actorIdentityId,tenantId}){
+  const actor=await repository.getIdentity(actorIdentityId),memberships=actor.status==='active'?await repository.listMemberships(actorIdentityId,{status:'active'}):[];
+  if(!memberships.some(item=>item.tenantId===tenantId))persistenceFail(PERSISTENCE_CODES.ISOLATION,'An active tenant membership is required.');
+  let safe;
+  if(typeof repository.listAssignmentMembers==='function')safe=await repository.listAssignmentMembers(tenantId);
+  else{const tenantMembers=await repository.listTenantMemberships(tenantId,{status:'active'});safe=[];for(const membership of tenantMembers){const identity=await repository.getIdentity(membership.identityId).catch(()=>null);if(identity?.status==='active')safe.push({identityId:identity.identityId,displayName:identity.displayName,role:membership.role});}}
+  return safe.sort((a,b)=>Number(b.identityId===actorIdentityId)-Number(a.identityId===actorIdentityId)||a.displayName.localeCompare(b.displayName)||a.identityId.localeCompare(b.identityId));
+ }
+
  async function changeMembership({actorIdentityId,membershipId,role,status,expectedVersion}){
   const target=await repository.getMembership(membershipId);
   await authorizedMembership(actorIdentityId,target.tenantId);
@@ -133,5 +142,5 @@ export function createIdentityService({repository,passwordHash,verifyPassword,in
   return cleanIdentity(await repository.changeIdentity({identityId,status:'suspended',expectedSecurityVersion,actorIdentityId}));
  }
 
- return Object.freeze({issueInvitation,acceptInvitation,revokeInvitation,authenticatePassword,listActiveMemberships,changeMembership,suspendIdentity});
+ return Object.freeze({issueInvitation,acceptInvitation,revokeInvitation,authenticatePassword,listActiveMemberships,listAssignmentMembers,changeMembership,suspendIdentity});
 }

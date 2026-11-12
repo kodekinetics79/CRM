@@ -112,3 +112,17 @@ test('one verified email accepts invitations to two tenants without merging tena
   assert.deepEqual(new Set([acceptedA.membership.tenantId,acceptedB.membership.tenantId]),new Set([first.tenantId,secondTenant]));
   assert.equal(first.repository.businessCalls,0);
 });
+
+test('assignment catalog returns only active tenant members and assignment-safe identity fields',async()=>{
+ const {repository,service,ownerId,tenantId}=await seeded(),staffId=randomUUID(),suspendedId=randomUUID(),otherTenant=randomUUID();
+ await repository.createIdentity({identityId:staffId,email:'staff@example.com',displayName:'Staff Person',passwordHash:'adaptive:secret-staff'});
+ await repository.createIdentity({identityId:suspendedId,email:'suspended@example.com',displayName:'Suspended Person',passwordHash:'adaptive:secret-suspended'});
+ await repository.createMembership({membershipId:randomUUID(),tenantId,identityId:staffId,role:'staff'});
+ const suspended=await repository.createMembership({membershipId:randomUUID(),tenantId,identityId:suspendedId,role:'staff'});repository.memberships.get(suspended.membershipId).status='suspended';
+ const members=await service.listAssignmentMembers({actorIdentityId:ownerId,tenantId});
+ assert.equal(members[0].identityId,ownerId);
+ assert.deepEqual(members.map(item=>item.identityId).sort(),[ownerId,staffId].sort());
+ assert.deepEqual(Object.keys(members[0]).sort(),['displayName','identityId','role']);
+ assert.doesNotMatch(JSON.stringify(members),/password|email|security|membershipId/i);
+ await assert.rejects(()=>service.listAssignmentMembers({actorIdentityId:ownerId,tenantId:otherTenant}),error=>error.code===PERSISTENCE_CODES.ISOLATION);
+});

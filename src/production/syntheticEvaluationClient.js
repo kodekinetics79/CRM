@@ -22,7 +22,7 @@ export const SYNTHETIC_BASELINE=freeze({
   {stageId:'30000000-0000-4000-8000-000000000014',name:'Lost',kind:'lost',position:4,probability:0}
  ]}],
  opportunities:[{opportunityId:'40000000-0000-4000-8000-000000000001',partyId:'20000000-0000-4000-8000-000000000001',name:'Synthetic service renewal',stageId:'30000000-0000-4000-8000-000000000011',status:'open',amountCents:2400000,currency:'USD',version:1,expectedCloseDate:'2026-12-15'}],
- contacts:{},tasks:[],notes:[],subjectVersions:{},
+ contacts:{},tasks:[],notes:[],subjectVersions:{},subjectOwners:{},
  timeline:{'20000000-0000-4000-8000-000000000001':[{kind:'activity',sourceId:'50000000-0000-4000-8000-000000000001',sourceVersion:1,summary:'Synthetic discovery meeting recorded',occurredAt:'2026-11-11T14:00:00.000Z'}]}
 });
 
@@ -36,6 +36,7 @@ export function createSyntheticEvaluationClient(){
   if(path==='/auth/me')return ok({identity:state.identity,membership:state.membership,csrfToken:'synthetic-memory-csrf',mfaVerifiedAt:'2026-11-11T12:00:00.000Z'});
   if(path==='/auth/tenants')return ok({memberships:[{...state.membership,tenantName:state.tenant.name,tenantSlug:state.tenant.slug}]});
   if(path==='/modules')return ok({modules:state.modules});
+  if(path==='/crm/members')return ok({members:[{identityId:state.identity.identityId,displayName:state.identity.displayName,role:state.membership.role}]});
   if(path==='/crm/parties'&&verb==='GET')return ok({parties:state.parties});
   if(path.startsWith('/crm/parties?')&&verb==='GET'){const query=new URLSearchParams(path.split('?')[1]),needle=(query.get('search')||'').toLowerCase();return ok({parties:state.parties.filter(item=>item.displayName.toLowerCase().includes(needle))});}
   const contactsMatch=path.match(/^\/crm\/parties\/([^/?]+)\/contacts(?:\?.*)?$/);
@@ -51,6 +52,8 @@ export function createSyntheticEvaluationClient(){
   if(stageMatch&&verb==='POST'){const opportunity=state.opportunities.find(item=>item.opportunityId===stageMatch[1]);if(!opportunity)throw Object.assign(new Error('Opportunity not found.'),{status:404});if(opportunity.version!==body.expectedVersion)throw Object.assign(new Error('Opportunity changed.'),{status:409});opportunity.stageId=body.stageId;opportunity.version++;return ok({opportunity});}
   if(path.startsWith('/crm/opportunities')&&verb==='GET')return ok({opportunities:state.opportunities});
   if(path.match(/^\/crm\/subjects\/[^/]+\/timeline/)){const subjectId=path.split('/')[3];return ok({items:state.timeline[subjectId]||[],nextCursor:null});}
+  const subjectMatch=path.match(/^\/crm\/subjects\/([^/]+)$/);
+  if(subjectMatch&&verb==='GET')return ok({subject:{subjectId:subjectMatch[1],subjectType:'party',ownerIdentityId:state.subjectOwners[subjectMatch[1]]||state.identity.identityId,version:state.subjectVersions[subjectMatch[1]]||1}});
   const activityMatch=path.match(/^\/crm\/subjects\/([^/]+)\/activities$/);
   if(activityMatch&&verb==='POST'){const activity={activityId:uuid(sequence++),version:1,...body},item={kind:'activity',sourceId:activity.activityId,sourceVersion:1,summary:activity.summary,occurredAt:'2026-11-11T15:00:00.000Z'};(state.timeline[activityMatch[1]]??=[]).push(item);return ok({activity});}
   const taskCreate=path.match(/^\/crm\/subjects\/([^/]+)\/tasks$/);
@@ -64,7 +67,7 @@ export function createSyntheticEvaluationClient(){
   const attachment=path.match(/^\/crm\/subjects\/([^/]+)\/attachments$/);
   if(attachment&&verb==='POST')return ok({attachment:{linkId:uuid(sequence++),subjectId:attachment[1],version:1,...body}});
   const owner=path.match(/^\/crm\/subjects\/([^/]+)\/owner$/);
-  if(owner&&verb==='PATCH'){const current=state.subjectVersions[owner[1]]||1;if(current!==body.expectedVersion)throw Object.assign(new Error('Owner changed.'),{status:409});state.subjectVersions[owner[1]]=current+1;return ok({subject:{subjectId:owner[1],ownerIdentityId:body.newOwnerIdentityId,version:current+1}});}
+  if(owner&&verb==='PATCH'){const current=state.subjectVersions[owner[1]]||1;if(current!==body.expectedVersion)throw Object.assign(new Error('Owner changed.'),{status:409});state.subjectVersions[owner[1]]=current+1;state.subjectOwners[owner[1]]=body.newOwnerIdentityId;return ok({subject:{subjectId:owner[1],subjectType:'party',ownerIdentityId:body.newOwnerIdentityId,version:current+1}});}
   if(path.startsWith('/crm/dashboard')){const dataset=new URLSearchParams(path.split('?')[1]).get('dataset')||'opportunities';return ok({dashboard:{dataset,total:dataset==='parties'?state.parties.length:state.opportunities.length}});}
   if(path==='/crm/reports/execute')return ok({dataset:body?.definition?.dataset||'parties',rows:state.parties,truncated:false});
   if(path==='/crm/reports'&&verb==='POST')return ok({report:{reportId:uuid(sequence++),name:body.name,dataset:body.definition.dataset,version:1}});

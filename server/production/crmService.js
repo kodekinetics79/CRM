@@ -6,7 +6,7 @@ const WRITE_ROLES=new Set(['owner','admin','staff']);
 
 export {createCrmRepository};
 
-export function createCrmService({repository,moduleService}={}){
+export function createCrmService({repository,moduleService,memberDirectory=null}={}){
   if(!repository||typeof repository.createPerson!=='function')persistenceFail(PERSISTENCE_CODES.INVALID,'A CRM repository is required.');
   if(!moduleService||typeof moduleService.authorize!=='function')persistenceFail(PERSISTENCE_CODES.INVALID,'A module service is required.');
 
@@ -60,6 +60,8 @@ export function createCrmService({repository,moduleService}={}){
     listPipelines:async input=>{await salesReadContext(input.tenantId,input.actorRole);return repository.listPipelines(input.tenantId,input);},
     listLeads:async input=>{await salesReadContext(input.tenantId,input.actorRole);return repository.listLeads(input.tenantId,input);},
     listOpportunities:async input=>{await salesReadContext(input.tenantId,input.actorRole);return repository.listOpportunities(input.tenantId,input);},
+    getSubject:async input=>{await readContext(input.tenantId,input.actorRole);const subject=await repository.getSubject(input.tenantId,input.subjectId);if(subject.subjectType==='lead'||subject.subjectType==='opportunity')await requireSalesCapability(input.tenantId,'read');return subject;},
+    listAssignmentMembers:async input=>{await readContext(input.tenantId,input.actorRole);if(!memberDirectory||typeof memberDirectory.listAssignmentMembers!=='function')persistenceFail(PERSISTENCE_CODES.INVALID,'Assignment member directory is unavailable.');return memberDirectory.listAssignmentMembers({tenantId:input.tenantId,actorIdentityId:input.actorIdentityId});},
     createActivity:async input=>{await workContext(input,'write');return repository.createActivity(input);},
     createTask:async input=>{await workContext(input,'write');return repository.createTask(input);},
     updateTask:async input=>{await artifactWorkContext(input,'write',repository.getTaskSubject);return repository.updateTask(input);},

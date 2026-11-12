@@ -239,6 +239,16 @@ export function createControlRepository({pool,clock=()=>new Date()}={}){
   return rows.map(mapMembership);
  }
 
+ async function listAssignmentMembers(tenantId){
+  const {rows}=await read(session=>session.query(
+   `SELECT m.identity_id,i.display_name,m.role
+    FROM wimblo_platform.memberships m
+    JOIN wimblo_platform.global_identities i ON i.identity_id=m.identity_id
+    WHERE m.tenant_id=$1 AND m.status='active' AND i.status='active'
+    ORDER BY i.display_name,m.identity_id`,[uuid(tenantId,'Tenant ID')]));
+  return rows.map(row=>({identityId:row.identity_id,displayName:row.display_name,role:row.role}));
+ }
+
  async function changeMembership({membershipId,role,status,expectedVersion,actorIdentityId=null}){
   const member=uuid(membershipId,'Membership ID'),expected=version(expectedVersion),at=currentTime();
   if(role===undefined&&status===undefined)fail('Membership change requires role or status.');
@@ -492,7 +502,7 @@ export function createControlRepository({pool,clock=()=>new Date()}={}){
 
  return Object.freeze({
   createIdentity,findIdentityByEmail,getIdentity,changeIdentity,
-  createMembership,getMembership,listMemberships,listTenantMemberships,changeMembership,
+  createMembership,getMembership,listMemberships,listTenantMemberships,listAssignmentMembers,changeMembership,
   createInvitation,getInvitation,consumeInvitation,acceptInvitationMembership,revokeInvitation,
   getMfaState,putMfaState,replaceRecoveryCodes,consumeRecoveryCode,countRecoveryCodes,createMfaChallenge,getMfaChallenge,updateMfaChallenge,
   createSession,getSession,revokeSessions,getTenantState,appendAudit

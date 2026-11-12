@@ -62,3 +62,23 @@
 - Production-mode and synthetic-evaluation-mode builds passed. The production build emitted no synthetic fixture chunk; the synthetic build emitted a separate 7.75 kB fixture chunk.
 - `npm audit --audit-level=high`: 0 vulnerabilities; `git diff --check`: passed.
 - Browser host availability is unchanged from the implementation checkpoint, so no browser was installed and no paid/external service was used.
+
+## Fix round 2/5
+
+### Remaining finding closed
+
+- A tenant-authorized subject-detail read now returns the canonical subject type, current owner and optimistic version. Relationship detail loads it with party, contacts and members, sends that exact version on owner changes, advances to each returned version, and performs an explicit authoritative reload after conflict before a retry.
+- A control-plane assignment catalog joins only active tenant memberships to active identities and returns exactly `identityId`, `displayName` and `role`. The identity layer independently verifies the requesting actor's active tenant membership; the CRM layer additionally requires the current tenant session, authorized CRM role and core read capability. No email, membership identifier, password/auth hash or security metadata is exposed.
+- Task and relationship owner UUID fields are now labelled member selects. The signed-in member is ordered first and selected when no saved owner overrides it; empty catalogs explicitly disable assignment. Viewer mutation UI remains absent.
+- Source-string assertions were replaced with rendered state/action tests proving selected member IDs, task creation and two lifecycle versions, two sequential ownership versions, and conflict reload followed by a successful retry.
+
+### TDD and verification evidence
+
+- Backend RED: `node --test tests/production-identity-service.test.js tests/production-crm-work.test.js tests/production-crm-work-http.test.js` — 17/21 passed. The four failures proved subject detail, assignment catalog service policy and both HTTP reads were absent.
+- Rendered UI RED: `node --test tests/production-crm-workflows-ui.test.js` — 9/12 passed. The three failures proved ownership still started at hard-coded version 1, conflict reload did not refresh it, and no assignment-safe empty/member-select state existed.
+- Focused GREEN: identity, work repository/service/HTTP, workflow UI, production UI/evaluation and auth suites passed 55/55.
+- `npm run test:production-foundation`: 171/171 passed; real PostgreSQL schema 16, 35 forced-RLS tables and all verifier checks passed; discipline reported 0 focused and 0 skipped.
+- Clean final `npm test`: 1,645/1,645 passed.
+- Production and synthetic-evaluation builds passed; production emitted no synthetic fixture chunk and the evaluator fixture remained separate.
+- `npm audit --audit-level=high`: 0 vulnerabilities; `git diff --check`: passed.
+- No push, deployment, provider mutation, browser installation or paid service was used.

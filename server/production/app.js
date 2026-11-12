@@ -37,16 +37,17 @@ function createRateLimit({clock,limit=10,windowMs=5*60_000,maxKeys=10_000}){
 
 function defaultServices({config,controlPool,tenantPool,clock}){
  const repository=createControlRepository({pool:controlPool,clock:()=>new Date(nowMs(clock))});
+ const identityService=createIdentityService({repository,passwordHash,verifyPassword,invitationSecret:derivedSecret(config.sessionSecret,'invitation-signing'),clock:()=>new Date(nowMs(clock))});
  const moduleService=createModuleService({tenantPool,clock:()=>new Date(nowMs(clock))});
  const jobRepository=createJobRepository({tenantPool,clock:()=>new Date(nowMs(clock))});
  const crmRepository=createCrmRepository({tenantPool,jobRepository,clock:()=>new Date(nowMs(clock))});
  return {
-  identityService:createIdentityService({repository,passwordHash,verifyPassword,invitationSecret:derivedSecret(config.sessionSecret,'invitation-signing'),clock:()=>new Date(nowMs(clock))}),
+  identityService,
   mfaService:createGlobalMfaService({repository,key:config.mfaEncryptionKey,clock:()=>nowMs(clock),issuer:'Wimblo'}),
   sessionService:createSessionService({repository,clock:()=>nowMs(clock),cookieName:config.cookieName}),
   moduleService,
   crmRepository,
-  crmService:createCrmService({repository:crmRepository,moduleService}),
+  crmService:createCrmService({repository:crmRepository,moduleService,memberDirectory:identityService}),
   crmReportingService:createCrmReportingService({tenantPool,moduleService,clock:()=>new Date(nowMs(clock))}),
   crmImportService:createCrmImportService({tenantPool,moduleService,clock:()=>new Date(nowMs(clock))})
  };

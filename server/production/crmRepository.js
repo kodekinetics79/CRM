@@ -218,6 +218,11 @@ export function createCrmRepository({tenantPool,jobRepository=null,clock=timesta
     return row;
   }
 
+  async function getSubject(tenantId,subjectId){
+    const tenant=uuid(tenantId,'Tenant ID'),subject=uuid(subjectId,'Subject ID');
+    return tenantPool.withTenantSession(tenant,async session=>mapSubject(await getSubjectWithSession(session,tenant,subject)));
+  }
+
   async function requireActiveMembership(session,tenant,identity){
     const {rows:[row]}=await session.query(
       `/*membership:active*/ SELECT identity_id FROM wimblo_platform.memberships WHERE tenant_id=$1 AND identity_id=$2 AND status='active'`,
@@ -753,5 +758,5 @@ export function createCrmRepository({tenantPool,jobRepository=null,clock=timesta
     });
   }
 
-  return Object.freeze({createPerson,createOrganization,getParty,listParties,updateParty,createContact,listContacts,createRelationship,listRelationships,ensureDefaultPipeline,createLead,convertLead,changeOpportunityStage,listPipelines,listLeads,listOpportunities,getSubjectType,getTaskSubject,getNoteSubject,createActivity,createTask,updateTask,createNote,reviseNote,linkAttachment,changeSubjectOwner,listTimeline});
+  return Object.freeze({createPerson,createOrganization,getParty,listParties,updateParty,createContact,listContacts,createRelationship,listRelationships,ensureDefaultPipeline,createLead,convertLead,changeOpportunityStage,listPipelines,listLeads,listOpportunities,getSubject,getSubjectType,getTaskSubject,getNoteSubject,createActivity,createTask,updateTask,createNote,reviseNote,linkAttachment,changeSubjectOwner,listTimeline});
 }
