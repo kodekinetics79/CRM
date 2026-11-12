@@ -39,3 +39,25 @@
 
 - Import scope is intentionally limited to canonical people.
 - No external delivery, provider action, deployment or customer acceptance is claimed.
+
+## Fix round 1/5
+
+### Findings closed
+
+- Preview now reconciles inserted, updated and unchanged rows against a deterministic, external-key-ordered snapshot of source mapping identity, prior source hash, target subject and canonical party version. Only the SHA-256 snapshot digest and counts are retained; no raw CSV or preview row is stored. Commit locks and recomputes the same snapshot before writes and refuses any mismatch.
+- People source mappings now have a composite foreign key to `people(tenant_id, party_id)` in addition to the canonical subject link. Person updates must affect exactly one subtype row.
+- Report fields carry explicit text, integer or date types. Operator and value compatibility is rejected before SQL compilation.
+- HTTP coverage now includes saved-report PATCH and import commit for viewer, CSRF and recent-authentication refusal, exact path artifact propagation, stale-source conflict, and safe unknown/cross-tenant report and batch refusal.
+
+### TDD and verification evidence
+
+- Focused RED: `node --test tests/production-crm-reporting.test.js tests/production-crm-import.test.js` — 9/14 passed. Failures proved the snapshot/count columns and logic, person-only FK/update enforcement, and typed operator checks were absent.
+- Focused GREEN: the same service/migration set passed 13/13; final export/import/reporting/HTTP coverage passed 17/17.
+- Compatibility: migration, app, reporting, import, export, HTTP and foundation-focused tests passed 45/45.
+- `npm run test:production-foundation`: 139/139 passed; TDD discipline reported 0 focused and 0 skipped.
+- Real PostgreSQL verifier: schema 16/16 and 35 forced-RLS tables passed; an organization target was refused by the people mapping FK; a canonical target changed after preview caused commit refusal while the batch remained previewed and the manual target edit remained intact.
+- `npm test`: clean rerun passed 1,613/1,613, resolving the prior isolated legacy MFA blip.
+- `npm run build`: passed with the existing 511.71 kB chunk warning.
+- `npm audit --audit-level=high`: 0 vulnerabilities.
+- `git diff --check` and `npm run test:discipline`: passed.
+- No push, PR, deployment, provider mutation or paid feature was used.

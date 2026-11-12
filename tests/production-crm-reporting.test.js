@@ -16,8 +16,10 @@ test('migration 16 adds lean governed reporting and import control tables',()=>{
  assert.match(sql,/CHECK \(jsonb_typeof\(definition\)='object'/);
  assert.match(sql,/UNIQUE \(tenant_id, idempotency_key\)/);
  assert.match(sql,/row_count = valid_count \+ invalid_count/);
+ assert.match(sql,/preview_sha256 char\(64\)/);
  assert.match(sql,/crm_import_batch_committed_immutable/);
  assert.match(sql,/FOREIGN KEY \(tenant_id, target_subject_id\) REFERENCES crm_subjects/);
+ assert.match(sql,/FOREIGN KEY \(tenant_id, target_subject_id\) REFERENCES people\(tenant_id, party_id\)/);
 });
 
 test('report definitions are strict bounded ASTs and never accept SQL or unknown fields',()=>{
@@ -28,8 +30,13 @@ test('report definitions are strict bounded ASTs and never accept SQL or unknown
   {dataset:'opportunities',columns:['password_hash']},
   {dataset:'opportunities',columns:['name'],filters:Array.from({length:11},()=>({field:'status',operator:'eq',value:'open'}))},
   {dataset:'opportunities',columns:['name'],dateRange:{from:'2024-01-01',to:'2026-01-02'}},
+  {dataset:'opportunities',columns:['amountCents'],filters:[{field:'amountCents',operator:'contains',value:'12'}]},
+  {dataset:'opportunities',columns:['expectedCloseDate'],filters:[{field:'expectedCloseDate',operator:'contains',value:'2026'}]},
+  {dataset:'opportunities',columns:['amountCents'],filters:[{field:'amountCents',operator:'gte',value:'1200'}]},
+  {dataset:'opportunities',columns:['status'],filters:[{field:'status',operator:'gte',value:'open'}]},
   {dataset:'unknown',columns:['name']}
  ])assert.throws(()=>validateReportDefinition(bad),/definition|dataset|field|range|filter/i);
+ assert.doesNotThrow(()=>validateReportDefinition({dataset:'opportunities',columns:['amountCents','expectedCloseDate'],filters:[{field:'amountCents',operator:'gte',value:1200},{field:'expectedCloseDate',operator:'lte',value:'2026-12-31'}]}));
 });
 
 test('report execution uses fixed tenant-bound templates and bounded rows',async()=>{

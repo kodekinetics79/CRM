@@ -32,13 +32,55 @@ test('preview classifies canonical field limits and duplicate source keys withou
 test('preview persists only hashes and reconciliation counts and exact replay is idempotent',async()=>{
  const tenantId=randomUUID(),identityId=randomUUID(),batchId=randomUUID(),calls=[];
  const row={tenant_id:tenantId,batch_id:batchId,idempotency_key:'import-1',source_system:'legacy',entity_type:'people',source_sha256:'a'.repeat(64),mapping_sha256:'b'.repeat(64),byte_count:Buffer.byteLength(valid),row_count:1,valid_count:1,invalid_count:0,inserted_count:0,updated_count:0,unchanged_count:0,status:'previewed',actor_identity_id:identityId,version:1,expires_at:'2026-11-12T00:00:00.000Z',created_at:'2026-11-11T23:00:00.000Z',updated_at:'2026-11-11T23:00:00.000Z'};
- const tenantPool={withTransaction:async(tenant,fn)=>fn({query:async(sql,values)=>{calls.push({sql,values});if(sql.includes('/*import-batch:by-key*/'))return {rows:[],rowCount:0};if(sql.includes('/*import-batch:insert*/'))return {rows:[{...row,source_sha256:values[5],mapping_sha256:values[6]}],rowCount:1};throw new Error(`Unexpected ${sql}`);}})};
+ const tenantPool={withTransaction:async(tenant,fn)=>fn({query:async(sql,values)=>{calls.push({sql,values});if(sql.includes('/*import-batch:by-key*/'))return {rows:[],rowCount:0};if(sql.includes('/*import-map:snapshot*/'))return {rows:[],rowCount:0};if(sql.includes('/*import-batch:insert*/'))return {rows:[{...row,source_sha256:values[4],mapping_sha256:values[5],preview_sha256:values[6],inserted_count:values[11],updated_count:values[12],unchanged_count:values[13]}],rowCount:1};throw new Error(`Unexpected ${sql}`);}})};
  const service=createCrmImportService({tenantPool,moduleService:{authorize:async()=>({allowed:true})},clock:()=>new Date('2026-11-11T23:00:00.000Z')});
  const preview=await service.previewPeople({tenantId,actorRole:'staff',actorIdentityId:identityId,batchId,idempotencyKey:'import-1',sourceSystem:'legacy',csv:valid});
  assert.equal(preview.rowCount,1);assert.equal(preview.validCount,1);assert.equal(preview.errors.length,0);
  const insert=calls.find(call=>call.sql.includes('/*import-batch:insert*/'));
  assert.equal(insert.values.some(value=>value===valid||JSON.stringify(value).includes('Ada')),false);
- assert.match(insert.values[5],/^[a-f0-9]{64}$/);
+ assert.match(insert.values[4],/^[a-f0-9]{64}$/);
+ assert.match(insert.values[6],/^[a-f0-9]{64}$/);
+ assert.equal(preview.insertedCount,1);assert.equal(preview.updatedCount,0);assert.equal(preview.unchangedCount,0);
+});
+
+test('commit refuses when a canonical target changes after deterministic preview',async()=>{
+ const tenantId=randomUUID(),identityId=randomUUID(),batchId=randomUUID(),targetId=randomUUID(),parsed=parsePeopleCsv(valid);
+ let batch,currentVersion=1,commitSnapshotSql='';
+ const mapping=()=>({external_key:'A-1',target_subject_id:targetId,source_row_hash:parsed.rows[0].rowHash,target_version:1,current_target_version:currentVersion});
+ const tenantPool={withTransaction:async(tenant,fn)=>fn({query:async(sql,values)=>{
+  if(sql.includes('/*import-batch:by-key*/'))return {rows:[],rowCount:0};
+  if(sql.includes('/*import-map:snapshot*/'))return {rows:[mapping()],rowCount:1};
+  if(sql.includes('/*import-batch:insert*/')){batch={tenant_id:tenantId,batch_id:batchId,idempotency_key:'import-1',source_system:'legacy',source_sha256:values[4],mapping_sha256:values[5],preview_sha256:values[6],row_count:1,valid_count:1,invalid_count:0,inserted_count:values[11],updated_count:values[12],unchanged_count:values[13],status:'previewed',version:1,expires_at:'2026-11-12T00:00:00.000Z'};return {rows:[batch],rowCount:1};}
+  if(sql.includes('/*import-batch:lock*/'))return {rows:[batch],rowCount:1};
+  if(sql.includes('/*import-map:commit-snapshot*/')){commitSnapshotSql=sql;return {rows:[mapping()],rowCount:1};}
+  throw new Error(`Unexpected ${sql}`);
+ }})};
+ const service=createCrmImportService({tenantPool,moduleService:{authorize:async()=>({allowed:true})},clock:()=>new Date('2026-11-11T23:00:00.000Z')});
+ const preview=await service.previewPeople({tenantId,actorRole:'staff',actorIdentityId:identityId,batchId,idempotencyKey:'import-1',sourceSystem:'legacy',csv:valid});
+ assert.equal(preview.unchangedCount,1);
+ currentVersion=2;
+ await assert.rejects(()=>service.commitPeople({tenantId,actorRole:'staff',actorIdentityId:identityId,batchId,expectedVersion:1,sourceSystem:'legacy',idempotencyKey:'import-1',csv:valid,expectedSourceSha256:parsed.sourceSha256}),/preview|changed|stale/i);
+ assert.match(commitSnapshotSql,/JOIN people pe/);
+ assert.match(commitSnapshotSql,/FOR UPDATE OF m,p/);
+});
+
+test('commit requires the canonical person subtype row to update exactly once',async()=>{
+ const tenantId=randomUUID(),identityId=randomUUID(),batchId=randomUUID(),targetId=randomUUID(),parsed=parsePeopleCsv(valid);
+ let batch;
+ const mapping={external_key:'A-1',target_subject_id:targetId,source_row_hash:'0'.repeat(64),target_version:1,current_target_version:1};
+ const tenantPool={withTransaction:async(tenant,fn)=>fn({query:async(sql,values)=>{
+  if(sql.includes('/*import-batch:by-key*/'))return {rows:[],rowCount:0};
+  if(sql.includes('/*import-map:snapshot*/'))return {rows:[mapping],rowCount:1};
+  if(sql.includes('/*import-batch:insert*/')){batch={tenant_id:tenantId,batch_id:batchId,idempotency_key:'import-1',source_system:'legacy',source_sha256:values[4],mapping_sha256:values[5],preview_sha256:values[6],row_count:1,valid_count:1,invalid_count:0,inserted_count:values[11],updated_count:values[12],unchanged_count:values[13],status:'previewed',version:1,expires_at:'2026-11-12T00:00:00.000Z'};return {rows:[batch],rowCount:1};}
+  if(sql.includes('/*import-batch:lock*/'))return {rows:[batch],rowCount:1};
+  if(sql.includes('/*import-map:commit-snapshot*/'))return {rows:[mapping],rowCount:1};
+  if(sql.includes('/*import-party:update*/'))return {rows:[{version:2}],rowCount:1};
+  if(sql.includes('/*import-person:update*/'))return {rows:[],rowCount:0};
+  throw new Error(`Unexpected ${sql}`);
+ }})};
+ const service=createCrmImportService({tenantPool,moduleService:{authorize:async()=>({allowed:true})},clock:()=>new Date('2026-11-11T23:00:00.000Z')});
+ await service.previewPeople({tenantId,actorRole:'staff',actorIdentityId:identityId,batchId,idempotencyKey:'import-1',sourceSystem:'legacy',csv:valid});
+ await assert.rejects(()=>service.commitPeople({tenantId,actorRole:'staff',actorIdentityId:identityId,batchId,expectedVersion:1,sourceSystem:'legacy',idempotencyKey:'import-1',csv:valid,expectedSourceSha256:parsed.sourceSha256}),/person|subtype/i);
 });
 
 test('commit refuses changed source before opening a transaction',async()=>{
@@ -46,19 +88,4 @@ test('commit refuses changed source before opening a transaction',async()=>{
  const service=createCrmImportService({tenantPool:{withTransaction:async()=>{opened++;}},moduleService:{authorize:async()=>({allowed:true})}});
  await assert.rejects(()=>service.commitPeople({tenantId:randomUUID(),actorRole:'staff',actorIdentityId:randomUUID(),batchId:randomUUID(),expectedVersion:1,sourceSystem:'legacy',idempotencyKey:'import-1',csv:valid.replace('Ada','Grace'),expectedSourceSha256:'0'.repeat(64)}),/source/i);
  assert.equal(opened,0);
-});
-
-test('commit locks the canonical party version and refuses a stale mapped target',async()=>{
- const tenantId=randomUUID(),identityId=randomUUID(),batchId=randomUUID(),targetId=randomUUID();
- const parsed=parsePeopleCsv(valid);let mappingLockSql='';
- const batch={tenant_id:tenantId,batch_id:batchId,idempotency_key:'import-1',source_system:'legacy',entity_type:'people',source_sha256:parsed.sourceSha256,mapping_sha256:parsed.mappingSha256,status:'previewed',version:1,expires_at:'2026-11-12T00:00:00.000Z'};
- const tenantPool={withTransaction:async(tenant,fn)=>fn({query:async sql=>{
-  if(sql.includes('/*import-batch:lock*/'))return {rows:[batch],rowCount:1};
-  if(sql.includes('/*import-map:lock*/')){mappingLockSql=sql;return {rows:[{target_subject_id:targetId,source_row_hash:parsed.rows[0].rowHash,target_version:1,current_target_version:2}],rowCount:1};}
-  throw new Error(`Unexpected ${sql}`);
- }})};
- const service=createCrmImportService({tenantPool,moduleService:{authorize:async()=>({allowed:true})},clock:()=>new Date('2026-11-11T23:00:00.000Z')});
- await assert.rejects(()=>service.commitPeople({tenantId,actorRole:'staff',actorIdentityId:identityId,batchId,expectedVersion:1,sourceSystem:'legacy',idempotencyKey:'import-1',csv:valid,expectedSourceSha256:parsed.sourceSha256}),/target changed/i);
- assert.match(mappingLockSql,/JOIN parties p/);
- assert.match(mappingLockSql,/FOR UPDATE OF m,p/);
 });

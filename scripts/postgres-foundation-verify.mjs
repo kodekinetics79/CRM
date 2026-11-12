@@ -282,15 +282,22 @@ async function main(){
       await session.query("INSERT INTO parties(tenant_id,party_id,party_type,display_name) VALUES($1,$2,'person','Import verifier')",[tenant,subject]);
       await session.query("INSERT INTO people(tenant_id,party_id,first_name,last_name) VALUES($1,$2,'Import','Verifier')",[tenant,subject]);
       await session.query("INSERT INTO crm_subjects(tenant_id,subject_id,subject_type,party_id) VALUES($1,$2,'party',$2)",[tenant,subject]);
-      await session.query("INSERT INTO crm_import_batches(tenant_id,batch_id,idempotency_key,source_system,entity_type,source_sha256,mapping_sha256,byte_count,row_count,valid_count,invalid_count,actor_identity_id,expires_at) VALUES($1,$2,$3,'legacy','people',$4,$5,100,1,1,0,$6,now()+interval '1 hour')",[tenant,batch,key,'a'.repeat(64),'b'.repeat(64),identityId]);
+      await session.query("INSERT INTO crm_import_batches(tenant_id,batch_id,idempotency_key,source_system,entity_type,source_sha256,mapping_sha256,preview_sha256,byte_count,row_count,valid_count,invalid_count,inserted_count,actor_identity_id,expires_at) VALUES($1,$2,$3,'legacy','people',$4,$5,$6,100,1,1,0,1,$7,now()+interval '1 hour')",[tenant,batch,key,'a'.repeat(64),'b'.repeat(64),'d'.repeat(64),identityId]);
       await session.query("INSERT INTO crm_import_source_mappings(tenant_id,source_system,entity_type,external_key,target_subject_id,source_row_hash,target_version,last_batch_id) VALUES($1,'legacy','people','row-1',$2,$3,1,$4)",[tenant,subject,'c'.repeat(64),batch]);
     });
     await tenantPool.withTransaction(tenantA,async session=>{
       await session.query("INSERT INTO crm_saved_reports(tenant_id,report_id,name,dataset,definition,owner_identity_id) VALUES($1,$2,'Pipeline report','opportunities',$3::jsonb,$4)",[tenantA,reportId,JSON.stringify({dataset:'opportunities',columns:['name']}),identityId]);
       await session.query("UPDATE crm_import_batches SET status='committed',inserted_count=1,committed_at=now(),version=version+1,updated_at=now() WHERE tenant_id=$1 AND batch_id=$2",[tenantA,batchA]);
     });
-    await expectFailure(()=>tenantPool.withTransaction(tenantA,session=>session.query("INSERT INTO crm_import_batches(tenant_id,batch_id,idempotency_key,source_system,entity_type,source_sha256,mapping_sha256,byte_count,row_count,valid_count,invalid_count,actor_identity_id,expires_at) VALUES($1,$2,$3,'legacy','people',$4,$5,100,0,0,0,$6,now()+interval '1 hour')",[tenantA,randomUUID(),key,'d'.repeat(64),'b'.repeat(64),identityId])),PERSISTENCE_CODES.CONFLICT,'tenant import idempotency');
+    await expectFailure(()=>tenantPool.withTransaction(tenantA,session=>session.query("INSERT INTO crm_import_batches(tenant_id,batch_id,idempotency_key,source_system,entity_type,source_sha256,mapping_sha256,preview_sha256,byte_count,row_count,valid_count,invalid_count,actor_identity_id,expires_at) VALUES($1,$2,$3,'legacy','people',$4,$5,$6,100,0,0,0,$7,now()+interval '1 hour')",[tenantA,randomUUID(),key,'d'.repeat(64),'b'.repeat(64),'e'.repeat(64),identityId])),PERSISTENCE_CODES.CONFLICT,'tenant import idempotency');
     await expectFailure(()=>tenantPool.withTransaction(tenantA,session=>session.query("UPDATE crm_import_batches SET inserted_count=0 WHERE tenant_id=$1 AND batch_id=$2",[tenantA,batchA])),PERSISTENCE_CODES.INVALID,'committed import mutation');
+    await expectFailure(()=>tenantPool.withTransaction(tenantA,async session=>{
+      const organizationSubject=randomUUID();
+      await session.query("INSERT INTO parties(tenant_id,party_id,party_type,display_name) VALUES($1,$2,'organization','Wrong import subtype')",[tenantA,organizationSubject]);
+      await session.query("INSERT INTO organizations(tenant_id,party_id,legal_name) VALUES($1,$2,'Wrong import subtype')",[tenantA,organizationSubject]);
+      await session.query("INSERT INTO crm_subjects(tenant_id,subject_id,subject_type,party_id) VALUES($1,$2,'party',$2)",[tenantA,organizationSubject]);
+      await session.query("INSERT INTO crm_import_source_mappings(tenant_id,source_system,entity_type,external_key,target_subject_id,source_row_hash,target_version,last_batch_id) VALUES($1,'legacy-org','people','org-1',$2,$3,1,$4)",[tenantA,organizationSubject,'f'.repeat(64),batchA]);
+    }),PERSISTENCE_CODES.INVALID,'organization subject used for people import mapping');
     await expectFailure(()=>tenantPool.withTransaction(tenantA,session=>session.query('DELETE FROM crm_saved_reports WHERE tenant_id=$1 AND report_id=$2',[tenantA,reportId])),PERSISTENCE_CODES.ISOLATION,'saved report delete privilege');
     const csv='external_key,display_name,first_name,last_name\r\nservice-1,Service Import,Service,Verifier\r\n',serviceKey='foundation-service-import';
     const importService=createCrmImportService({tenantPool,moduleService:{authorize:async()=>({allowed:true})}});
@@ -298,11 +305,19 @@ async function main(){
     const committed=await importService.commitPeople({tenantId:tenantA,actorRole:'staff',actorIdentityId:identityId,batchId:preview.batchId,expectedVersion:preview.version,expectedSourceSha256:preview.sourceSha256,idempotencyKey:serviceKey,sourceSystem:'legacy',csv});
     const replay=await importService.commitPeople({tenantId:tenantA,actorRole:'staff',actorIdentityId:identityId,batchId:preview.batchId,expectedVersion:preview.version,expectedSourceSha256:preview.sourceSha256,idempotencyKey:serviceKey,sourceSystem:'legacy',csv});
     assert(committed.status==='committed'&&committed.insertedCount===1&&replay.insertedCount===1,'preview/commit/replay did not preserve one canonical import result');
+    const staleCsv=csv.replace('Service Import','Previewed Update'),staleKey='foundation-service-import-stale';
+    const stalePreview=await importService.previewPeople({tenantId:tenantA,actorRole:'staff',actorIdentityId:identityId,idempotencyKey:staleKey,sourceSystem:'legacy',csv:staleCsv});
+    assert(stalePreview.updatedCount===1&&stalePreview.insertedCount===0,'preview did not reconcile the existing mapped person as an update');
+    const mappedTarget=await tenantPool.withTenantSession(tenantA,session=>session.query("SELECT target_subject_id FROM crm_import_source_mappings WHERE source_system='legacy' AND external_key='service-1'"));
+    await tenantPool.withTransaction(tenantA,session=>session.query("UPDATE parties SET display_name='Manual concurrent edit',version=version+1 WHERE tenant_id=$1 AND party_id=$2",[tenantA,mappedTarget.rows[0].target_subject_id]));
+    await expectFailure(()=>importService.commitPeople({tenantId:tenantA,actorRole:'staff',actorIdentityId:identityId,batchId:stalePreview.batchId,expectedVersion:stalePreview.version,expectedSourceSha256:stalePreview.sourceSha256,idempotencyKey:staleKey,sourceSystem:'legacy',csv:staleCsv}),PERSISTENCE_CODES.CONFLICT,'stale import preview after canonical target change');
+    const staleState=await tenantPool.withTenantSession(tenantA,session=>session.query('SELECT b.status,p.display_name FROM crm_import_batches b CROSS JOIN parties p WHERE b.batch_id=$1 AND p.party_id=$2',[stalePreview.batchId,mappedTarget.rows[0].target_subject_id]));
+    assert(staleState.rows[0]?.status==='previewed'&&staleState.rows[0]?.display_name==='Manual concurrent edit','stale preview overwrote the canonical target or committed its batch');
     await expectFailure(()=>importService.previewPeople({tenantId:tenantA,actorRole:'staff',actorIdentityId:identityId,idempotencyKey:serviceKey,sourceSystem:'legacy',csv:csv.replace('Service Import','Changed Import')}),PERSISTENCE_CODES.CONFLICT,'conflicting import replay');
     const own=await tenantPool.withTenantSession(tenantA,session=>session.query('SELECT batch_id FROM crm_import_batches WHERE idempotency_key=$1',[key]));
     assert(own.rowCount===1&&own.rows[0].batch_id===batchA,'tenant-scoped import idempotency returned another tenant batch');
     await expectFailure(()=>controlPool.withAdminSession(session=>session.query('SELECT COUNT(*) FROM crm_saved_reports')),PERSISTENCE_CODES.ISOLATION,'control-role saved report read');
-    return 'schema=16, tenant-idempotency=isolated, committed=immutable, delete=refused, control=refused';
+    return 'schema=16, tenant-idempotency=isolated, stale-preview=refused, committed=immutable, person-mapping=enforced, delete=refused, control=refused';
   });
 
   await tenantPool.withTransaction(tenantA,session=>session.query("INSERT INTO wimblo_platform.tenant_modules(tenant_id,module_key,state) VALUES($1,'core','enabled')",[tenantA]));

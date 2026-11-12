@@ -874,6 +874,7 @@ export const MIGRATIONS=Object.freeze([
     entity_type text NOT NULL CHECK (entity_type = 'people'),
     source_sha256 char(64) NOT NULL CHECK (source_sha256 ~ '^[a-f0-9]{64}$'),
     mapping_sha256 char(64) NOT NULL CHECK (mapping_sha256 ~ '^[a-f0-9]{64}$'),
+    preview_sha256 char(64) NOT NULL CHECK (preview_sha256 ~ '^[a-f0-9]{64}$'),
     byte_count integer NOT NULL CHECK (byte_count BETWEEN 1 AND 1048576),
     row_count integer NOT NULL CHECK (row_count BETWEEN 0 AND 5000),
     valid_count integer NOT NULL CHECK (valid_count >= 0),
@@ -891,7 +892,7 @@ export const MIGRATIONS=Object.freeze([
     PRIMARY KEY (tenant_id, batch_id),
     UNIQUE (tenant_id, idempotency_key),
     CHECK (row_count = valid_count + invalid_count),
-    CHECK ((status='previewed' AND committed_at IS NULL AND inserted_count=0 AND updated_count=0 AND unchanged_count=0)
+    CHECK ((status='previewed' AND committed_at IS NULL AND valid_count=inserted_count+updated_count+unchanged_count)
       OR (status='committed' AND committed_at IS NOT NULL AND invalid_count=0 AND row_count=inserted_count+updated_count+unchanged_count)
       OR (status='expired' AND committed_at IS NULL)),
     CHECK (expires_at > created_at),
@@ -911,6 +912,7 @@ export const MIGRATIONS=Object.freeze([
     updated_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (tenant_id, source_system, entity_type, external_key),
     FOREIGN KEY (tenant_id, target_subject_id) REFERENCES crm_subjects(tenant_id, subject_id) ON DELETE RESTRICT,
+    FOREIGN KEY (tenant_id, target_subject_id) REFERENCES people(tenant_id, party_id) ON DELETE RESTRICT,
     FOREIGN KEY (tenant_id, last_batch_id) REFERENCES crm_import_batches(tenant_id, batch_id) ON DELETE RESTRICT
    )`,
   `CREATE INDEX crm_import_source_target ON crm_import_source_mappings(tenant_id, target_subject_id)`,
