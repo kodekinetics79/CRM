@@ -21,7 +21,8 @@ function fixture(){
       if(input.rotateSecurity){identity.securityVersion++;revoked++;}
       return {...mfa,securityVersion:input.rotateSecurity?identity.securityVersion:null};
     },
-    async replaceRecoveryCodes({codeHashes}){recovery=new Map(codeHashes.map(value=>[value,false]));identity.securityVersion++;revoked++;return {count:codeHashes.length,securityVersion:identity.securityVersion};},
+    async replaceRecoveryCodes({codeHashes,mfaState}){if(mfaState)mfa={identityId:identity.identityId,state:mfaState.state,secretCiphertext:mfaState.secretCiphertext,enrolledAt:mfaState.enrolledAt,version:mfa.version+1,updatedAt:new Date(time).toISOString()};recovery=new Map(codeHashes.map(value=>[value,false]));identity.securityVersion++;revoked++;return {count:codeHashes.length,securityVersion:identity.securityVersion,mfaState:mfa};},
+    async acknowledgeRecoveryCodeDelivery({secretCiphertext}){mfa={...mfa,secretCiphertext,version:mfa.version+1,updatedAt:new Date(time).toISOString()};return {...mfa};},
     async consumeRecoveryCode({codeHash}){if(!recovery.has(codeHash)||recovery.get(codeHash))throw new PersistenceError(PERSISTENCE_CODES.CONFLICT,'used');recovery.set(codeHash,true);return {usedAt:new Date(time).toISOString()};},
     async countRecoveryCodes(){return [...recovery.values()].filter(used=>!used).length;},
     async createMfaChallenge(input){challenge={...input,attempts:0,completedAt:null,createdAt:new Date(time).toISOString()};return {...challenge};},
@@ -61,8 +62,8 @@ test('confirmation creates eight one-use recovery codes, rotates security and re
   const confirmed=await f.service.confirmEnrollment(f.identity.identityId,totp(enrollment.secret,f.time()));
   assert.equal(confirmed.enabled,true);
   assert.equal(confirmed.recoveryCodes.length,8);
-  assert.equal(f.identity.securityVersion,3);
-  assert.ok(f.state().revoked>=2);
+  assert.equal(f.identity.securityVersion,2);
+  assert.equal(f.state().revoked,1);
   assert.equal(JSON.stringify([...f.state().recovery.keys()]).includes(confirmed.recoveryCodes[0]),false);
   const challenge=await f.service.createChallenge(f.identity.identityId);
   assert.equal((await f.service.verifyChallenge(challenge.challengeToken,confirmed.recoveryCodes[0])).verified,true);
@@ -112,6 +113,7 @@ test('enrollment and challenges stop after five failures and expire after five m
 test('regenerating recovery codes rotates identity security and invalidates all old codes',async()=>{
   const f=fixture(),enrollment=await f.service.beginEnrollment(f.identity.identityId);
   const first=await f.service.confirmEnrollment(f.identity.identityId,totp(enrollment.secret,f.time()));
+  await f.service.acknowledgeRecoveryCodes(f.identity.identityId,{sessionToken:'session'});
   const second=await f.service.regenerateRecoveryCodes(f.identity.identityId);
   assert.equal(second.recoveryCodes.length,8);
   const challenge=await f.service.createChallenge(f.identity.identityId);

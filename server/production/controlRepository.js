@@ -403,17 +403,47 @@ export function createControlRepository({pool,clock=()=>new Date()}={}){
   });
  }
 
- async function replaceRecoveryCodes({identityId,codeHashes,actorIdentityId=null}){
+ async function replaceRecoveryCodes({identityId,codeHashes,actorIdentityId=null,mfaState=null,preserveSessionToken=null}){
   const identity=uuid(identityId,'Identity ID'),codes=Array.isArray(codeHashes)?[...new Set(codeHashes.map(hash))]:fail('Recovery codes must be an array of hashes.'),at=currentTime();
   if(codes.length<1||codes.length>20)fail('Recovery codes must contain between 1 and 20 unique hashes.');
   return transaction(async session=>{
+   let savedMfa=null;
+   if(mfaState){
+    const nextState=oneOf(mfaState.state,MFA_STATES,'MFA state'),expected=version(mfaState.expectedVersion),result=await session.query(
+     `UPDATE wimblo_platform.mfa_settings SET state=$2,secret_ciphertext=$3,enrolled_at=$4::timestamptz,version=version+1,updated_at=$5::timestamptz
+      WHERE identity_id=$1 AND version=$6 RETURNING identity_id,state,secret_ciphertext,enrolled_at,version,updated_at`,
+     [identity,nextState,mfaState.secretCiphertext??null,nullableDate(mfaState.enrolledAt),at,expected]);
+    if(!result.rows[0])persistenceFail(PERSISTENCE_CODES.CONFLICT,'MFA state version conflict. Reload before retrying.');
+    savedMfa=mapMfa(result.rows[0]);
+   }
    await session.query('DELETE FROM wimblo_platform.mfa_recovery_codes WHERE identity_id=$1',[identity]);
    for(const codeHash of codes)await session.query('INSERT INTO wimblo_platform.mfa_recovery_codes(identity_id,code_hash,created_at) VALUES($1,$2,$3::timestamptz)',[identity,codeHash,at]);
    const changed=await session.query('UPDATE wimblo_platform.global_identities SET security_version=security_version+1,updated_at=$2::timestamptz WHERE identity_id=$1 RETURNING security_version',[identity,at]);
    if(!changed.rows[0])persistenceFail(PERSISTENCE_CODES.NOT_FOUND,'Identity was not found for recovery-code rotation.');
-   await session.query('UPDATE wimblo_platform.opaque_sessions SET revoked_at=$2::timestamptz WHERE identity_id=$1 AND revoked_at IS NULL',[identity,at]);
+   const preservedHash=preserveSessionToken===null?null:digest(text(preserveSessionToken,'Preserved session token',4096));
+   await session.query('UPDATE wimblo_platform.opaque_sessions SET revoked_at=$2::timestamptz WHERE identity_id=$1 AND revoked_at IS NULL AND ($3::char(64) IS NULL OR token_hash<>$3)',[identity,at,preservedHash]);
+   if(preservedHash!==null){
+    const preserved=await session.query('UPDATE wimblo_platform.opaque_sessions SET security_version=$2 WHERE identity_id=$1 AND token_hash=$3 AND revoked_at IS NULL',[identity,Number(changed.rows[0].security_version),preservedHash]);
+    if(preserved.rowCount!==1)persistenceFail(PERSISTENCE_CODES.CONFLICT,'The recovery-code delivery session is no longer active.');
+   }
+   if(savedMfa)await appendAuditWith(session,{identityId:identity,actorIdentityId,action:'mfa.state.changed',targetType:'mfa',targetId:identity,at,details:{state:savedMfa.state,securityRotated:true}});
    await appendAuditWith(session,{identityId:identity,actorIdentityId,action:'mfa.recovery.replaced',targetType:'mfa',targetId:identity,at,details:{count:codes.length}});
-   return {identityId:identity,count:codes.length,securityVersion:Number(changed.rows[0].security_version)};
+   return {identityId:identity,count:codes.length,securityVersion:Number(changed.rows[0].security_version),mfaState:savedMfa};
+  });
+ }
+
+ async function acknowledgeRecoveryCodeDelivery({identityId,secretCiphertext,enrolledAt,expectedVersion,sessionToken,actorIdentityId=null}){
+  const identity=uuid(identityId,'Identity ID'),tokenHash=digest(text(sessionToken,'Recovery delivery session token',4096)),at=currentTime();
+  return transaction(async session=>{
+   const result=await session.query(
+    `UPDATE wimblo_platform.mfa_settings SET state='active',secret_ciphertext=$2,enrolled_at=$3::timestamptz,version=version+1,updated_at=$4::timestamptz
+     WHERE identity_id=$1 AND version=$5 AND state='active' RETURNING identity_id,state,secret_ciphertext,enrolled_at,version,updated_at`,
+    [identity,text(secretCiphertext,'Protected MFA state',65536),date(enrolledAt,'MFA enrollment timestamp'),at,version(expectedVersion)]);
+   if(!result.rows[0])persistenceFail(PERSISTENCE_CODES.CONFLICT,'Recovery-code delivery state changed. Reload before retrying.');
+   const revoked=await session.query('UPDATE wimblo_platform.opaque_sessions SET revoked_at=$3::timestamptz WHERE identity_id=$1 AND token_hash=$2 AND revoked_at IS NULL',[identity,tokenHash,at]);
+   if(revoked.rowCount!==1)persistenceFail(PERSISTENCE_CODES.CONFLICT,'The recovery-code delivery session is no longer active.');
+   await appendAuditWith(session,{identityId:identity,actorIdentityId,action:'mfa.recovery.delivered',targetType:'mfa',targetId:identity,at});
+   return mapMfa(result.rows[0]);
   });
  }
 
@@ -504,7 +534,7 @@ export function createControlRepository({pool,clock=()=>new Date()}={}){
   createIdentity,findIdentityByEmail,getIdentity,changeIdentity,
   createMembership,getMembership,listMemberships,listTenantMemberships,listAssignmentMembers,changeMembership,
   createInvitation,getInvitation,consumeInvitation,acceptInvitationMembership,revokeInvitation,
-  getMfaState,putMfaState,replaceRecoveryCodes,consumeRecoveryCode,countRecoveryCodes,createMfaChallenge,getMfaChallenge,updateMfaChallenge,
+  getMfaState,putMfaState,replaceRecoveryCodes,acknowledgeRecoveryCodeDelivery,consumeRecoveryCode,countRecoveryCodes,createMfaChallenge,getMfaChallenge,updateMfaChallenge,
   createSession,getSession,revokeSessions,getTenantState,appendAudit
  });
 }

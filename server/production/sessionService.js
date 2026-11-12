@@ -26,7 +26,7 @@ export function createSessionService({repository,clock=Date.now,sessionTtlMs=8*6
  async function authenticate(token,{allowUnverifiedMfa=false}={}){
   if(typeof token!=='string'||!token)return null;
   const session=await repository.getSession(token);if(!session||session.revokedAt||new Date(session.expiresAt).getTime()<=now())return null;
-  const identity=await repository.getIdentity(session.identityId).catch(()=>null),memberships=identity?await repository.listMemberships(identity.identityId):[],membership=memberships.find(item=>item.tenantId===session.tenantId),tenant=await repository.getTenantState(session.tenantId).catch(()=>null);
+  const identity=await repository.getIdentity(session.identityId),memberships=identity?await repository.listMemberships(identity.identityId):[],membership=memberships.find(item=>item.tenantId===session.tenantId),tenant=await repository.getTenantState(session.tenantId);
   const stale=!identity||identity.status!=='active'||identity.securityVersion!==session.securityVersion||!membership||membership.status!=='active'||membership.version!==session.membershipVersion||!tenant||tenant.status!=='active';
   if(stale){await revoke(token,session);return null;}
   if(!session.mfaVerifiedAt&&!allowUnverifiedMfa)return null;

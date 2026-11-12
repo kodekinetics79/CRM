@@ -12,7 +12,7 @@ export function identitySecurityBinding(identity){
 }
 
 export function createGlobalMfaService({repository,key,clock=Date.now,issuer='Wimblo'}={}){
- const required=['getIdentity','getMfaState','putMfaState','replaceRecoveryCodes','consumeRecoveryCode','countRecoveryCodes','createMfaChallenge','getMfaChallenge','updateMfaChallenge'];
+ const required=['getIdentity','getMfaState','putMfaState','replaceRecoveryCodes','acknowledgeRecoveryCodeDelivery','consumeRecoveryCode','countRecoveryCodes','createMfaChallenge','getMfaChallenge','updateMfaChallenge'];
  if(!repository||required.some(method=>typeof repository[method]!=='function'))throw new MfaError('The global MFA repository is unavailable.',503);
  const protector=createMfaSecretProtector(key);
  const now=()=>{const value=clock();if(!Number.isSafeInteger(value)||value<0)throw new MfaError('Authenticator clock is unavailable.',503);return value;};
@@ -44,21 +44,33 @@ export function createGlobalMfaService({repository,key,clock=Date.now,issuer='Wi
   return {secret,expiresAt,otpauthUrl:`otpauth://totp/${encodeURIComponent(`${issuer}:${identity.normalizedEmail}`)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=30`};
  }
 
- async function confirmEnrollment(identityId,code){
+ async function confirmEnrollment(identityId,code,{sessionToken=null}={}){
   const identity=await activeIdentity(identityId),time=now(),state=await repository.getMfaState(identityId);
+  if(state?.state==='active'){
+   const active=unprotect(state.secretCiphertext,identityId),step=matchTotp(active.secret,code,-1,time);
+   if(!Array.isArray(active.pendingRecoveryCodes)||step===null)fail('Enrollment expired. Start again.',409);
+   return {enabled:true,recoveryCodes:[...active.pendingRecoveryCodes],securityVersion:identity.securityVersion,reauthenticationRequired:true,recoveryAcknowledgementRequired:true,sessionCleanupConfirmed:false};
+  }
   if(!state||state.state!=='enrolling')fail('Enrollment expired. Start again.',409);
   const payload=unprotect(state.secretCiphertext,identityId);
   if(payload.expiresAt<=time||payload.binding!==identitySecurityBinding(identity))fail('Enrollment expired. Start again.',409);
   if(payload.failures>=5)fail('Too many enrollment attempts. Start again.',429);
   const step=matchTotp(payload.secret,code,-1,time);
   if(step===null){payload.failures++;await repository.putMfaState({identityId,state:'enrolling',secretCiphertext:protect(payload,identityId),enrolledAt:null,expectedVersion:state.version,actorIdentityId:identityId});fail('Enter a valid six-digit authenticator code.');}
-  const active={secret:payload.secret,lastStep:step,failures:0};
-  await repository.putMfaState({identityId,state:'active',secretCiphertext:protect(active,identityId),enrolledAt:new Date(time),expectedVersion:state.version,actorIdentityId:identityId,rotateSecurity:true});
   const recoveryCodes=codes();
-  const rotated=await repository.replaceRecoveryCodes({identityId,codeHashes:codeHashes(identityId,recoveryCodes),actorIdentityId:identityId});
-  const saved=await repository.getMfaState(identityId);
-  await repository.putMfaState({identityId,state:'active',secretCiphertext:protect(active,identityId),enrolledAt:new Date(time),expectedVersion:saved.version,actorIdentityId:identityId});
-  return {enabled:true,recoveryCodes,securityVersion:rotated.securityVersion,reauthenticationRequired:true};
+  const active={secret:payload.secret,lastStep:step,failures:0,pendingRecoveryCodes:recoveryCodes};
+  const rotated=await repository.replaceRecoveryCodes({identityId,codeHashes:codeHashes(identityId,recoveryCodes),actorIdentityId:identityId,mfaState:{state:'active',secretCiphertext:protect(active,identityId),enrolledAt:new Date(time),expectedVersion:state.version},preserveSessionToken:sessionToken});
+  return {enabled:true,recoveryCodes,securityVersion:rotated.securityVersion,reauthenticationRequired:true,recoveryAcknowledgementRequired:true,sessionCleanupConfirmed:false};
+ }
+
+ async function acknowledgeRecoveryCodes(identityId,{sessionToken}={}){
+  await activeIdentity(identityId);const state=await repository.getMfaState(identityId);
+  if(!state||state.state!=='active')fail('MFA recovery delivery is not pending.',409);
+  const payload=unprotect(state.secretCiphertext,identityId);
+  if(!Array.isArray(payload.pendingRecoveryCodes))fail('MFA recovery delivery is not pending.',409);
+  delete payload.pendingRecoveryCodes;
+  await repository.acknowledgeRecoveryCodeDelivery({identityId,secretCiphertext:protect(payload,identityId),enrolledAt:state.enrolledAt,expectedVersion:state.version,sessionToken,actorIdentityId:identityId});
+  return {ok:true,reauthenticationRequired:true,sessionCleanupConfirmed:true};
  }
 
  async function createChallenge(identityId){
@@ -93,13 +105,14 @@ export function createGlobalMfaService({repository,key,clock=Date.now,issuer='Wi
   return {verified:true,identity:{identityId:identity.identityId,normalizedEmail:identity.normalizedEmail,displayName:identity.displayName,status:identity.status,securityVersion:identity.securityVersion}};
  }
 
- async function regenerateRecoveryCodes(identityId){
+ async function regenerateRecoveryCodes(identityId,{sessionToken=null}={}){
   const identity=await activeIdentity(identityId);const state=await repository.getMfaState(identityId);if(!state||state.state!=='active')fail('MFA is not enabled.',409);
-  const recoveryCodes=codes(),rotated=await repository.replaceRecoveryCodes({identityId,codeHashes:codeHashes(identityId,recoveryCodes),actorIdentityId:identityId});
   const payload=unprotect(state.secretCiphertext,identityId);
-  await repository.putMfaState({identityId,state:'active',secretCiphertext:protect(payload,identityId),enrolledAt:state.enrolledAt,expectedVersion:state.version,actorIdentityId:identityId});
-  return {recoveryCodes,securityVersion:rotated.securityVersion,reauthenticationRequired:true};
+  if(Array.isArray(payload.pendingRecoveryCodes))return {recoveryCodes:[...payload.pendingRecoveryCodes],securityVersion:identity.securityVersion,reauthenticationRequired:true,recoveryAcknowledgementRequired:true};
+  const recoveryCodes=codes();payload.pendingRecoveryCodes=recoveryCodes;
+  const rotated=await repository.replaceRecoveryCodes({identityId,codeHashes:codeHashes(identityId,recoveryCodes),actorIdentityId:identityId,mfaState:{state:'active',secretCiphertext:protect(payload,identityId),enrolledAt:state.enrolledAt,expectedVersion:state.version},preserveSessionToken:sessionToken});
+  return {recoveryCodes,securityVersion:rotated.securityVersion,reauthenticationRequired:true,recoveryAcknowledgementRequired:true};
  }
 
- return Object.freeze({status,beginEnrollment,confirmEnrollment,createChallenge,verifyChallenge,regenerateRecoveryCodes});
+ return Object.freeze({status,beginEnrollment,confirmEnrollment,acknowledgeRecoveryCodes,createChallenge,verifyChallenge,regenerateRecoveryCodes});
 }
