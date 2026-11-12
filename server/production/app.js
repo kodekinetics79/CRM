@@ -9,6 +9,8 @@ import {createSessionService} from './sessionService.js';
 import {createModuleService} from './moduleService.js';
 import {createCrmRepository} from './crmRepository.js';
 import {createCrmService} from './crmService.js';
+import {createCrmReportingService} from './crmReportingService.js';
+import {createCrmImportService} from './crmImportService.js';
 import {createJobRepository} from './jobRepository.js';
 import {installCrmRoutes} from './crmRoutes.js';
 import {installProductionAuthRoutes} from './authRoutes.js';
@@ -44,7 +46,9 @@ function defaultServices({config,controlPool,tenantPool,clock}){
   sessionService:createSessionService({repository,clock:()=>nowMs(clock),cookieName:config.cookieName}),
   moduleService,
   crmRepository,
-  crmService:createCrmService({repository:crmRepository,moduleService})
+  crmService:createCrmService({repository:crmRepository,moduleService}),
+  crmReportingService:createCrmReportingService({tenantPool,moduleService,clock:()=>new Date(nowMs(clock))}),
+  crmImportService:createCrmImportService({tenantPool,moduleService,clock:()=>new Date(nowMs(clock))})
  };
 }
 
@@ -59,16 +63,17 @@ export function createProductionApp({config,controlPool,tenantPool,clock=()=>new
   const origin=req.get('Origin');
   if(origin&&origin!==config.appOrigin)return res.status(403).json({error:'Origin is not allowed.',code:'ORIGIN_REFUSED'});
   if(origin===config.appOrigin){res.setHeader('Access-Control-Allow-Origin',config.appOrigin);res.setHeader('Access-Control-Allow-Credentials','true');res.vary('Origin');}
-  if(req.method==='OPTIONS'){res.setHeader('Access-Control-Allow-Methods','GET,POST,PATCH');res.setHeader('Access-Control-Allow-Headers','Content-Type,X-CSRF-Token');return res.status(204).end();}
+  if(req.method==='OPTIONS'){res.setHeader('Access-Control-Allow-Methods','GET,POST,PATCH');res.setHeader('Access-Control-Allow-Headers','Content-Type,X-CSRF-Token,Idempotency-Key,X-Source-System,If-Match,X-Source-SHA256');return res.status(204).end();}
   next();
  });
+ app.use('/api/crm/imports',express.text({limit:'1mb',type:'text/csv'}));
  app.use(express.json({limit:'64kb',strict:true,type:'application/json'}));
  app.get('/health',(req,res)=>res.json({status:'ok',service:'wimblo-web'}));
  app.get('/ready',async(req,res)=>{try{const [control,tenant]=await Promise.all([controlPool.healthy(),tenantPool.healthy()]);return control&&tenant?res.json({status:'ready'}):res.status(503).json({status:'unavailable'});}catch{return res.status(503).json({status:'unavailable'});}});
  app.use(['/api/auth/login','/api/auth/mfa/verify'],createRateLimit({clock}));
  const auth=installProductionAuthRoutes(app,{identityService:resolved.identityService,mfaService:resolved.mfaService,sessionService:resolved.sessionService,appOrigin:config.appOrigin});
  app.locals.moduleService=resolved.moduleService;installModuleRoutes(app,{moduleService:resolved.moduleService,requireTenantSession:auth.requireTenantSession,requireCsrf:auth.requireCsrf,requireRecentAuthentication:auth.requireRecentAuthentication});
- if(resolved.crmService)installCrmRoutes(app,{crmService:resolved.crmService,requireTenantSession:auth.requireTenantSession,requireCsrf:auth.requireCsrf,requireRecentAuthentication:auth.requireRecentAuthentication});
+ if(resolved.crmService)installCrmRoutes(app,{crmService:resolved.crmService,crmReportingService:resolved.crmReportingService,crmImportService:resolved.crmImportService,requireTenantSession:auth.requireTenantSession,requireCsrf:auth.requireCsrf,requireRecentAuthentication:auth.requireRecentAuthentication});
  app.use((req,res)=>res.status(404).json({error:'Not found.',code:'NOT_FOUND'}));
  app.use((error,req,res,next)=>{if(res.headersSent)return next(error);const candidate=error?.type==='entity.too.large'?413:error?.status,status=Number.isInteger(candidate)&&candidate>=400&&candidate<=599?candidate:500;const safe=status===413?{error:'Request body is too large.',code:'BODY_TOO_LARGE'}:status===429?{error:'Too many requests.',code:'RATE_LIMITED'}:status>=500?{error:'Internal service error.',code:'INTERNAL_ERROR'}:{error:'Request was refused.',code:'REQUEST_REFUSED'};res.status(status).json(safe);});
  return app;

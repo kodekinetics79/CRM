@@ -23,9 +23,10 @@ export const TENANT_TABLES=Object.freeze([
  'parties','people','organizations','contact_points','relationships','party_events'
  ,'pipelines','pipeline_stages','leads','opportunities','opportunity_stage_events'
  ,'crm_subjects','crm_activities','crm_tasks','crm_task_events','crm_notes','crm_note_revisions','crm_attachment_links','crm_ownership_events'
+ ,'crm_saved_reports','crm_import_batches','crm_import_source_mappings'
 ]);
 const APPEND_ONLY_TENANT_TABLES=Object.freeze(['party_events','opportunity_stage_events','crm_activities','crm_task_events','crm_note_revisions','crm_attachment_links','crm_ownership_events']);
-const MUTABLE_NO_DELETE_TENANT_TABLES=Object.freeze(['crm_subjects','crm_tasks','crm_notes']);
+const MUTABLE_NO_DELETE_TENANT_TABLES=Object.freeze(['crm_subjects','crm_tasks','crm_notes','crm_saved_reports','crm_import_batches','crm_import_source_mappings']);
 export const TENANT_FOUNDATION_TABLES=Object.freeze([
  'wimblo_platform.tenant_modules',
  'wimblo_platform.module_events',

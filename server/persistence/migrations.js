@@ -846,6 +846,87 @@ export const MIGRATIONS=Object.freeze([
    `ALTER TABLE ${table} FORCE ROW LEVEL SECURITY`,
    `CREATE POLICY ${table}_tenant_isolation ON ${table} USING (tenant_id = wimblo_current_tenant()) WITH CHECK (tenant_id = wimblo_current_tenant())`
   ])
+ ]),
+ migration(16,'governed-crm-reporting-import-and-export',[
+  `CREATE TABLE crm_saved_reports(
+    tenant_id uuid NOT NULL REFERENCES tenants(tenant_id) ON DELETE RESTRICT,
+    report_id uuid NOT NULL,
+    name text NOT NULL CHECK (char_length(name) BETWEEN 1 AND 200),
+    kind text NOT NULL DEFAULT 'report' CHECK (kind IN ('view','report')),
+    dataset text NOT NULL CHECK (dataset IN ('parties','leads','opportunities','tasks','activities')),
+    definition jsonb NOT NULL,
+    schema_version integer NOT NULL DEFAULT 1 CHECK (schema_version = 1),
+    state text NOT NULL DEFAULT 'active' CHECK (state IN ('active','archived')),
+    owner_identity_id uuid NOT NULL,
+    version integer NOT NULL DEFAULT 1 CHECK (version >= 1),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, report_id),
+    CHECK (jsonb_typeof(definition)='object' AND octet_length(definition::text) <= 16384),
+    FOREIGN KEY (tenant_id, owner_identity_id) REFERENCES wimblo_platform.memberships(tenant_id, identity_id) ON DELETE RESTRICT
+   )`,
+  `CREATE INDEX crm_saved_reports_active ON crm_saved_reports(tenant_id, updated_at DESC, report_id) WHERE state='active'`,
+  `CREATE TABLE crm_import_batches(
+    tenant_id uuid NOT NULL REFERENCES tenants(tenant_id) ON DELETE RESTRICT,
+    batch_id uuid NOT NULL,
+    idempotency_key text NOT NULL CHECK (char_length(idempotency_key) BETWEEN 1 AND 200),
+    source_system text NOT NULL CHECK (char_length(source_system) BETWEEN 1 AND 120),
+    entity_type text NOT NULL CHECK (entity_type = 'people'),
+    source_sha256 char(64) NOT NULL CHECK (source_sha256 ~ '^[a-f0-9]{64}$'),
+    mapping_sha256 char(64) NOT NULL CHECK (mapping_sha256 ~ '^[a-f0-9]{64}$'),
+    byte_count integer NOT NULL CHECK (byte_count BETWEEN 1 AND 1048576),
+    row_count integer NOT NULL CHECK (row_count BETWEEN 0 AND 5000),
+    valid_count integer NOT NULL CHECK (valid_count >= 0),
+    invalid_count integer NOT NULL CHECK (invalid_count >= 0),
+    inserted_count integer NOT NULL DEFAULT 0 CHECK (inserted_count >= 0),
+    updated_count integer NOT NULL DEFAULT 0 CHECK (updated_count >= 0),
+    unchanged_count integer NOT NULL DEFAULT 0 CHECK (unchanged_count >= 0),
+    status text NOT NULL DEFAULT 'previewed' CHECK (status IN ('previewed','committed','expired')),
+    actor_identity_id uuid NOT NULL,
+    version integer NOT NULL DEFAULT 1 CHECK (version >= 1),
+    expires_at timestamptz NOT NULL,
+    committed_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, batch_id),
+    UNIQUE (tenant_id, idempotency_key),
+    CHECK (row_count = valid_count + invalid_count),
+    CHECK ((status='previewed' AND committed_at IS NULL AND inserted_count=0 AND updated_count=0 AND unchanged_count=0)
+      OR (status='committed' AND committed_at IS NOT NULL AND invalid_count=0 AND row_count=inserted_count+updated_count+unchanged_count)
+      OR (status='expired' AND committed_at IS NULL)),
+    CHECK (expires_at > created_at),
+    FOREIGN KEY (tenant_id, actor_identity_id) REFERENCES wimblo_platform.memberships(tenant_id, identity_id) ON DELETE RESTRICT
+   )`,
+  `CREATE INDEX crm_import_batches_status ON crm_import_batches(tenant_id, status, created_at DESC, batch_id)`,
+  `CREATE TABLE crm_import_source_mappings(
+    tenant_id uuid NOT NULL,
+    source_system text NOT NULL CHECK (char_length(source_system) BETWEEN 1 AND 120),
+    entity_type text NOT NULL CHECK (entity_type = 'people'),
+    external_key text NOT NULL CHECK (char_length(external_key) BETWEEN 1 AND 300),
+    target_subject_id uuid NOT NULL,
+    source_row_hash char(64) NOT NULL CHECK (source_row_hash ~ '^[a-f0-9]{64}$'),
+    target_version integer NOT NULL CHECK (target_version >= 1),
+    last_batch_id uuid NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, source_system, entity_type, external_key),
+    FOREIGN KEY (tenant_id, target_subject_id) REFERENCES crm_subjects(tenant_id, subject_id) ON DELETE RESTRICT,
+    FOREIGN KEY (tenant_id, last_batch_id) REFERENCES crm_import_batches(tenant_id, batch_id) ON DELETE RESTRICT
+   )`,
+  `CREATE INDEX crm_import_source_target ON crm_import_source_mappings(tenant_id, target_subject_id)`,
+  `CREATE INDEX crm_import_source_batch ON crm_import_source_mappings(tenant_id, last_batch_id, external_key)`,
+  `CREATE FUNCTION wimblo_crm_import_batch_committed_immutable() RETURNS trigger LANGUAGE plpgsql AS $fn$
+    BEGIN
+     IF OLD.status='committed' AND NEW IS DISTINCT FROM OLD THEN RAISE EXCEPTION 'Committed import batches are immutable' USING ERRCODE='23514'; END IF;
+     RETURN NEW;
+    END
+   $fn$`,
+  `CREATE TRIGGER crm_import_batch_committed_immutable BEFORE UPDATE ON crm_import_batches FOR EACH ROW EXECUTE FUNCTION wimblo_crm_import_batch_committed_immutable()`,
+  ...['crm_saved_reports','crm_import_batches','crm_import_source_mappings'].flatMap(table=>[
+   `ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`,
+   `ALTER TABLE ${table} FORCE ROW LEVEL SECURITY`,
+   `CREATE POLICY ${table}_tenant_isolation ON ${table} USING (tenant_id = wimblo_current_tenant()) WITH CHECK (tenant_id = wimblo_current_tenant())`
+  ])
  ])
 ]);
 

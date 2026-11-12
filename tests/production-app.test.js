@@ -34,6 +34,7 @@ test('production baseline sets Helmet CSP, exact CORS and no framework disclosur
  assert.equal(response.headers.get('access-control-allow-origin'),'https://crm.example.test');assert.match(response.headers.get('vary')||'',/Origin/);assert.equal((await response.json()).status,'ok');
  const preflight=await f.request('/api/crm/parties/example',{method:'OPTIONS'});
  assert.equal(preflight.status,204);assert.equal(preflight.headers.get('access-control-allow-methods'),'GET,POST,PATCH');
+ assert.equal(preflight.headers.get('access-control-allow-headers'),'Content-Type,X-CSRF-Token,Idempotency-Key,X-Source-System,If-Match,X-Source-SHA256');
 });
 
 test('HTTP, foreign origins, unknown routes and legacy CRM routes fail closed',async t=>{

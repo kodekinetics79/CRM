@@ -67,6 +67,9 @@ const noteSchema=z.object({noteId:uuid.optional(),title:z.string().trim().min(1)
 const noteRevisionSchema=z.object({expectedVersion:z.number().int().min(1),body:z.string().trim().min(1).max(10000)});
 const attachmentSchema=z.object({linkId:uuid.optional(),objectId:z.string().trim().min(1).max(500),objectRevision:z.number().int().min(1),fileName:z.string().trim().min(1).max(255)});
 const ownerSchema=z.object({newOwnerIdentityId:uuid.nullable(),expectedVersion:z.number().int().min(1)});
+const reportRequestSchema=z.object({definition:z.unknown()}).strict();
+const reportSaveSchema=z.object({reportId:uuid.optional(),name:z.string().trim().min(1).max(200),definition:z.unknown()}).strict();
+const reportUpdateSchema=z.object({expectedVersion:z.number().int().min(1),name:z.string().trim().min(1).max(200),definition:z.unknown()}).strict();
 
 const parse=(schema,value)=>{
   const result=schema.safeParse(value);
@@ -90,7 +93,7 @@ const parseSalesQuery=(req,allowedStatuses)=>{
   return {status:status??null,limit,offset};
 };
 
-export function installCrmRoutes(app,{crmService,requireTenantSession,requireCsrf,requireRecentAuthentication}={}){
+export function installCrmRoutes(app,{crmService,crmReportingService=null,crmImportService=null,requireTenantSession,requireCsrf,requireRecentAuthentication}={}){
   if(!app||typeof app.get!=='function')throw new TypeError('CRM routes require an Express app.');
   if(!crmService||typeof crmService!=='object')throw new TypeError('CRM routes require crmService.');
   for(const [name,value] of [['requireTenantSession',requireTenantSession],['requireCsrf',requireCsrf],['requireRecentAuthentication',requireRecentAuthentication]])if(typeof value!=='function')throw new TypeError(`CRM routes require ${name}.`);
@@ -135,5 +138,21 @@ export function installCrmRoutes(app,{crmService,requireTenantSession,requireCsr
     const limit=Number(req.query.limit??50);if(!Number.isSafeInteger(limit)||limit<1||limit>100)persistenceFail(PERSISTENCE_CODES.INVALID,'Limit must be between 1 and 100.');
     res.json(await crmService.listTimeline({subjectId:req.params.subjectId,limit,cursor:typeof req.query.cursor==='string'?req.query.cursor:null,...context(req)}));
   });
+  if(crmReportingService){
+   app.get('/api/crm/dashboard',...read,async(req,res)=>{
+    const dataset=typeof req.query.dataset==='string'?req.query.dataset:'opportunities',from=req.query.from,to=req.query.to;
+    if(typeof from!=='string'||typeof to!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to))persistenceFail(PERSISTENCE_CODES.INVALID,'Dashboard date range is invalid.');
+    res.json({dashboard:await crmReportingService.dashboard({dataset,from,to,...context(req)})});
+   });
+   app.post('/api/crm/reports/execute',requireTenantSession,requireCsrf,readRole,async(req,res)=>res.json(await crmReportingService.executeReport({...parse(reportRequestSchema,req.body),...context(req)})));
+   app.post('/api/crm/reports',...write,async(req,res)=>res.status(201).json({report:await crmReportingService.saveReport({...parse(reportSaveSchema,req.body),...context(req)})}));
+   app.patch('/api/crm/reports/:reportId',...write,async(req,res)=>res.json({report:await crmReportingService.updateReport({...parse(reportUpdateSchema,req.body),reportId:req.params.reportId,...context(req)})}));
+   app.post('/api/crm/exports',...write,async(req,res)=>{const result=await crmReportingService.exportReport({...parse(reportRequestSchema,req.body),...context(req)});res.setHeader('Content-Type','text/csv; charset=utf-8');res.setHeader('Content-Disposition',`attachment; filename="${result.filename.replace(/[^A-Za-z0-9._-]/g,'_')}"`);res.setHeader('X-Content-Type-Options','nosniff');res.send(result.csv);});
+  }
+  if(crmImportService){
+   const importIdentity=req=>{const idempotencyKey=req.get('Idempotency-Key'),sourceSystem=req.get('X-Source-System');if(!idempotencyKey||!sourceSystem||typeof req.body!=='string')persistenceFail(PERSISTENCE_CODES.INVALID,'Import headers or CSV body are invalid.');return {idempotencyKey,sourceSystem,csv:req.body};};
+   app.post('/api/crm/imports/preview',...write,async(req,res)=>res.status(201).json({batch:await crmImportService.previewPeople({...importIdentity(req),...context(req)})}));
+   app.post('/api/crm/imports/:batchId/commit',...write,async(req,res)=>{const expectedVersion=Number(req.get('If-Match')),expectedSourceSha256=req.get('X-Source-SHA256');if(!Number.isSafeInteger(expectedVersion)||expectedVersion<1)persistenceFail(PERSISTENCE_CODES.INVALID,'Import version is invalid.');res.json({batch:await crmImportService.commitPeople({...importIdentity(req),batchId:req.params.batchId,expectedVersion,expectedSourceSha256,...context(req)})});});
+  }
   return crmService;
 }

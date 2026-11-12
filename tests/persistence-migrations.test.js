@@ -124,7 +124,7 @@ test('the application role receives only the grants it needs, and its name is va
  for(const table of TENANT_TABLES){
   const expected=['party_events','opportunity_stage_events','crm_activities','crm_task_events','crm_note_revisions','crm_attachment_links','crm_ownership_events'].includes(table)
    ?`GRANT SELECT, INSERT ON ${table} TO wimblo_app`
-   :['crm_subjects','crm_tasks','crm_notes'].includes(table)
+   :['crm_subjects','crm_tasks','crm_notes','crm_saved_reports','crm_import_batches','crm_import_source_mappings'].includes(table)
     ?`GRANT SELECT, INSERT, UPDATE ON ${table} TO wimblo_app`
     :`GRANT SELECT, INSERT, UPDATE, DELETE ON ${table} TO wimblo_app`;
   assert.ok(grants.includes(expected),table);

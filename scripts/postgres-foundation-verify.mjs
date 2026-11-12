@@ -7,6 +7,7 @@ import {randomUUID} from 'node:crypto';
 import {createControlRepository} from '../server/production/controlRepository.js';
 import {createCrmRepository} from '../server/production/crmRepository.js';
 import {createJobRepository} from '../server/production/jobRepository.js';
+import {createCrmImportService} from '../server/production/crmImportService.js';
 import {
   MIGRATIONS,
   SCHEMA_VERSION,
@@ -89,9 +90,9 @@ async function main(){
   const controlPool=createPostgresPool({connectionString:databaseUrl(database,controlRole,controlPassword),max:2,applicationName:'wimblo-foundation-control'});
   pools.push(owner,tenantPool,controlPool);
 
-  await runStep('explicit migrations apply versions 1 through 15',async()=>{
+  await runStep('explicit migrations apply versions 1 through 16',async()=>{
     const result=await owner.withAdminSession(session=>applyMigrations(session));
-    assert(result.currentVersion===15&&SCHEMA_VERSION===15,'schema did not reach version 15');
+    assert(result.currentVersion===16&&SCHEMA_VERSION===16,'schema did not reach version 16');
     assert(result.applied.map(entry=>entry.version).join(',')===MIGRATIONS.map(entry=>entry.version).join(','),'migration order differs');
     for(const sql of applicationRoleGrants(tenantRole))await owner.withAdminSession(session=>session.query(sql));
     for(const sql of controlPlaneRoleGrants(controlRole))await owner.withAdminSession(session=>session.query(sql));
@@ -273,6 +274,35 @@ async function main(){
     assert(rolledBack.rows[0].tasks===0&&rolledBack.rows[0].jobs===0,'task or reminder survived transaction rollback');
     await expectFailure(()=>controlPool.withAdminSession(session=>session.query('SELECT COUNT(*) FROM crm_tasks')),PERSISTENCE_CODES.ISOLATION,'control-role CRM task read');
     return 'subject-identity=immutable, timeline-asof=stable, append-only=refused, completion=consistent, attachment=active-revision, cross-tenant=0, reminder-rollback=clean';
+  });
+
+  await runStep('governed CRM reporting and import controls enforce tenant idempotency and retention',async()=>{
+    const subjectA=randomUUID(),subjectB=randomUUID(),batchA=randomUUID(),batchB=randomUUID(),reportId=randomUUID(),key='foundation-import-replay';
+    for(const [tenant,subject,batch] of [[tenantA,subjectA,batchA],[tenantB,subjectB,batchB]])await tenantPool.withTransaction(tenant,async session=>{
+      await session.query("INSERT INTO parties(tenant_id,party_id,party_type,display_name) VALUES($1,$2,'person','Import verifier')",[tenant,subject]);
+      await session.query("INSERT INTO people(tenant_id,party_id,first_name,last_name) VALUES($1,$2,'Import','Verifier')",[tenant,subject]);
+      await session.query("INSERT INTO crm_subjects(tenant_id,subject_id,subject_type,party_id) VALUES($1,$2,'party',$2)",[tenant,subject]);
+      await session.query("INSERT INTO crm_import_batches(tenant_id,batch_id,idempotency_key,source_system,entity_type,source_sha256,mapping_sha256,byte_count,row_count,valid_count,invalid_count,actor_identity_id,expires_at) VALUES($1,$2,$3,'legacy','people',$4,$5,100,1,1,0,$6,now()+interval '1 hour')",[tenant,batch,key,'a'.repeat(64),'b'.repeat(64),identityId]);
+      await session.query("INSERT INTO crm_import_source_mappings(tenant_id,source_system,entity_type,external_key,target_subject_id,source_row_hash,target_version,last_batch_id) VALUES($1,'legacy','people','row-1',$2,$3,1,$4)",[tenant,subject,'c'.repeat(64),batch]);
+    });
+    await tenantPool.withTransaction(tenantA,async session=>{
+      await session.query("INSERT INTO crm_saved_reports(tenant_id,report_id,name,dataset,definition,owner_identity_id) VALUES($1,$2,'Pipeline report','opportunities',$3::jsonb,$4)",[tenantA,reportId,JSON.stringify({dataset:'opportunities',columns:['name']}),identityId]);
+      await session.query("UPDATE crm_import_batches SET status='committed',inserted_count=1,committed_at=now(),version=version+1,updated_at=now() WHERE tenant_id=$1 AND batch_id=$2",[tenantA,batchA]);
+    });
+    await expectFailure(()=>tenantPool.withTransaction(tenantA,session=>session.query("INSERT INTO crm_import_batches(tenant_id,batch_id,idempotency_key,source_system,entity_type,source_sha256,mapping_sha256,byte_count,row_count,valid_count,invalid_count,actor_identity_id,expires_at) VALUES($1,$2,$3,'legacy','people',$4,$5,100,0,0,0,$6,now()+interval '1 hour')",[tenantA,randomUUID(),key,'d'.repeat(64),'b'.repeat(64),identityId])),PERSISTENCE_CODES.CONFLICT,'tenant import idempotency');
+    await expectFailure(()=>tenantPool.withTransaction(tenantA,session=>session.query("UPDATE crm_import_batches SET inserted_count=0 WHERE tenant_id=$1 AND batch_id=$2",[tenantA,batchA])),PERSISTENCE_CODES.INVALID,'committed import mutation');
+    await expectFailure(()=>tenantPool.withTransaction(tenantA,session=>session.query('DELETE FROM crm_saved_reports WHERE tenant_id=$1 AND report_id=$2',[tenantA,reportId])),PERSISTENCE_CODES.ISOLATION,'saved report delete privilege');
+    const csv='external_key,display_name,first_name,last_name\r\nservice-1,Service Import,Service,Verifier\r\n',serviceKey='foundation-service-import';
+    const importService=createCrmImportService({tenantPool,moduleService:{authorize:async()=>({allowed:true})}});
+    const preview=await importService.previewPeople({tenantId:tenantA,actorRole:'staff',actorIdentityId:identityId,idempotencyKey:serviceKey,sourceSystem:'legacy',csv});
+    const committed=await importService.commitPeople({tenantId:tenantA,actorRole:'staff',actorIdentityId:identityId,batchId:preview.batchId,expectedVersion:preview.version,expectedSourceSha256:preview.sourceSha256,idempotencyKey:serviceKey,sourceSystem:'legacy',csv});
+    const replay=await importService.commitPeople({tenantId:tenantA,actorRole:'staff',actorIdentityId:identityId,batchId:preview.batchId,expectedVersion:preview.version,expectedSourceSha256:preview.sourceSha256,idempotencyKey:serviceKey,sourceSystem:'legacy',csv});
+    assert(committed.status==='committed'&&committed.insertedCount===1&&replay.insertedCount===1,'preview/commit/replay did not preserve one canonical import result');
+    await expectFailure(()=>importService.previewPeople({tenantId:tenantA,actorRole:'staff',actorIdentityId:identityId,idempotencyKey:serviceKey,sourceSystem:'legacy',csv:csv.replace('Service Import','Changed Import')}),PERSISTENCE_CODES.CONFLICT,'conflicting import replay');
+    const own=await tenantPool.withTenantSession(tenantA,session=>session.query('SELECT batch_id FROM crm_import_batches WHERE idempotency_key=$1',[key]));
+    assert(own.rowCount===1&&own.rows[0].batch_id===batchA,'tenant-scoped import idempotency returned another tenant batch');
+    await expectFailure(()=>controlPool.withAdminSession(session=>session.query('SELECT COUNT(*) FROM crm_saved_reports')),PERSISTENCE_CODES.ISOLATION,'control-role saved report read');
+    return 'schema=16, tenant-idempotency=isolated, committed=immutable, delete=refused, control=refused';
   });
 
   await tenantPool.withTransaction(tenantA,session=>session.query("INSERT INTO wimblo_platform.tenant_modules(tenant_id,module_key,state) VALUES($1,'core','enabled')",[tenantA]));

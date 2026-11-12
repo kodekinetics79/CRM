@@ -17,7 +17,7 @@ function scriptedPool(responder){
 }
 
 test('migration 15 adds typed CRM subjects and canonical work facts with forced RLS',()=>{
- assert.equal(SCHEMA_VERSION,15);
+ assert.ok(SCHEMA_VERSION>=15);
  const sql=MIGRATIONS.find(entry=>entry.version===15)?.statements.join('\n')??'';
  for(const table of ['crm_subjects','crm_activities','crm_tasks','crm_task_events','crm_notes','crm_note_revisions','crm_attachment_links','crm_ownership_events']){
   assert.match(sql,new RegExp(`CREATE TABLE ${table}\\(`));

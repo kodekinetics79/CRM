@@ -46,7 +46,7 @@
 - Task 1: complete after fix round 1/5 and scoped re-review PASS.
 - Task 2: complete after fix round 1/5 and scoped re-review PASS.
 - Task 3: complete after fix round 1/5 and scoped re-review PASS.
-- Task 4: pending.
+- Task 4: implementation verified locally; independent review pending.
 - Task 5: pending.
 - Task 6: pending.
 - Task 7: pending.
@@ -66,3 +66,5 @@ Task 2: fix round 1/5 (3 addressed, 0 open — commits `efc1472..cfb0232`; compo
 Task 3: implementation checkpoint `ccd0007` — RED 0/9; focused 46/46; production foundation 117/117 plus real PostgreSQL schema 15, 32 forced-RLS tables and work/reminder negatives; full suite 1,591/1,591; build passed; audit 0. Independent review found five concrete gaps.
 
 Task 3: fix round 1/5 (5 addressed, 0 open — commits `ccd0007..d7fbaaf`; exact subject registration; immutable subject identity; recorded-time timeline snapshot; strict cursor validation; complete mutation HTTP coverage). RED 10/15; GREEN 15/15; compatibility 22/22; production foundation 120/120; full suite 1,594/1,594; scoped re-review PASS.
+
+Task 4: migration RED 0/2; HTTP RED 0/2; stale canonical target RED 3/4 then GREEN 4/4; final parser/capability RED 8/12 then focused GREEN 17/17; production foundation 137/137 plus real PostgreSQL schema 16 and 35 forced-RLS tables; pre-hardening full suite 1,609/1,609, final full suite 1,610/1,611 with only the unrelated legacy recovery-code test failing once and its isolated suite passing 17/17; build passed; audit 0; independent review pending.
