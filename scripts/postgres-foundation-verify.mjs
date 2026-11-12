@@ -11,6 +11,7 @@ import {createProductionJobHandlers,runWorker} from '../server/production/worker
 import {createCrmImportService} from '../server/production/crmImportService.js';
 import {runRepresentativeCrmCapacity} from '../server/production/capacityCertification.js';
 import {redactCertificationDiagnostic} from './certification-redaction.mjs';
+import {runBoundedWorkerVerification} from './worker-verification.mjs';
 import {
   MIGRATIONS,
   SCHEMA_VERSION,
@@ -298,7 +299,7 @@ async function main(){
     await crm.updateTask({tenantId:tenantA,taskId:staleTaskId,expectedVersion:1,status:'completed',actorIdentityId:identityId});
     const baseHandlers=createProductionJobHandlers({crmRepository:crm}),controller=new AbortController();let handled=0;
     const handlers={...baseHandlers,'crm.task_reminder':async job=>{await baseHandlers['crm.task_reminder'](job);if(++handled===2)controller.abort();}};
-    await runWorker({repository:jobs,handlers,signal:controller.signal,concurrency:1,tenantIds:[tenantA],pollIntervalMs:1,heartbeatIntervalMs:1_000,workerId:'foundation-reminder-worker'});
+    await runBoundedWorkerVerification({controller,deadlineMs:15_000,expectedHandled:2,handled:()=>handled,run:signal=>runWorker({repository:jobs,handlers,signal,concurrency:1,tenantIds:[tenantA],pollIntervalMs:1,heartbeatIntervalMs:1_000,workerId:'foundation-reminder-worker'})});
     const jobRows=await tenantPool.withTenantSession(tenantA,session=>session.query("SELECT job_id::text,payload,state FROM wimblo_platform.durable_jobs WHERE kind='crm.task_reminder' AND payload->>'taskId'=ANY($1::text[]) ORDER BY payload->>'taskId'",[[dueTaskId,staleTaskId]]));
     assert(jobRows.rowCount===2&&jobRows.rows.every(row=>row.state==='completed'),'reminder worker did not complete due and suppressed jobs');
     const dueJob=jobRows.rows.find(row=>row.payload.taskId===dueTaskId),staleJob=jobRows.rows.find(row=>row.payload.taskId===staleTaskId);
