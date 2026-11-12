@@ -74,15 +74,13 @@ async function assertControlPlanePrerequisites(dump,validate){
  const required=controlPlanePrerequisites(dump);
  if(!required.identityIds.length&&!required.membershipIdentityIds.length)return required;
  if(typeof validate!=='function')persistenceFail(PERSISTENCE_CODES.INVALID,'Control-plane prerequisite validation is required before restoring tenant rows that reference identities or memberships.');
- let confirmed;
- try{confirmed=await validate(required);}
- catch{persistenceFail(PERSISTENCE_CODES.INVALID,'Control-plane prerequisite validation failed before tenant restore.');}
+ const confirmed=await validate(required);
  const identities=new Set(Array.isArray(confirmed?.identityIds)?confirmed.identityIds.map(String):[]);
  const memberships=new Set(Array.isArray(confirmed?.membershipIdentityIds)?confirmed.membershipIdentityIds.map(String):[]);
  const missingIdentities=required.identityIds.filter(value=>!identities.has(value));
  const missingMemberships=required.membershipIdentityIds.filter(value=>!memberships.has(value));
  if(missingIdentities.length||missingMemberships.length)persistenceFail(
-  PERSISTENCE_CODES.INVALID,
+  PERSISTENCE_CODES.ISOLATION,
   `Control-plane prerequisites are incomplete: ${missingIdentities.length} referenced identities and ${missingMemberships.length} referenced tenant memberships are missing.`
  );
  return required;

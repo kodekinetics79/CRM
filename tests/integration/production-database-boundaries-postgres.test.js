@@ -204,7 +204,14 @@ test('tenant logical backup restores and verifies every production CRM and found
   for(const sql of applicationRoleGrants(source.tenantRole))await source.owner.withAdminSession(session=>session.query(sql));
   for(const sql of applicationRoleGrants(target.tenantRole))await target.owner.withAdminSession(session=>session.query(sql));
   const sourcePool=source.makeTenantPool(),targetPool=target.makeTenantPool(),tenantId=randomUUID(),partyId=randomUUID(),identityId=randomUUID();
-  const pipelineId=randomUUID(),stageId=randomUUID(),leadId=randomUUID(),opportunityId=randomUUID(),moduleEventId=randomUUID();
+  const pipelineId=randomUUID(),stageId=randomUUID(),leadId=randomUUID(),opportunityId=randomUUID(),moduleEventId=randomUUID(),taskId=randomUUID(),reportId=randomUUID();
+  const jsonVariants=[
+   {kind:'array',value:['retained',{nested:[1,true,null]}]},
+   {kind:'string',value:'retained string'},
+   {kind:'number',value:42.5},
+   {kind:'boolean',value:false},
+   {kind:'null',value:null}
+  ].map((item,index)=>({...item,moduleKey:['marketing','service','events','membership','grants'][index],moduleEventId:randomUUID(),partyEventId:randomUUID(),opportunityEventId:randomUUID(),taskEventId:randomUUID(),taskAction:['created','updated','completed','reopened','cancelled'][index]}));
   const jobPayloadCases=[
    {kind:'object',payload:{subject:{id:partyId,kind:'party'},attempts:[{number:1,outcome:'retained'}],flags:{nested:true}}},
    {kind:'array',payload:['retained',{nested:[1,true,null]}]},
@@ -229,8 +236,18 @@ test('tenant logical backup restores and verifies every production CRM and found
    await session.query("INSERT INTO opportunities(tenant_id,opportunity_id,party_id,pipeline_id,stage_id,lead_id,name,amount_cents,currency,probability,expected_close_date,status,owner_identity_id) VALUES($1,$2,$3,$4,$5,$6,'Recovered opportunity',12500,'USD',100,'2026-12-01','won',$7)",[tenantId,opportunityId,partyId,pipelineId,stageId,leadId,identityId]);
    await session.query("UPDATE leads SET status='converted',converted_opportunity_id=$3 WHERE tenant_id=$1 AND lead_id=$2",[tenantId,leadId,opportunityId]);
    await session.query("INSERT INTO crm_subjects(tenant_id,subject_id,subject_type,party_id,owner_identity_id) VALUES($1,$2,'party',$2,$3)",[tenantId,partyId,identityId]);
+   await session.query("INSERT INTO crm_tasks(tenant_id,task_id,subject_id,title,owner_identity_id) VALUES($1,$2,$3,'JSON restore task',$4)",[tenantId,taskId,partyId,identityId]);
+   await session.query("INSERT INTO crm_saved_reports(tenant_id,report_id,name,dataset,definition,owner_identity_id) VALUES($1,$2,'JSON restore report','parties',$3::jsonb,$4)",[tenantId,reportId,JSON.stringify({columns:['displayName'],filters:{active:true}}),identityId]);
    await session.query("INSERT INTO wimblo_platform.tenant_modules(tenant_id,module_key,state,enabled_at) VALUES($1,'core','enabled',now())",[tenantId]);
    await session.query("INSERT INTO wimblo_platform.module_events(tenant_id,event_id,module_key,event_type,actor_identity_id,details) VALUES($1,$2,'core','enabled',$3,'{\"reason\":\"recovery\"}')",[tenantId,moduleEventId,identityId]);
+   for(const item of jsonVariants){
+    const value=JSON.stringify(item.value);
+    await session.query("INSERT INTO wimblo_platform.tenant_modules(tenant_id,module_key,state,config) VALUES($1,$2,'disabled',$3::jsonb)",[tenantId,item.moduleKey,value]);
+    await session.query("INSERT INTO wimblo_platform.module_events(tenant_id,event_id,module_key,event_type,actor_identity_id,details) VALUES($1,$2,$3,$4,$5,$6::jsonb)",[tenantId,item.moduleEventId,item.moduleKey,`json-${item.kind}`,identityId,value]);
+    await session.query("INSERT INTO party_events(tenant_id,event_id,target_type,target_id,action,actor_identity_id,details) VALUES($1,$2,'party',$3,$4,$5,$6::jsonb)",[tenantId,item.partyEventId,partyId,`json-${item.kind}`,identityId,value]);
+    await session.query("INSERT INTO opportunity_stage_events(tenant_id,event_id,opportunity_id,pipeline_id,to_stage_id,action,actor_identity_id,details) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb)",[tenantId,item.opportunityEventId,opportunityId,pipelineId,stageId,`json-${item.kind}`,identityId,value]);
+    await session.query("INSERT INTO crm_task_events(tenant_id,event_id,task_id,subject_id,action,actor_identity_id,details,occurred_at) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,now())",[tenantId,item.taskEventId,taskId,partyId,item.taskAction,identityId,value]);
+   }
    for(const [index,item] of jobPayloadCases.entries())await session.query(
     "INSERT INTO wimblo_platform.durable_jobs(tenant_id,job_id,queue,kind,idempotency_key,payload,state,attempts) VALUES($1,$2,'default','recovery.job',$3,$4::jsonb,$5,$6)",
     [tenantId,item.jobId,`recovery-foundation-${item.kind}`,JSON.stringify(item.payload),index===0?'dead_lettered':'ready',index===0?1:0]);
@@ -243,7 +260,10 @@ test('tenant logical backup restores and verifies every production CRM and found
   for(const table of TENANT_FOUNDATION_TABLES)assert.ok(Object.hasOwn(backup.manifest.digest.tenantData,table),`${table} is absent from the backup manifest`);
   for(const table of EXCLUDED_RECOVERY_TABLES)assert.equal(Object.hasOwn(backup.manifest.digest.tenantData,table),false,`${table} crossed its explicit backup boundary`);
   assert.equal(backup.manifest.digest.tenantData.parties.count,1);
-  for(const table of TENANT_FOUNDATION_TABLES)assert.equal(backup.manifest.digest.tenantData[table].count,table==='wimblo_platform.durable_jobs'?jobPayloadCases.length:1,`${table} source row was not captured`);
+  for(const table of TENANT_FOUNDATION_TABLES){
+   const expected=table==='wimblo_platform.durable_jobs'?jobPayloadCases.length:['wimblo_platform.tenant_modules','wimblo_platform.module_events'].includes(table)?jsonVariants.length+1:1;
+   assert.equal(backup.manifest.digest.tenantData[table].count,expected,`${table} source rows were not captured`);
+  }
   let targetFactoryCalls=0;
   await assert.rejects(()=>restoreTenantBackup({
    archive:backup.archive,encryptionKey:'d'.repeat(64),expectedTenantId:tenantId,
@@ -287,10 +307,21 @@ test('tenant logical backup restores and verifies every production CRM and found
     (SELECT count(*) FROM wimblo_platform.durable_jobs)::int AS durable_jobs,
     (SELECT count(*) FROM wimblo_platform.durable_job_attempts)::int AS durable_job_attempts,
     (SELECT count(*) FROM wimblo_platform.dead_letter_jobs)::int AS dead_letter_jobs`,[leadId]));
-   assert.deepEqual(rows.rows[0],{parties:1,people:1,subjects:1,converted_leads:1,linked_opportunities:1,tenant_modules:1,module_events:1,durable_jobs:jobPayloadCases.length,durable_job_attempts:1,dead_letter_jobs:1});
+   assert.deepEqual(rows.rows[0],{parties:1,people:1,subjects:1,converted_leads:1,linked_opportunities:1,tenant_modules:jsonVariants.length+1,module_events:jsonVariants.length+1,durable_jobs:jobPayloadCases.length,durable_job_attempts:1,dead_letter_jobs:1});
    const restoredJobs=await targetPool.withTenantSession(tenantId,session=>session.query('SELECT job_id::text,payload FROM wimblo_platform.durable_jobs ORDER BY idempotency_key'));
    const payloadById=new Map(restoredJobs.rows.map(row=>[row.job_id,row.payload]));
    for(const item of jobPayloadCases)assert.deepEqual(payloadById.get(item.jobId),item.payload,`${item.kind} JSON payload changed during restore`);
+   const jsonRows=await targetPool.withTenantSession(tenantId,session=>session.query(`SELECT 'module_config' AS source,module_key AS key,config AS value FROM wimblo_platform.tenant_modules WHERE module_key=ANY($1)
+    UNION ALL SELECT 'module_event',event_id::text,details FROM wimblo_platform.module_events WHERE event_id=ANY($2::uuid[])
+    UNION ALL SELECT 'party_event',event_id::text,details FROM party_events WHERE event_id=ANY($3::uuid[])
+    UNION ALL SELECT 'opportunity_event',event_id::text,details FROM opportunity_stage_events WHERE event_id=ANY($4::uuid[])
+    UNION ALL SELECT 'task_event',event_id::text,details FROM crm_task_events WHERE event_id=ANY($5::uuid[])`,[
+     jsonVariants.map(item=>item.moduleKey),jsonVariants.map(item=>item.moduleEventId),jsonVariants.map(item=>item.partyEventId),jsonVariants.map(item=>item.opportunityEventId),jsonVariants.map(item=>item.taskEventId)]));
+   const restoredJson=new Map(jsonRows.rows.map(row=>[`${row.source}:${row.key}`,row.value]));
+   for(const item of jsonVariants)for(const [source,key] of [['module_config',item.moduleKey],['module_event',item.moduleEventId],['party_event',item.partyEventId],['opportunity_event',item.opportunityEventId],['task_event',item.taskEventId]])
+    assert.deepEqual(restoredJson.get(`${source}:${key}`),item.value,`${source} ${item.kind} JSON changed during restore`);
+   const restoredReport=await targetPool.withTenantSession(tenantId,session=>session.query('SELECT definition FROM crm_saved_reports WHERE report_id=$1',[reportId]));
+   assert.deepEqual(restoredReport.rows[0].definition,{columns:['displayName'],filters:{active:true}});
   }finally{await restored.repository.close();}
  }finally{
   await Promise.all([source.cleanup(),target.cleanup()]);

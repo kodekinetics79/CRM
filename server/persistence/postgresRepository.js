@@ -34,9 +34,18 @@ const auditOf=row=>({id:toInt(row.audit_id,'Audit identity'),actor:row.actor,act
 const auditChecksum=entry=>sha256(canonicalJson({actor:entry.actor,action:entry.action,collection:entry.collection,recordId:entry.recordId,at:entry.at,details:entry.details}));
 const LEGACY_DUMP_TABLES=new Set(['tenants','records','users','settings','audit_entries','gift_ledger','gift_allocations']);
 const TENANT_DATA_TABLES=Object.freeze([...TENANT_TABLES.filter(table=>!LEGACY_DUMP_TABLES.has(table)),...TENANT_FOUNDATION_TABLES]);
+const TENANT_JSONB_COLUMNS=Object.freeze({
+ 'wimblo_platform.tenant_modules':['config'],
+ 'wimblo_platform.module_events':['details'],
+ 'wimblo_platform.durable_jobs':['payload'],
+ party_events:['details'],
+ opportunity_stage_events:['details'],
+ crm_task_events:['details'],
+ crm_saved_reports:['definition']
+});
 const sqlIdentifier=value=>{if(!/^[a-z_][a-z0-9_]{0,62}$/.test(value))persistenceFail(PERSISTENCE_CODES.VERIFICATION,'Tenant backup contains an unsafe SQL identifier.');return `"${value}"`;};
 const sqlRelation=value=>String(value).split('.').map(sqlIdentifier).join('.');
-const restoreParameter=(table,column,value)=>table==='wimblo_platform.durable_jobs'&&column==='payload'?JSON.stringify(value):value;
+const restoreParameter=(table,column,value)=>TENANT_JSONB_COLUMNS[table]?.includes(column)?JSON.stringify(value):value;
 const backupValue=value=>value instanceof Date?value.toISOString():Array.isArray(value)?value.map(backupValue):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).map(([key,item])=>[key,backupValue(item)])):value;
 const tenantDataDigest=data=>Object.fromEntries(TENANT_DATA_TABLES.map(table=>{
  const rows=data[table]||[];
