@@ -205,10 +205,11 @@ test('tenant logical backup restores and verifies every production CRM and found
   for(const sql of applicationRoleGrants(target.tenantRole))await target.owner.withAdminSession(session=>session.query(sql));
   const sourcePool=source.makeTenantPool(),targetPool=target.makeTenantPool(),tenantId=randomUUID(),partyId=randomUUID(),identityId=randomUUID();
   const pipelineId=randomUUID(),stageId=randomUUID(),leadId=randomUUID(),opportunityId=randomUUID(),moduleEventId=randomUUID(),jobId=randomUUID();
+  const jobPayload={subject:{id:partyId,kind:'party'},attempts:[{number:1,outcome:'retained'}],flags:{nested:true}};
   const sourceRepository=await createPostgresRepository({pool:sourcePool,tenantId,tenant:{name:'CRM recovery source'}});
   const targetRepository=await createPostgresRepository({pool:targetPool,tenantId,tenant:{name:'CRM recovery target'}});
-  for(const fixture of [source,target])await fixture.owner.withAdminSession(async session=>{
-   await session.query("INSERT INTO wimblo_platform.global_identities(identity_id,normalized_email,display_name,password_hash) VALUES($1,$2,'Recovery owner','x')",[identityId,`recovery-${fixture.database}@example.invalid`]);
+  await source.owner.withAdminSession(async session=>{
+   await session.query("INSERT INTO wimblo_platform.global_identities(identity_id,normalized_email,display_name,password_hash) VALUES($1,$2,'Recovery owner','x')",[identityId,`recovery-${source.database}@example.invalid`]);
    await session.query("INSERT INTO wimblo_platform.memberships(membership_id,tenant_id,identity_id,role,status) VALUES($1,$2,$3,'owner','active')",[randomUUID(),tenantId,identityId]);
   });
   await sourcePool.withTransaction(tenantId,async session=>{
@@ -222,7 +223,7 @@ test('tenant logical backup restores and verifies every production CRM and found
    await session.query("INSERT INTO crm_subjects(tenant_id,subject_id,subject_type,party_id,owner_identity_id) VALUES($1,$2,'party',$2,$3)",[tenantId,partyId,identityId]);
    await session.query("INSERT INTO wimblo_platform.tenant_modules(tenant_id,module_key,state,enabled_at) VALUES($1,'core','enabled',now())",[tenantId]);
    await session.query("INSERT INTO wimblo_platform.module_events(tenant_id,event_id,module_key,event_type,actor_identity_id,details) VALUES($1,$2,'core','enabled',$3,'{\"reason\":\"recovery\"}')",[tenantId,moduleEventId,identityId]);
-   await session.query("INSERT INTO wimblo_platform.durable_jobs(tenant_id,job_id,queue,kind,idempotency_key,payload,state,attempts) VALUES($1,$2,'default','recovery.job','recovery-foundation','{}','dead_lettered',1)",[tenantId,jobId]);
+   await session.query("INSERT INTO wimblo_platform.durable_jobs(tenant_id,job_id,queue,kind,idempotency_key,payload,state,attempts) VALUES($1,$2,'default','recovery.job','recovery-foundation',$3::jsonb,'dead_lettered',1)",[tenantId,jobId,JSON.stringify(jobPayload)]);
    await session.query("INSERT INTO wimblo_platform.durable_job_attempts(tenant_id,job_id,attempt,worker_id,started_at,finished_at,outcome,error_code,error_detail) VALUES($1,$2,1,'recovery-worker',now(),now(),'dead_lettered','RECOVERY_TEST','retained')",[tenantId,jobId]);
    await session.query("INSERT INTO wimblo_platform.dead_letter_jobs(tenant_id,job_id,reason_code,reason_detail) VALUES($1,$2,'RECOVERY_TEST','retained')",[tenantId,jobId]);
   });
@@ -233,10 +234,33 @@ test('tenant logical backup restores and verifies every production CRM and found
   for(const table of EXCLUDED_RECOVERY_TABLES)assert.equal(Object.hasOwn(backup.manifest.digest.tenantData,table),false,`${table} crossed its explicit backup boundary`);
   assert.equal(backup.manifest.digest.tenantData.parties.count,1);
   for(const table of TENANT_FOUNDATION_TABLES)assert.equal(backup.manifest.digest.tenantData[table].count,1,`${table} source row was not captured`);
+  let targetFactoryCalls=0;
+  await assert.rejects(()=>restoreTenantBackup({
+   archive:backup.archive,encryptionKey:'d'.repeat(64),expectedTenantId:tenantId,
+   createTargetRepository:()=>{targetFactoryCalls++;return targetRepository;}
+  }),/control-plane prerequisite validation.*required/i);
+  assert.equal(targetFactoryCalls,0,'restore target was opened before required control-plane validation');
+  const validateTargetControlPlane=async requirements=>target.owner.withAdminSession(async session=>{
+   const identities=await session.query('SELECT identity_id::text FROM wimblo_platform.global_identities WHERE identity_id=ANY($1::uuid[])',[requirements.identityIds]);
+   const memberships=await session.query('SELECT identity_id::text FROM wimblo_platform.memberships WHERE tenant_id=$1 AND identity_id=ANY($2::uuid[])',[requirements.tenantId,requirements.membershipIdentityIds]);
+   return {identityIds:identities.rows.map(row=>row.identity_id),membershipIdentityIds:memberships.rows.map(row=>row.identity_id)};
+  });
+  await target.owner.withAdminSession(session=>session.query("INSERT INTO wimblo_platform.global_identities(identity_id,normalized_email,display_name,password_hash) VALUES($1,$2,'Recovery owner','x')",[identityId,`recovery-${target.database}@example.invalid`]));
+  await assert.rejects(()=>restoreTenantBackup({
+   archive:backup.archive,encryptionKey:'d'.repeat(64),expectedTenantId:tenantId,
+   validateControlPlanePrerequisites:validateTargetControlPlane,
+   createTargetRepository:()=>{targetFactoryCalls++;return targetRepository;}
+  }),/membership/i);
+  assert.equal(targetFactoryCalls,0,'restore target was opened with incomplete control-plane prerequisites');
+  const untouched=await targetPool.withTenantSession(tenantId,session=>session.query('SELECT count(*)::int AS count FROM parties'));
+  assert.equal(untouched.rows[0].count,0,'failed prerequisite validation partially restored tenant rows');
+  await target.owner.withAdminSession(session=>session.query("INSERT INTO wimblo_platform.memberships(membership_id,tenant_id,identity_id,role,status) VALUES($1,$2,$3,'owner','active')",[randomUUID(),tenantId,identityId]));
   const restored=await restoreTenantBackup({
    archive:backup.archive,encryptionKey:'d'.repeat(64),expectedTenantId:tenantId,closeTarget:false,
-   createTargetRepository:()=>targetRepository
+   validateControlPlanePrerequisites:validateTargetControlPlane,
+   createTargetRepository:()=>{targetFactoryCalls++;return targetRepository;}
   });
+  assert.equal(targetFactoryCalls,1);
   try{
    assert.equal(restored.verification.verified,true);
    const evidence=await verifyRestore({manifest:backup.manifest,source:sourceRepository,restored:restored.repository});
@@ -254,6 +278,8 @@ test('tenant logical backup restores and verifies every production CRM and found
     (SELECT count(*) FROM wimblo_platform.durable_job_attempts)::int AS durable_job_attempts,
     (SELECT count(*) FROM wimblo_platform.dead_letter_jobs)::int AS dead_letter_jobs`,[leadId]));
    assert.deepEqual(rows.rows[0],{parties:1,people:1,subjects:1,converted_leads:1,linked_opportunities:1,tenant_modules:1,module_events:1,durable_jobs:1,durable_job_attempts:1,dead_letter_jobs:1});
+   const restoredJob=await targetPool.withTenantSession(tenantId,session=>session.query('SELECT payload FROM wimblo_platform.durable_jobs WHERE job_id=$1',[jobId]));
+   assert.deepEqual(restoredJob.rows[0].payload,jobPayload);
   }finally{await restored.repository.close();}
  }finally{
   await Promise.all([source.cleanup(),target.cleanup()]);
