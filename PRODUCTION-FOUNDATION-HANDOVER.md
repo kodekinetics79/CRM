@@ -3,11 +3,11 @@
 ## Current checkpoint
 
 - Direction: industry-neutral, multi-customer SaaS with isolated organizations.
-- Branch: `feat/wimblo-crm-suite`.
+- Release: merged to `main` through PR #1 at `ac2fcb9e0f1919dfb3cea0d734e107827d7f2590`.
 - Scope: production PostgreSQL foundation plus canonical parties, sales, work timeline, reporting/import/export, and responsive production CRM workspace.
 - Cost boundary: ordinary public-repository Git/CI is allowed; no paid Git feature, hosting upgrade, provider activation, new cloud resource, or other billable promotion is allowed.
 
-The product is implemented and locally certifiable. It is not yet a deployed or customer-accepted production CRM.
+The reviewed product scope is implemented, merged, and CI-certified. It is not yet a deployed or customer-accepted production CRM.
 
 ## What this version contains
 
@@ -43,11 +43,11 @@ Browser-engine acceptance is still unobserved on this machine because no compati
 
 | State | Status |
 |---|---|
-| Implemented | Complete for the reviewed CRM release-candidate scope on the feature branch |
-| Locally verified | Complete for the final post-review candidate; exact promotion still requires green CI at the pushed head |
+| Implemented | Complete for the reviewed CRM release scope on `main` |
+| Locally verified | Complete for release head `ff29dab`; full suite 1,741/1,741 plus production and PostgreSQL gates |
 | Independent whole-branch review | Multiple security, DB/operations, worker, and CRM reviews completed; reproduced blockers were closed under RED/GREEN tests |
-| CI / pull request | PR #1 is open; an earlier head passed the public-repository workflow, while the final candidate still requires a fresh exact-head run |
-| Merged | Not performed |
+| CI / pull request | PR #1 merged; exact-head run `43162218349` and post-merge `main` run `43162642191` passed build, audit, 1,741 tests, PostgreSQL boundaries, and PostgreSQL foundation verification |
+| Merged | Complete at `ac2fcb9e0f1919dfb3cea0d734e107827d7f2590` on 2026-11-12 |
 | Deployed | No SaaS production deployment; existing evaluator deployments remain unchanged |
 | Production observed | Evaluator liveness only; no SaaS readiness or customer-production evidence |
 | Provider backup/restore observed | Not performed |
@@ -66,10 +66,10 @@ Browser-engine acceptance is still unobserved on this machine because no compati
 
 ## Cost-safe provider observation
 
-Read-only provider inspection on 2026-11-11 found:
+Read-only provider inspection on 2026-11-11, followed by a post-merge deployment check on 2026-11-12, found:
 
 - GitHub repository `kodekinetics79/CRM` is public. `main` is unprotected and the existing `Build and tests` workflow uses a standard hosted runner; no paid Git feature was enabled.
-- Vercel project `wimblo` is on the team plan and currently serves evaluator commit `95d3cfeb6549494c2249c558807a99d5ebc49c8a`. Although automatic Git deployments were marked disabled, two PR preview builds were still created. The Git integration was then disconnected from the project to prevent further branch-push builds. The current production evaluator remains live and unchanged until an explicitly approved, production-capable backend exists.
+- Vercel project `wimblo` is on the team plan and currently serves evaluator commit `95d3cfeb6549494c2249c558807a99d5ebc49c8a`. Although automatic Git deployments were marked disabled, two PR preview builds were still created. The Git integration was then disconnected from the project to prevent further branch-push builds. A post-merge query covering the merge window returned zero new deployments. The current production evaluator remains live and unchanged until an explicitly approved, production-capable backend exists.
 - Render project `WimbloCRM` serves evaluator commit `cb56128f7670fe0f84f8007294e83a172adbb685` from service `Wimblo_CRM`. The service is active on plan `0.5c-512mb`, but the project contains no Render database. The dashboard did not expose usable invoice details during inspection, so an actual settled `$7` charge is not claimed.
 - No provider deploy, plan change, storage/database creation, secret write, billing action, or paid feature activation was performed. Production promotion is blocked by missing no-new-cost PostgreSQL, private object storage/backup scheduling, and a separately supervised worker.
 
