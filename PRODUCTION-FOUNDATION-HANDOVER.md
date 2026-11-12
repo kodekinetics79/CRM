@@ -22,6 +22,9 @@ The product is implemented and locally certifiable. It is not yet a deployed or 
 - Certification failures redact configured database/object-store credentials and identifiers through both direct verifier and composed certifier paths.
 - Capacity evidence comes from 40 measured CRM repository operations on disposable PostgreSQL, not synthetic counters.
 - Worker polling failures drain active work before pool shutdown, and shutdown-raced claims that never reached a handler are released without consuming an attempt or entering dead-letter state.
+- Authenticated database TLS, effective PostgreSQL target comparison, complete control-plane privilege denial (including column grants and PostgreSQL 17 `MAINTAIN`), a 24-hour backup-evidence RPO, and CRM-complete fresh-target restore reconciliation are enforced before readiness.
+- Authenticated responses use explicit public projections; MFA activation and recovery-code custody are transactional and resumable; transient control-plane read failures cannot revoke valid sessions.
+- Saved tasks and notes resume after reload through bounded metadata lists and exact authorized detail reads. Manually edited import targets can be reconciled only through an explicit, reasoned, audited, version-checked action; stale or no-drift attempts are refused.
 - Deterministic local certification and the operator runbook at `docs/operations/WIMBLO-CRM-RUNBOOK.md`.
 
 ## Verification contract
@@ -32,7 +35,7 @@ npm run certify:crm:local
 
 This runs focused CRM certification tests, disposable two-tenant PostgreSQL verification, encrypted backup/readback/fresh-target restore reconciliation, the full test suite, production and synthetic builds, a high-severity dependency audit, and the focused/skipped-test discipline gate. Results must be recorded from a fresh run at the exact commit being promoted.
 
-The Task 6 post-review checkpoint completed locally on 2026-11-11: focused review-fix tests 27/27; PostgreSQL foundation schema version 16 with forced RLS on 35 tenant tables, two-tenant negatives, and a real capacity profile of 40 operations, 0 errors, pool maximum 2, observed concurrent queries 2, 40 actual queries, and 1 query per operation; real PostgreSQL/S3-compatible verification 46/46 including encrypted backup/readback/fresh-target restore reconciliation; full suite 1,660/1,660; production and synthetic builds passed; dependency audit found 0 vulnerabilities; discipline gate reported 0 focused and 0 skipped. The object store used for this check was an ephemeral local container that was stopped and removed afterward. These are local results, not CI, provider, deployment, or customer evidence.
+The final post-review candidate completed local verification on 2026-11-11: full suite 1,707/1,707; PostgreSQL foundation schema version 18; explicit PostgreSQL boundary/integration tests 4/4; real PostgreSQL/S3-compatible verification 46/46 including encrypted backup/readback/fresh-target restore reconciliation; production and synthetic builds passed; dependency audit found 0 vulnerabilities; discipline gate reported 0 focused and 0 skipped. The bounded capacity profile remained 40 operations, 0 errors, pool maximum 2, observed concurrent queries 2, 40 actual queries, and 1 query per operation. Dedicated PostgreSQL and object-store containers were loopback-only, ephemeral, and removed after evidence capture. These are local results, not deployment, provider-backup, browser, or customer-acceptance evidence.
 
 Browser-engine acceptance is still unobserved on this machine because no compatible browser host is available. Do not describe source/render tests as browser acceptance.
 
@@ -40,13 +43,13 @@ Browser-engine acceptance is still unobserved on this machine because no compati
 
 | State | Status |
 |---|---|
-| Implemented | Complete for the Task 1–6 CRM scope on the feature branch |
-| Locally verified | Complete for the Task 6 implementation checkpoint; promotion requires rerunning at the final reviewed commit |
-| Independent whole-branch review | Complete at `1639528`; security and DB/operations re-reviews found no remaining Critical or Important issue |
-| CI / pull request | Not performed |
+| Implemented | Complete for the reviewed CRM release-candidate scope on the feature branch |
+| Locally verified | Complete for the final post-review candidate; exact promotion still requires green CI at the pushed head |
+| Independent whole-branch review | Multiple security, DB/operations, worker, and CRM reviews completed; reproduced blockers were closed under RED/GREEN tests |
+| CI / pull request | PR #1 is open; an earlier head passed the public-repository workflow, while the final candidate still requires a fresh exact-head run |
 | Merged | Not performed |
-| Deployed | Not performed |
-| Production observed | Not performed |
+| Deployed | No SaaS production deployment; existing evaluator deployments remain unchanged |
+| Production observed | Evaluator liveness only; no SaaS readiness or customer-production evidence |
 | Provider backup/restore observed | Not performed |
 | Browser acceptance | Blocked locally by unavailable browser host |
 | Customer UAT | Not performed |
@@ -65,7 +68,7 @@ Browser-engine acceptance is still unobserved on this machine because no compati
 Read-only provider inspection on 2026-11-11 found:
 
 - GitHub repository `kodekinetics79/CRM` is public. `main` is unprotected and the existing `Build and tests` workflow uses a standard hosted runner; no paid Git feature was enabled.
-- Vercel project `wimblo` is on the team plan and currently serves evaluator commit `95d3cfeb6549494c2249c558807a99d5ebc49c8a`. Automatic Git deployments were explicitly disabled before the feature-branch push because billed Wimblo build usage was observed. The current evaluator remains live until an explicitly approved, production-capable backend exists.
+- Vercel project `wimblo` is on the team plan and currently serves evaluator commit `95d3cfeb6549494c2249c558807a99d5ebc49c8a`. Although automatic Git deployments were marked disabled, two PR preview builds were still created. The Git integration was then disconnected from the project to prevent further branch-push builds. The current production evaluator remains live and unchanged until an explicitly approved, production-capable backend exists.
 - Render project `WimbloCRM` serves evaluator commit `cb56128f7670fe0f84f8007294e83a172adbb685` from service `Wimblo_CRM`. The service is active on plan `0.5c-512mb`, but the project contains no Render database. The dashboard did not expose usable invoice details during inspection, so an actual settled `$7` charge is not claimed.
 - No provider deploy, plan change, storage/database creation, secret write, billing action, or paid feature activation was performed. Production promotion is blocked by missing no-new-cost PostgreSQL, private object storage/backup scheduling, and a separately supervised worker.
 
