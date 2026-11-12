@@ -157,8 +157,8 @@ test('work service requires core and sales capabilities for opportunity subjects
  const calls=[];
  const repository={
   createPerson(){},getSubjectType:async()=> 'opportunity',createActivity:async input=>input,
-  getTaskSubject:async()=>({subjectId,subjectType:'opportunity'}),updateTask:async input=>input,
-  getNoteSubject:async()=>({subjectId,subjectType:'opportunity'}),reviseNote:async input=>input
+  listTasks:async()=>[],getTaskSubject:async()=>({subjectId,subjectType:'opportunity'}),getTask:async input=>input,updateTask:async input=>input,
+  listNotes:async()=>[],getNoteSubject:async()=>({subjectId,subjectType:'opportunity'}),getNote:async input=>input,reviseNote:async input=>input
  };
  const moduleService={authorize:async input=>{calls.push(input);return {allowed:input.code==='core'};}};
  const service=createCrmService({repository,moduleService});
@@ -166,5 +166,11 @@ test('work service requires core and sales capabilities for opportunity subjects
  assert.deepEqual(calls.map(call=>call.code),['core','sales']);
  calls.length=0;
  await assert.rejects(()=>service.updateTask({tenantId,taskId:randomUUID(),actorRole:'staff'}),error=>error.code===PERSISTENCE_CODES.ISOLATION);
+ assert.deepEqual(calls.map(call=>call.code),['core','sales']);
+ calls.length=0;
+ await assert.rejects(()=>service.listSubjectNotes({tenantId,subjectId,limit:50,actorRole:'viewer'}),error=>error.code===PERSISTENCE_CODES.ISOLATION);
+ assert.deepEqual(calls.map(call=>call.code),['core','sales']);
+ calls.length=0;
+ await assert.rejects(()=>service.getTask({tenantId,taskId:randomUUID(),actorRole:'viewer'}),error=>error.code===PERSISTENCE_CODES.ISOLATION);
  assert.deepEqual(calls.map(call=>call.code),['core','sales']);
 });

@@ -21,17 +21,18 @@ async function request(app,path,{method='GET',body}={}){const server=app.listen(
 const service=()=>({
  listParties:async()=>[],getParty:async()=>({}),createPerson:async()=>({}),createOrganization:async()=>({}),updateParty:async()=>({}),listContacts:async()=>[],createContact:async()=>({}),listRelationships:async()=>[],createRelationship:async()=>({}),
  listPipelines:async()=>[],ensureDefaultPipeline:async()=>({}),listLeads:async()=>[],createLead:async()=>({}),convertLead:async()=>({}),listOpportunities:async()=>[],changeOpportunityStage:async()=>({}),
- getSubject:async input=>({subjectId:input.subjectId,subjectType:'party',ownerIdentityId:identityId,version:4}),listAssignmentMembers:async()=>[{identityId,displayName:'Signed in staff',role:'staff'}],createActivity:async input=>input,createTask:async input=>input,updateTask:async input=>input,createNote:async input=>input,reviseNote:async input=>input,linkAttachment:async input=>input,changeSubjectOwner:async input=>input,listTimeline:async input=>({items:[],nextCursor:null,input})
+ getSubject:async input=>({subjectId:input.subjectId,subjectType:'party',ownerIdentityId:identityId,version:4}),listAssignmentMembers:async()=>[{identityId,displayName:'Signed in staff',role:'staff'}],createActivity:async input=>input,listSubjectTasks:async input=>[{taskId,title:'Saved task',status:'open',version:2,input}],getTask:async input=>({taskId:input.taskId,title:'Saved task',details:'Exact detail',status:'open',version:2}),createTask:async input=>input,updateTask:async input=>input,listSubjectNotes:async input=>[{noteId,title:'Saved note',currentRevision:2,version:2,input}],getNote:async input=>({noteId:input.noteId,title:'Saved note',body:'Exact body',currentRevision:2,version:2}),createNote:async input=>input,reviseNote:async input=>input,linkAttachment:async input=>input,changeSubjectOwner:async input=>input,listTimeline:async input=>({items:[],nextCursor:null,input})
 });
 
-test('work routes carry tenant role and actor context and viewer can read timeline',async()=>{
- const calls=[],api=service();for(const name of ['createActivity','createTask','updateTask','createNote','reviseNote','linkAttachment','changeSubjectOwner','listTimeline']){const original=api[name];api[name]=async input=>{calls.push([name,input]);return original(input);};}
+test('work routes carry tenant role and actor context and viewer can read resumable artifacts and timeline',async()=>{
+ const calls=[],api=service();for(const name of ['createActivity','listSubjectTasks','getTask','createTask','updateTask','listSubjectNotes','getNote','createNote','reviseNote','linkAttachment','changeSubjectOwner','listTimeline']){const original=api[name];api[name]=async input=>{calls.push([name,input]);return original(input);};}
  const app=appFor(api);
  const activity=await request(app,`/api/crm/subjects/${subjectId}/activities`,{method:'POST',body:{activityType:'call',summary:'Called'}});
  assert.equal(activity.status,201);
  assert.equal((await request(app,`/api/crm/tasks/${taskId}`,{method:'PATCH',body:{expectedVersion:1,status:'completed'}})).status,200);
  assert.equal((await request(app,`/api/crm/notes/${noteId}/revisions`,{method:'POST',body:{expectedVersion:1,body:'Revised'}})).status,201);
- const timeline=await request(appFor(api,{role:'viewer'}),`/api/crm/subjects/${subjectId}/timeline?limit=25`);
+ const viewer=appFor(api,{role:'viewer'});assert.equal((await request(viewer,`/api/crm/subjects/${subjectId}/tasks?limit=50`)).status,200);assert.equal((await request(viewer,`/api/crm/tasks/${taskId}`)).status,200);assert.equal((await request(viewer,`/api/crm/subjects/${subjectId}/notes?limit=50`)).status,200);assert.equal((await request(viewer,`/api/crm/notes/${noteId}`)).status,200);
+ const timeline=await request(viewer,`/api/crm/subjects/${subjectId}/timeline?limit=25`);
  assert.equal(timeline.status,200);
  for(const [,input] of calls){assert.equal(input.tenantId,tenantId);assert.equal(input.actorIdentityId,identityId);if(input.subjectId)assert.equal(input.subjectId,subjectId);}
  assert.equal(calls.find(([name])=>name==='updateTask')[1].taskId,taskId);

@@ -49,11 +49,11 @@ test('switching parties clears every record-scoped draft, task, note and error s
 test('late Party A load cannot overwrite loaded Party B',async()=>{
  const calls=[];const client={request(path,options={}){const request={path,signal:options.signal,...deferred()};calls.push(request);return request.promise;}};
  const h=harness('src/production/RelationshipWorkspace.jsx');const props=party=>({client,party,writable:true,signedInIdentityId:member.identityId});
- h.render(props(partyA));h.commit();assert.equal(calls.length,4);
- h.render(props(partyB));h.commit();assert.equal(calls.length,8);
+ h.render(props(partyA));h.commit();assert.equal(calls.length,6);
+ h.render(props(partyB));h.commit();assert.equal(calls.length,12);
  const resolveGroup=(group,party)=>{for(const request of group){if(request.path.endsWith('/contacts?limit=100'))request.resolve({contacts:[]});else if(request.path==='/crm/members')request.resolve({members:[member]});else if(request.path.startsWith('/crm/subjects/'))request.resolve({subject:subjectFor(party)});else request.resolve({party});}};
- resolveGroup(calls.slice(4),partyB);await flush();let tree=h.render(props(partyB));assert.match(html(tree),/Party B/);
- resolveGroup(calls.slice(0,4),partyA);await flush();tree=h.render(props(partyB));assert.match(html(tree),/Party B/);assert.doesNotMatch(html(tree),/Party A/);
+ resolveGroup(calls.slice(6),partyB);await flush();let tree=h.render(props(partyB));assert.match(html(tree),/Party B/);
+ resolveGroup(calls.slice(0,6),partyA);await flush();tree=h.render(props(partyB));assert.match(html(tree),/Party B/);assert.doesNotMatch(html(tree),/Party A/);
 });
 
 test('late Party A mutations and onSaved cannot affect Party B or expose A-ID actions',async()=>{

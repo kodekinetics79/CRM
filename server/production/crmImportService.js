@@ -104,6 +104,33 @@ async function readSnapshot(session,{tenantId,sourceSystem,parsed,lock=false}){
 export function createCrmImportService({tenantPool,moduleService,clock=()=>new Date()}={}){
  if(!tenantPool||typeof tenantPool.withTransaction!=='function'||!moduleService||typeof moduleService.authorize!=='function')fail('Import dependencies are required.');
 
+ async function reconcilePeopleMapping(input){
+  await authorize(moduleService,input);
+  const source=typeof input.sourceSystem==='string'?input.sourceSystem.trim():'',externalKey=typeof input.externalKey==='string'?input.externalKey.trim():'',reason=typeof input.reason==='string'?input.reason.trim():'';
+  const targetSubjectId=typeof input.targetSubjectId==='string'?input.targetSubjectId.toLowerCase():'',actorIdentityId=typeof input.actorIdentityId==='string'?input.actorIdentityId.toLowerCase():'',sourceRowHash=String(input.expectedSourceRowHash??'').toLowerCase();
+  const expectedMapping=Number(input.expectedMappingTargetVersion),expectedCurrent=Number(input.expectedCurrentTargetVersion);
+  if(!source||source.length>120||!externalKey||externalKey.length>300||!UUID.test(targetSubjectId)||!UUID.test(actorIdentityId)||!/^[a-f0-9]{64}$/.test(sourceRowHash)||!Number.isSafeInteger(expectedMapping)||expectedMapping<1||!Number.isSafeInteger(expectedCurrent)||expectedCurrent<1||reason.length<10||reason.length>500)fail('Import reconciliation review is invalid.');
+  return tenantPool.withTransaction(input.tenantId,async session=>{
+   const {rows:[mapping]}=await session.query(
+    `/*import-map:reconcile-lock*/ SELECT m.external_key,m.target_subject_id,m.source_row_hash,m.target_version,p.version AS current_target_version FROM crm_import_source_mappings m JOIN people pe ON pe.tenant_id=m.tenant_id AND pe.party_id=m.target_subject_id JOIN parties p ON p.tenant_id=pe.tenant_id AND p.party_id=pe.party_id WHERE m.tenant_id=$1 AND m.source_system=$2 AND m.entity_type='people' AND m.external_key=$3 FOR UPDATE OF m,p`,
+    [input.tenantId,source,externalKey]
+   );
+   if(!mapping)persistenceFail(PERSISTENCE_CODES.NOT_FOUND,'Import mapping was not found.');
+   if(mapping.target_subject_id!==targetSubjectId||mapping.source_row_hash!==sourceRowHash||Number(mapping.target_version)!==expectedMapping||Number(mapping.current_target_version)!==expectedCurrent||expectedMapping===expectedCurrent)persistenceFail(PERSISTENCE_CODES.CONFLICT,'Import reconciliation review is stale or no longer matches the saved mapping.');
+   const reconciledAt=new Date(clock()).toISOString();
+   const {rows:[updated]}=await session.query(
+    `/*import-map:reconcile-update*/ UPDATE crm_import_source_mappings SET target_version=$7,updated_at=$8::timestamptz WHERE tenant_id=$1 AND source_system=$2 AND entity_type='people' AND external_key=$3 AND target_subject_id=$4 AND target_version=$5 AND source_row_hash=$6 RETURNING target_version,updated_at`,
+    [input.tenantId,source,externalKey,targetSubjectId,expectedMapping,sourceRowHash,expectedCurrent,reconciledAt]
+   );
+   if(!updated)persistenceFail(PERSISTENCE_CODES.CONFLICT,'Import reconciliation lost its concurrency race.');
+   await session.query(
+    `/*import-map:reconcile-audit*/ INSERT INTO party_events(tenant_id,event_id,target_type,target_id,action,actor_identity_id,details,at) VALUES($1,$2,'party',$3,'import_mapping_reconciled',$4,$5::jsonb,$6::timestamptz)`,
+    [input.tenantId,randomUUID(),targetSubjectId,actorIdentityId,JSON.stringify({sourceSystem:source,externalKey,sourceRowHash,priorTargetVersion:expectedMapping,targetVersion:expectedCurrent,reason}),reconciledAt]
+   );
+   return {sourceSystem:source,entityType:'people',externalKey,targetSubjectId,sourceRowHash,targetVersion:Number(updated.target_version),reconciledAt:updated.updated_at};
+  });
+ }
+
  async function previewPeople(input){
   await authorize(moduleService,input);
   const parsed=parsePeopleCsv(input.csv),batchId=input.batchId??randomUUID();
@@ -198,5 +225,5 @@ export function createCrmImportService({tenantPool,moduleService,clock=()=>new D
   });
  }
 
- return Object.freeze({previewPeople,commitPeople});
+ return Object.freeze({previewPeople,commitPeople,reconcilePeopleMapping});
 }

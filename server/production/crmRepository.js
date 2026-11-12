@@ -183,6 +183,7 @@ const mapOpportunity=row=>row?{
 }:null;
 const mapSubject=row=>row?{tenantId:row.tenant_id,subjectId:row.subject_id,subjectType:row.subject_type,ownerIdentityId:row.owner_identity_id??null,version:Number(row.version),createdAt:row.created_at,updatedAt:row.updated_at}:null;
 const mapTask=row=>row?{tenantId:row.tenant_id,taskId:row.task_id,subjectId:row.subject_id,title:row.title,details:row.details??null,status:row.status,ownerIdentityId:row.owner_identity_id,dueAt:row.due_at??null,reminderAt:row.reminder_at??null,completedAt:row.completed_at??null,version:Number(row.version),createdAt:row.created_at,updatedAt:row.updated_at}:null;
+const mapTaskSummary=row=>row?{tenantId:row.tenant_id,taskId:row.task_id,subjectId:row.subject_id,title:row.title,status:row.status,ownerIdentityId:row.owner_identity_id,dueAt:row.due_at??null,reminderAt:row.reminder_at??null,completedAt:row.completed_at??null,version:Number(row.version),createdAt:row.created_at,updatedAt:row.updated_at}:null;
 const mapNote=row=>row?{tenantId:row.tenant_id,noteId:row.note_id,subjectId:row.subject_id,title:row.title,currentRevision:Number(row.current_revision),version:Number(row.version),createdAt:row.created_at,updatedAt:row.updated_at}:null;
 const mapNoteDetail=row=>row?{...mapNote(row),body:row.body,revisionOccurredAt:row.revision_occurred_at}:null;
 const mapAttachment=row=>row?{tenantId:row.tenant_id,linkId:row.link_id,subjectId:row.subject_id,objectId:row.object_id,objectRevision:Number(row.object_revision),fileName:row.file_name,contentType:row.content_type,sizeBytes:Number(row.size_bytes),actorIdentityId:row.actor_identity_id,occurredAt:row.occurred_at,accessPolicy:{scope:'tenant-metadata-reference',grantsByteAccess:false}}:null;
@@ -601,10 +602,28 @@ export function createCrmRepository({tenantPool,jobRepository=null,clock=timesta
     if(!row)persistenceFail(PERSISTENCE_CODES.NOT_FOUND,'Task was not found.');return {subjectId:row.subject_id,subjectType:row.subject_type};
   }
 
+  async function listTasks(tenantId,{subjectId,limit=50}={}){
+    const tenant=uuid(tenantId,'Tenant ID'),subject=uuid(subjectId,'Subject ID'),take=count(limit,'Limit',100);
+    const {rows}=await tenantPool.withTenantSession(tenant,session=>session.query(`/*task:list*/ SELECT tenant_id,task_id,subject_id,title,status,owner_identity_id,due_at,reminder_at,completed_at,version,created_at,updated_at FROM crm_tasks WHERE tenant_id=$1 AND subject_id=$2 ORDER BY updated_at DESC,task_id LIMIT $3`,[tenant,subject,take]));
+    return rows.map(mapTaskSummary);
+  }
+
+  async function getTask(tenantId,taskId){
+    const tenant=uuid(tenantId,'Tenant ID'),task=uuid(taskId,'Task ID');
+    const {rows:[row]}=await tenantPool.withTenantSession(tenant,session=>session.query(`/*task:get*/ SELECT tenant_id,task_id,subject_id,title,details,status,owner_identity_id,due_at,reminder_at,completed_at,version,created_at,updated_at FROM crm_tasks WHERE tenant_id=$1 AND task_id=$2`,[tenant,task]));
+    if(!row)persistenceFail(PERSISTENCE_CODES.NOT_FOUND,'Task was not found.');return mapTask(row);
+  }
+
   async function getNoteSubject(tenantId,noteId){
     const tenant=uuid(tenantId,'Tenant ID'),note=uuid(noteId,'Note ID');
     const {rows:[row]}=await tenantPool.withTenantSession(tenant,session=>session.query(`/*note:subject*/ SELECT n.subject_id,s.subject_type FROM crm_notes n JOIN crm_subjects s ON s.tenant_id=n.tenant_id AND s.subject_id=n.subject_id WHERE n.tenant_id=$1 AND n.note_id=$2`,[tenant,note]));
     if(!row)persistenceFail(PERSISTENCE_CODES.NOT_FOUND,'Note was not found.');return {subjectId:row.subject_id,subjectType:row.subject_type};
+  }
+
+  async function listNotes(tenantId,{subjectId,limit=50}={}){
+    const tenant=uuid(tenantId,'Tenant ID'),subject=uuid(subjectId,'Subject ID'),take=count(limit,'Limit',100);
+    const {rows}=await tenantPool.withTenantSession(tenant,session=>session.query(`/*note:list*/ SELECT tenant_id,note_id,subject_id,title,current_revision,version,created_at,updated_at FROM crm_notes WHERE tenant_id=$1 AND subject_id=$2 ORDER BY updated_at DESC,note_id LIMIT $3`,[tenant,subject,take]));
+    return rows.map(mapNote);
   }
 
   async function createActivity(input){
@@ -804,5 +823,5 @@ export function createCrmRepository({tenantPool,jobRepository=null,clock=timesta
     });
   }
 
-  return Object.freeze({createPerson,createOrganization,getParty,listParties,updateParty,createContact,listContacts,createRelationship,listRelationships,ensureDefaultPipeline,createLead,convertLead,changeOpportunityStage,listPipelines,listLeads,listOpportunities,getSubject,getSubjectType,getTaskSubject,getNoteSubject,createActivity,createTask,updateTask,processTaskReminder,createNote,getNote,reviseNote,linkAttachment,changeSubjectOwner,listTimeline});
+  return Object.freeze({createPerson,createOrganization,getParty,listParties,updateParty,createContact,listContacts,createRelationship,listRelationships,ensureDefaultPipeline,createLead,convertLead,changeOpportunityStage,listPipelines,listLeads,listOpportunities,getSubject,getSubjectType,getTaskSubject,listTasks,getTask,getNoteSubject,listNotes,createActivity,createTask,updateTask,processTaskReminder,createNote,getNote,reviseNote,linkAttachment,changeSubjectOwner,listTimeline});
 }
