@@ -47,7 +47,7 @@
 - Task 2: complete after fix round 1/5 and scoped re-review PASS.
 - Task 3: complete after fix round 1/5 and scoped re-review PASS.
 - Task 4: complete after fix round 1/5 and scoped re-review PASS.
-- Task 5: pending.
+- Task 5: implementation complete and locally verified; independent review pending.
 - Task 6: pending.
 - Task 7: pending.
 
@@ -68,3 +68,5 @@ Task 3: implementation checkpoint `ccd0007` — RED 0/9; focused 46/46; producti
 Task 3: fix round 1/5 (5 addressed, 0 open — commits `ccd0007..d7fbaaf`; exact subject registration; immutable subject identity; recorded-time timeline snapshot; strict cursor validation; complete mutation HTTP coverage). RED 10/15; GREEN 15/15; compatibility 22/22; production foundation 120/120; full suite 1,594/1,594; scoped re-review PASS.
 
 Task 4: implementation checkpoint `cdec3c1`; independent review found four concrete gaps. Fix round 1/5 (4 addressed, 0 open — commits `cdec3c1..03bd74d`; stale preview reconciliation; people-only mappings; typed report operators; complete artifact HTTP refusal matrix). RED 9/14; GREEN 13/13; focused compatibility 45/45; production foundation 139/139 plus real PostgreSQL schema 16, 35 forced-RLS tables, stale-preview and organization-mapping negatives; clean full suite 1,613/1,613; build passed; audit 0; scoped re-review PASS.
+
+Task 5: implementation checkpoint pending commit — auth hard-reload CSRF recovery; build-time production/synthetic/legacy entry isolation; capability-driven responsive CRM workspace; abortable tenant/search flows; accessible pipeline/timeline/report/import journeys; deterministic resettable synthetic evaluation. Focused 16/16; production foundation 148/148 plus real PostgreSQL verification; clean final full suite 1,623/1,623; production and synthetic builds passed; audit 0; browser host unavailable and browser acceptance remains explicit; independent review pending.

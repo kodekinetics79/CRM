@@ -28,7 +28,7 @@ export function installProductionAuthRoutes(app,{identityService,mfaService,sess
  app.post('/api/auth/mfa/confirm',identity,csrf,recent,async(req,res)=>{const result=await mfaService.confirmEnrollment(req.productionSession.identityId,req.body?.code);const ended=await sessionService.logout(req.productionSessionToken);res.setHeader('Set-Cookie',ended.cookie);res.json(result);});
  app.get('/api/auth/tenants',tenant,async(req,res)=>res.json({memberships:await identityService.listActiveMemberships(req.productionSession.identityId)}));
  app.post('/api/auth/tenant',tenant,csrf,async(req,res)=>{const issued=await sessionService.switchTenant(req.productionSessionToken,req.body?.membershipId);res.setHeader('Set-Cookie',issued.cookie);res.json({csrfToken:issued.csrfToken,tenantId:issued.session.tenantId});});
- app.get('/api/auth/me',tenant,(req,res)=>res.json({identity:req.productionSession.identity,membership:req.productionSession.membership,mfaVerifiedAt:req.productionSession.mfaVerifiedAt}));
+ app.get('/api/auth/me',tenant,(req,res)=>res.json({identity:req.productionSession.identity,membership:req.productionSession.membership,mfaVerifiedAt:req.productionSession.mfaVerifiedAt,csrfToken:req.productionSession.csrfToken}));
  app.post('/api/auth/logout',identity,csrf,async(req,res)=>{const result=await sessionService.logout(req.productionSessionToken);res.setHeader('Set-Cookie',result.cookie);res.json({ok:true});});
  return {requireIdentitySession:identity,requireTenantSession:tenant,requireCsrf:csrf,requireRecentAuthentication:recent};
 }

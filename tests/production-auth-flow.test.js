@@ -92,3 +92,15 @@ test('password-only HTTP sessions cannot read identity or tenant membership data
  const server=app.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>new Promise(resolve=>server.close(resolve)));const base=`http://127.0.0.1:${server.address().port}`,headers={Cookie:`wimblo_session=${issued.token}`};
  for(const path of ['/api/auth/me','/api/auth/tenants'])assert.equal((await fetch(base+path,{headers})).status,401,path);
 });
+
+test('a verified hard-reload session restores its CSRF token from auth me',async t=>{
+ const f=fixture(),issued=await f.service.issue({identity:f.identity,membership:f.memberships.get('a'),mfaVerifiedAt:new Date(start),recentAuthenticatedAt:new Date(start)}),app=express();app.use(express.json());
+ installProductionAuthRoutes(app,{sessionService:f.service,identityService:{},mfaService:{},appOrigin:'https://app.wimblo.example'});app.use((error,req,res,next)=>res.status(error.status||500).json({error:error.message}));
+ const server=app.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>new Promise(resolve=>server.close(resolve)));const base=`http://127.0.0.1:${server.address().port}`;
+ const response=await fetch(base+'/api/auth/me',{headers:{Cookie:`wimblo_session=${issued.token}`}});
+ assert.equal(response.status,200);
+ const body=await response.json();
+ assert.equal(body.csrfToken,issued.csrfToken);
+ assert.equal(body.identity.identityId,f.identity.identityId);
+ assert.equal(body.membership.tenantId,f.tenantA);
+});

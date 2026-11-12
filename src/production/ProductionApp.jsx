@@ -1,0 +1,34 @@
+import React,{useEffect,useRef,useState} from 'react';
+import {productionApi} from './productionApi.js';
+import CrmWorkspace from './CrmWorkspace.jsx';
+import './production.css';
+
+function SignIn({client,onReady}){
+ const [step,setStep]=useState('password'),[email,setEmail]=useState(''),[password,setPassword]=useState(''),[challenge,setChallenge]=useState(''),[code,setCode]=useState(''),[enrollment,setEnrollment]=useState(null),[recovery,setRecovery]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ async function submit(event){event.preventDefault();setBusy(true);setError('');try{
+  if(step==='challenge'){const result=await client.request('/auth/mfa/verify',{method:'POST',body:{challengeToken:challenge,code}});client.setCsrf?.(result.csrfToken);await onReady();return;}
+  if(step==='confirm'){const result=await client.request('/auth/mfa/confirm',{method:'POST',body:{code}});setRecovery(result.recoveryCodes||[]);setStep('recovery');return;}
+  const result=await client.request('/auth/login',{method:'POST',body:{email,password}});setPassword('');
+  if(result.mfaRequired){setChallenge(result.challengeToken);setStep('challenge');return;}
+  if(result.mfaEnrollmentRequired){client.setCsrf?.(result.csrfToken);setStep('enroll');return;}
+  await onReady();
+ }catch(e){setError(e.message);}finally{setBusy(false);}}
+ async function beginEnrollment(){setBusy(true);setError('');try{setEnrollment(await client.request('/auth/mfa/enroll',{method:'POST',body:{}}));setStep('confirm');}catch(e){setError(e.message);}finally{setBusy(false);}}
+ if(step==='recovery')return <main className="prod-auth"><section><span className="prod-eyebrow">Account recovery</span><h1>Save these recovery codes</h1><p>Each code works once. Store them outside Wimblo before signing in again.</p><ul className="recovery-codes">{recovery.map(value=><li key={value}><code>{value}</code></li>)}</ul><button onClick={()=>{setRecovery(null);setStep('password');setCode('');}}>I saved the codes · sign in again</button></section></main>;
+ if(step==='enroll')return <main className="prod-auth"><section><span className="prod-eyebrow">Required security</span><h1>Set up multi-factor authentication</h1><p>Your customer workspace stays closed until an authenticator is enrolled.</p>{error?<p role="alert" className="prod-inline-error">{error}</p>:null}<button disabled={busy} onClick={beginEnrollment}>{busy?'Preparing…':'Begin secure setup'}</button></section></main>;
+ return <main className="prod-auth"><section className="prod-auth-story"><span className="prod-wordmark"><i>W</i>Wimblo</span><h1>{step==='confirm'?'Confirm your authenticator':'Customer work, in one clear operating brief.'}</h1><p>{step==='confirm'?`Enter the current code for ${enrollment?.issuer||'Wimblo'}.`:'See what changed, what needs action, and what can safely happen next.'}</p></section><form onSubmit={submit}><span className="prod-eyebrow">Secure workspace</span><h2>{step==='challenge'?'Verify your sign-in':step==='confirm'?'Confirm setup':'Sign in to Wimblo'}</h2>{error?<p role="alert" className="prod-inline-error">{error}</p>:null}{step==='password'?<><label>Email address<input type="email" autoComplete="username" required value={email} onChange={event=>setEmail(event.target.value)}/></label><label>Password<input type="password" autoComplete="current-password" required value={password} onChange={event=>setPassword(event.target.value)}/></label></>:<label>Authenticator or recovery code<input autoComplete="one-time-code" required value={code} onChange={event=>setCode(event.target.value)} maxLength={17}/></label>}<button disabled={busy}>{busy?'Checking…':step==='confirm'?'Confirm authenticator':step==='challenge'?'Verify and continue':'Enter workspace'}</button>{step!=='password'?<button type="button" className="prod-text" onClick={()=>{setStep('password');setCode('');setError('');}}>Start sign-in again</button>:null}</form></main>;
+}
+
+export default function ProductionApp({client=productionApi,mode='production'}={}){
+ if(mode==='production'&&client.synthetic)throw new Error('Production mode refuses synthetic evaluation data.');
+ const [state,setState]=useState('checking'),[session,setSession]=useState(null),[memberships,setMemberships]=useState([]),[modules,setModules]=useState([]),[error,setError]=useState(''),generation=useRef(0),pending=useRef(null);
+ async function bootstrap(){const current=++generation.current;pending.current?.abort();const controller=new AbortController();pending.current=controller;setError('');try{const restored=await client.restore({signal:controller.signal});if(current!==generation.current)return;const [tenants,capabilities]=await Promise.all([client.request('/auth/tenants',{signal:controller.signal}),client.request('/modules',{signal:controller.signal})]);if(current!==generation.current)return;setSession(restored);setMemberships(tenants.memberships||[]);setModules(capabilities.modules||[]);setState('workspace');}catch(e){if(e.name==='AbortError')return;if(e.status===401){client.clear?.();setState('signed-out');return;}setError(e.message);setState('error');}}
+ useEffect(()=>{bootstrap();return()=>{generation.current++;pending.current?.abort();};},[client]);
+ async function switchTenant(membershipId){const current=++generation.current;pending.current?.abort();setSession(null);setModules([]);setState('checking');try{const result=await client.request('/auth/tenant',{method:'POST',body:{membershipId}});client.setCsrf?.(result.csrfToken);if(typeof window!=='undefined')window.history.replaceState({},'',window.location.pathname);if(current===generation.current)await bootstrap();}catch(e){if(current===generation.current){setError(e.message);setState(e.status===401?'signed-out':'error');}}}
+ async function signOut(){try{await client.request('/auth/logout',{method:'POST',body:{}});}finally{client.clear?.();setSession(null);setModules([]);setState('signed-out');}}
+ async function reset(){await client.reset?.();await bootstrap();}
+ if(state==='checking')return <main className="prod-state prod-boot" role="status"><span className="prod-skeleton"/>Restoring your secure workspace…</main>;
+ if(state==='signed-out')return <SignIn client={client} onReady={bootstrap}/>;
+ if(state==='error')return <main className="prod-state prod-error"><h1>Workspace unavailable</h1><p role="alert">{error}</p><button onClick={bootstrap}>Try again</button></main>;
+ return <CrmWorkspace client={client} session={session} memberships={memberships} modules={modules} onSwitchTenant={switchTenant} onSignOut={signOut} synthetic={mode==='synthetic-evaluation'} onReset={reset}/>;
+}

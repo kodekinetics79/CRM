@@ -2,6 +2,7 @@ import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
 import {PERSISTENCE_CODES,persistenceFail} from '../persistence/contract.js';
 
 const digest=value=>createHash('sha256').update(value,'utf8').digest('hex');
+const csrfForToken=token=>createHash('sha256').update(`wimblo-csrf-v1:${token}`,'utf8').digest('base64url');
 const safeEqual=(a,b)=>{const left=Buffer.from(a||''),right=Buffer.from(b||'');return left.length===right.length&&timingSafeEqual(left,right);};
 
 export function createSessionService({repository,clock=Date.now,sessionTtlMs=8*60*60*1000,cookieName='wimblo_session',recentAuthenticationMs=15*60*1000}={}){
@@ -15,7 +16,7 @@ export function createSessionService({repository,clock=Date.now,sessionTtlMs=8*6
 
  async function issue({identity,membership,mfaVerifiedAt,recentAuthenticatedAt}){
   if(!identity||identity.status!=='active'||!membership||membership.status!=='active'||membership.identityId!==identity.identityId)persistenceFail(PERSISTENCE_CODES.ISOLATION,'An active identity and membership are required.');
-  const time=now(),token=randomBytes(32).toString('base64url'),csrfToken=randomBytes(32).toString('base64url');
+  const time=now(),token=randomBytes(32).toString('base64url'),csrfToken=csrfForToken(token);
   const session=await repository.createSession({token,csrfHash:digest(csrfToken),tenantId:membership.tenantId,identityId:identity.identityId,membershipVersion:membership.version,securityVersion:identity.securityVersion,mfaVerifiedAt,recentAuthenticatedAt:recentAuthenticatedAt??new Date(time),expiresAt:new Date(time+sessionTtlMs)});
   return {token,csrfToken,cookie:cookie(token),session};
  }
@@ -29,7 +30,7 @@ export function createSessionService({repository,clock=Date.now,sessionTtlMs=8*6
   const stale=!identity||identity.status!=='active'||identity.securityVersion!==session.securityVersion||!membership||membership.status!=='active'||membership.version!==session.membershipVersion||!tenant||tenant.status!=='active';
   if(stale){await revoke(token,session);return null;}
   if(!session.mfaVerifiedAt&&!allowUnverifiedMfa)return null;
-  return {...session,identity,membership,tenant,token};
+  return {...session,identity,membership,tenant,token,csrfToken:csrfForToken(token)};
  }
 
  async function switchTenant(token,membershipId){
