@@ -58,6 +58,12 @@ test('authentication attempts are rate limited without affecting health checks',
  assert.equal(last.status,429);assert.ok(Number(last.headers.get('retry-after'))>=1);assert.equal((await f.request('/health')).status,200);
 });
 
+test('MFA enrollment confirmation has its own route-level rate limit',async t=>{
+ const f=await fixture(t);let last;
+ for(let index=0;index<11;index++)last=await f.request('/api/auth/mfa/confirm',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':'csrf'},body:'{"code":"000000"}'});
+ assert.equal(last.status,429);assert.ok(Number(last.headers.get('retry-after'))>=1);
+});
+
 test('readiness requires both isolated pools while liveness remains process-local',async t=>{
  const f=await fixture(t,{tenantHealthy:false});assert.equal((await f.request('/health')).status,200);const ready=await f.request('/ready');assert.equal(ready.status,503);assert.deepEqual(await ready.json(),{status:'unavailable'});
 });

@@ -110,6 +110,28 @@ test('enrollment and challenges stop after five failures and expire after five m
   await assert.rejects(()=>f.service.verifyChallenge(expired.challengeToken,'000000'),/invalid or expired/i);
 });
 
+test('pending recovery-code redelivery is durably limited to five attempts',async()=>{
+  const f=fixture(),enrollment=await f.service.beginEnrollment(f.identity.identityId),code=totp(enrollment.secret,f.time());
+  const first=await f.service.confirmEnrollment(f.identity.identityId,code);
+  for(let attempt=0;attempt<5;attempt++){
+    const retry=await f.service.confirmEnrollment(f.identity.identityId,code);
+    assert.deepEqual(retry.recoveryCodes,first.recoveryCodes);
+  }
+  await assert.rejects(()=>f.service.confirmEnrollment(f.identity.identityId,code),error=>error.status===429&&/too many/i.test(error.message));
+});
+
+test('a newer TOTP used to redeliver pending recovery codes cannot be replayed for sign-in',async()=>{
+  const f=fixture(),enrollment=await f.service.beginEnrollment(f.identity.identityId);
+  await f.service.confirmEnrollment(f.identity.identityId,totp(enrollment.secret,f.time()));
+  f.advance(30000);
+  const redeliveryCode=totp(enrollment.secret,f.time());
+  const redelivery=await f.service.confirmEnrollment(f.identity.identityId,redeliveryCode);
+  assert.equal(redelivery.recoveryCodes.length,8);
+  await f.service.acknowledgeRecoveryCodes(f.identity.identityId,{sessionToken:'session'});
+  const challenge=await f.service.createChallenge(f.identity.identityId);
+  await assert.rejects(()=>f.service.verifyChallenge(challenge.challengeToken,redeliveryCode),/invalid or already used/i);
+});
+
 test('regenerating recovery codes rotates identity security and invalidates all old codes',async()=>{
   const f=fixture(),enrollment=await f.service.beginEnrollment(f.identity.identityId);
   const first=await f.service.confirmEnrollment(f.identity.identityId,totp(enrollment.secret,f.time()));

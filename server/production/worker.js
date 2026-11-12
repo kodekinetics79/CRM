@@ -28,7 +28,7 @@ export async function runWorker({repository,handlers,signal,concurrency=4,tenant
  if(!Number.isSafeInteger(heartbeatIntervalMs)||heartbeatIntervalMs<1||heartbeatIntervalMs>60_000)throw new TypeError('Worker heartbeat interval must be between 1 and 60000 milliseconds.');
  const registeredKinds=(handlers instanceof Map?[...handlers.entries()]:Object.entries(handlers||{})).filter(([,handler])=>typeof handler==='function').map(([kind])=>kind).sort();
  if(!registeredKinds.length)throw new TypeError('At least one registered job handler is required before worker startup.');
- const active=new Set(),activeTenants=new Set();
+ const active=new Set(),activeTenants=new Set();let tenantCursor=0;
 
  const processJob=async job=>{
   let owned=job,stopped=false,leaseLost=false,heartbeatChain=Promise.resolve();const leaseSignal=new AbortController();
@@ -55,8 +55,10 @@ export async function runWorker({repository,handlers,signal,concurrency=4,tenant
  try{
   while(!signal.aborted){
    let claimed=false;
-   for(const tenantId of await tenants(tenantIds)){
+   const availableTenants=await tenants(tenantIds);let visited=0;
+   while(visited<availableTenants.length){
     if(signal.aborted||active.size>=concurrency)break;
+    const tenantId=availableTenants[(tenantCursor+visited)%availableTenants.length];visited++;
     if(activeTenants.has(tenantId))continue;
     const [job]=await repository.claim({tenantId,workerId,limit:1,kinds:registeredKinds});
     if(job){
@@ -68,6 +70,7 @@ export async function runWorker({repository,handlers,signal,concurrency=4,tenant
      launch(job);
     }
    }
+   if(availableTenants.length&&visited)tenantCursor=(tenantCursor+visited)%availableTenants.length;
    if(signal.aborted)break;
    if(!claimed||active.size>=concurrency)await (active.size?Promise.race([...active,sleep(pollIntervalMs,signal)]):sleep(pollIntervalMs,signal));
   }
@@ -79,10 +82,13 @@ export async function runWorker({repository,handlers,signal,concurrency=4,tenant
 export async function startWorkerRuntime({config,repository,handlers={},tenantIds,signal,pools=[],run=runWorker,verify=async()=>{}}={}){
  if(config?.processRole!=='worker')throw new Error('SaaS worker entrypoint requires the worker process role.');
  if(typeof run!=='function')throw new TypeError('SaaS worker entrypoint requires a polling function.');
+ const jobLeaseMs=config.limits?.jobLeaseMs??30_000;
+ if(!Number.isSafeInteger(jobLeaseMs)||jobLeaseMs<5_000||jobLeaseMs>300_000)throw new TypeError('Worker job lease must be between 5000 and 300000 milliseconds.');
+ const heartbeatIntervalMs=Math.min(10_000,Math.floor(jobLeaseMs/3));
  let poolClose;const closePools=()=>poolClose??=Promise.allSettled(pools.map(pool=>pool.end()));
  try{await verify();}catch(error){await closePools();throw error;}
  const controller=new AbortController(),abort=()=>controller.abort();if(signal?.aborted)abort();else signal?.addEventListener?.('abort',abort,{once:true});
- const execution=Promise.resolve().then(()=>run({repository,handlers,tenantIds,signal:controller.signal,concurrency:config.limits?.jobConcurrency??1}));
+ const execution=Promise.resolve().then(()=>run({repository,handlers,tenantIds,signal:controller.signal,concurrency:config.limits?.jobConcurrency??1,heartbeatIntervalMs}));
  const running=execution.catch(async error=>{controller.abort();signal?.removeEventListener?.('abort',abort);await closePools();throw error;});let closed=false;
  return {running,async close(){if(closed)return;closed=true;controller.abort();await running.catch(()=>{});signal?.removeEventListener?.('abort',abort);await closePools();}};
 }
