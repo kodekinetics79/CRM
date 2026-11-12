@@ -13,7 +13,7 @@
     "start:saas:web": "NODE_ENV=production WIMBLO_RUNTIME=saas PROCESS_ROLE=web node server/production/web.js",
     "start:saas:worker": "NODE_ENV=production WIMBLO_RUNTIME=saas PROCESS_ROLE=worker node server/production/worker.js",
     "test:production-foundation": "node --test tests/production-*.test.js && npm run verify:postgres-foundation && npm run test:discipline",
-    "test": "node --test --test-concurrency=4 tests/*.test.js",
+    "test": "node --test --test-concurrency=4 tests/*.test.js && node --test --test-concurrency=1 tests/serial/*.test.js",
     "test:discipline": "node scripts/tdd-gate.mjs",
     "evaluate": "node scripts/evaluate.mjs",
     "verify:postgres": "node scripts/postgres-verify.mjs",
